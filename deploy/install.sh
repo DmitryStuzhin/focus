@@ -7,8 +7,9 @@ export DEBIAN_FRONTEND=noninteractive
 export PATH=/opt/focus-node/bin:/usr/sbin:/usr/bin:/sbin:/bin
 umask 022
 domain=tokenapp.ru
-expected_ip=185.84.162.91
-if ! getent ahostsv4 "$domain" | awk '{print $1}' | sort -u | grep -qx "$expected_ip"; then
+expected_ip=${FOCUS_SERVER_IP:-185.84.162.91}
+prepare_only=${FOCUS_PREPARE_ONLY:-0}
+if [[ "$prepare_only" != 1 ]] && ! getent ahostsv4 "$domain" | awk '{print $1}' | sort -u | grep -qx "$expected_ip"; then
     echo "First set DNS A record: @ -> $expected_ip for $domain, then rerun." >&2
     exit 1
 fi
@@ -46,10 +47,16 @@ fi
 # Use files from the fetched commit without modifying a running release.
 runuser -u focus-build -- git -C /opt/focus/source reset --hard origin/main
 if [[ ! -f /etc/focus/app.env ]]; then
-    read -r -s -p 'Google API key (Enter to configure later): ' api_key </dev/tty
+    key_name=GOOGLE_API_KEY
+    key_label=Google
+    if [[ "${FOCUS_API_PROVIDER:-google}" == openrouter ]]; then
+        key_name=OPENROUTER_API_KEY
+        key_label=OpenRouter
+    fi
+    read -r -s -p "$key_label API key (Enter to configure later): " api_key </dev/tty
     printf '\n' >/dev/tty
     [[ "$api_key" =~ ^[A-Za-z0-9_.?+/-]*$ ]] || { echo 'Unexpected key characters'; exit 1; }
-    (umask 077; printf 'HOST=127.0.0.1\nPORT=3000\nPUBLIC_ORIGIN=https://tokenapp.ru\nTRUST_PROXY=1\nGOOGLE_API_KEY=%s\n' "$api_key" > /etc/focus/app.env)
+    (umask 077; printf 'HOST=127.0.0.1\nPORT=3000\nPUBLIC_ORIGIN=https://tokenapp.ru\nTRUST_PROXY=1\n%s=%s\n' "$key_name" "$api_key" > /etc/focus/app.env)
     unset api_key
 fi
 install -m 644 /opt/focus/source/deploy/focus.service /etc/systemd/system/focus.service
@@ -59,6 +66,11 @@ install -m 755 /opt/focus/source/deploy/update.sh /usr/local/sbin/focus-update
 systemctl daemon-reload
 /usr/local/sbin/focus-update --initial
 systemctl enable focus
+if [[ "$prepare_only" == 1 ]]; then
+    curl --fail --silent --show-error http://127.0.0.1:3000/healthz
+    printf '\nFocus prepared. Change DNS A for %s to %s, then rerun without FOCUS_PREPARE_ONLY.\n' "$domain" "$expected_ip"
+    exit 0
+fi
 if [[ ! -f /etc/nginx/conf.d/focus.conf ]]; then
     install -m 644 /opt/focus/source/deploy/nginx.conf /etc/nginx/conf.d/focus.conf
 fi
