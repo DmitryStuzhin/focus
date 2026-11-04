@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: bash -n deploy/install.sh deploy/update.sh
+      - run: bash -n deploy/*.sh
       - run: npm test
       - run: npm run build
       - run: npm run validate
