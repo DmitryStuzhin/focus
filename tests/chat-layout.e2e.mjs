@@ -1,0 +1,45 @@
+// Browser regression check, run by CI after building the app.
+import assert from 'node:assert/strict';
+import {chromium} from 'playwright';
+import {createServer} from '../scripts/server.mjs';
+import {fresh,STORAGE_KEY} from '../public/store.js';
+const state=fresh();
+state.activeChat='long-chat';
+state.chats=[{id:'long-chat',project:'personal',title:'Длинный диалог',created:Date.now(),updated:Date.now(),archived:false,deleted:false,messages:Array.from({length:40},(_,index)=>({id:`message-${index}`,role:index%2?'assistant':'user',content:index%2?Array.from({length:12},(_,n)=>`Абзац ${n+1}. Развёрнутый ответ с пояснениями и примером.`).join('\n\n'):`Вопрос ${index+1}`,at:Date.now()}))}];
+const server=createServer({});
+await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+let browser;
+try{
+ browser=await chromium.launch({headless:true});
+ for(const viewport of [{width:1440,height:900},{width:1024,height:400},{width:390,height:844}]){
+  const context=await browser.newContext({viewport});
+  await context.addInitScript(({key,state})=>localStorage.setItem(key,JSON.stringify(state)),{key:STORAGE_KEY,state});
+  const page=await context.newPage();
+  await page.goto(`http://127.0.0.1:${server.address().port}`);
+  await page.waitForFunction(()=>document.querySelectorAll('.messages article').length===40);
+  // Let the initial provider-status render settle before simulating wheel input.
+  await page.waitForLoadState('networkidle');
+  const layout=await page.evaluate(()=>{
+   const main=document.querySelector('.main').getBoundingClientRect();
+   const composer=document.querySelector('.composer-area').getBoundingClientRect();
+   const scroller=document.querySelector('#main-scroll');
+   return {mainBottom:main.bottom,composerTop:composer.top,composerBottom:composer.bottom,height:innerHeight,clientHeight:scroller.clientHeight,scrollHeight:scroller.scrollHeight,documentHeight:document.documentElement.scrollHeight};
+  });
+  assert.ok(layout.mainBottom<=layout.height+1,`Main escaped viewport: ${JSON.stringify(layout)}`);
+  assert.ok(layout.composerTop>=0&&layout.composerBottom<=layout.height+1,`Composer escaped viewport: ${JSON.stringify(layout)}`);
+  assert.ok(layout.clientHeight>50&&layout.scrollHeight>layout.clientHeight,'History must have its own scrollable area');
+  assert.ok(layout.documentHeight<=layout.height+1,'The application must fit within the page viewport');
+  await page.locator('#main-scroll').hover();
+  await page.mouse.wheel(0,700);
+  await page.waitForFunction(()=>document.querySelector('#main-scroll').scrollTop>0);
+  await page.evaluate(()=>{const s=document.querySelector('#main-scroll');s.scrollTo({top:s.scrollHeight,behavior:'instant'})});
+  const bottom=await page.evaluate(()=>{const s=document.querySelector('#main-scroll');return {remaining:s.scrollHeight-s.scrollTop-s.clientHeight,lastBottom:s.querySelector('article:last-of-type').getBoundingClientRect().bottom,scrollBottom:s.getBoundingClientRect().bottom}});
+  assert.ok(bottom.remaining<=1,'Cannot reach the end of history');
+  assert.ok(bottom.lastBottom<=bottom.scrollBottom+1,'Last response is clipped at scroll end');
+  console.log(`Long-chat scroll and composer verified: ${viewport.width}x${viewport.height}`);
+  await context.close();
+ }
+}finally{
+ if(browser)await browser.close();
+ await new Promise(resolve=>server.close(resolve));
+}
