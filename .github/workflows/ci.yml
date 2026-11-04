@@ -16,6 +16,7 @@ jobs:
         with:
           node-version: 22
       - run: bash -n deploy/*.sh
+      - run: python3 -m unittest discover -s tests -p '*_test.py'
       - run: npm test
       - run: npm run build
       - run: npm run validate
