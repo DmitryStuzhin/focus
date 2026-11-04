@@ -8,7 +8,9 @@ cd /opt/focus/source
 runuser -u focus-build -- git fetch --quiet origin main
 revision=$(runuser -u focus-build -- git rev-parse origin/main)
 [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || exit 1
-previous=$(readlink -f /opt/focus/current || true)
+previous=$(readlink -e /opt/focus/current || true)
+# Only a real, existing release is eligible for rollback.
+[[ "$previous" == /opt/focus/releases/* && -d "$previous" ]] || previous=
 [[ "${previous##*/}" != "$revision" ]] || exit 0
 if [[ "${1:-}" != '--initial' ]]; then
     # Fail closed on unavailable API, pending, cancelled, skipped, or failed CI.
@@ -34,7 +36,8 @@ release="/opt/focus/releases/$revision"
 [[ ! -e "$release" ]] || rm -rf -- "$release"
 cp -a "$stage" "$release"
 chown -R root:root "$release"
-chmod -R go-w "$release"
+# mktemp creates a 0700 directory; allow the unprivileged web service to read it.
+chmod -R a+rX,go-w "$release"
 ln -sfn "$release" /opt/focus/current.next
 mv -Tf /opt/focus/current.next /opt/focus/current
 systemctl restart focus
