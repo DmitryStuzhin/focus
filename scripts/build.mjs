@@ -1,0 +1,13 @@
+import {readFile,readdir,mkdir,writeFile,rm} from 'node:fs/promises';
+const root=new URL('../',import.meta.url);
+const types={html:'text/html; charset=utf-8',css:'text/css; charset=utf-8',js:'text/javascript; charset=utf-8',svg:'image/svg+xml'};
+const assets={};
+for(const name of await readdir(new URL('public/',root))){assets['/'+name]={type:types[name.split('.').pop()]||'application/octet-stream',body:await readFile(new URL('public/'+name,root),'utf8')}}
+assets['/']=assets['/index.html'];
+const source=await readFile(new URL('worker/api.js',root),'utf8');
+await rm(new URL('dist/',root),{recursive:true,force:true});
+await mkdir(new URL('dist/server/',root),{recursive:true});
+await mkdir(new URL('dist/.openai/',root),{recursive:true});
+await writeFile(new URL('dist/server/index.js',root),'const ASSETS='+JSON.stringify(assets)+';\n'+source);
+await writeFile(new URL('dist/.openai/hosting.json',root),await readFile(new URL('.openai/hosting.json',root)));
+console.log('Built self-contained Worker with '+Object.keys(assets).length+' local assets');
