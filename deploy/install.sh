@@ -15,8 +15,16 @@ if [[ "$prepare_only" != 1 ]] && ! getent ahostsv4 "$domain" | awk '{print $1}' 
 fi
 if [[ ! -f /etc/focus/installed ]] && systemctl is-active --quiet nginx; then
     if nginx -T 2>&1 | grep -Eq 'server_name[^;]*\btokenapp\.ru\b'; then
-        echo 'An existing tokenapp.ru nginx virtual host was found. Review it before installing Focus.' >&2
-        exit 1
+        # A failed certificate request may leave our own HTTP host installed.
+        # Resume only when both files exactly match this Focus installation.
+        if [[ -f /etc/focus/app.env ]] &&
+           cmp -s /opt/focus/source/deploy/nginx.conf /etc/nginx/conf.d/focus.conf &&
+           cmp -s /opt/focus/source/deploy/focus.service /etc/systemd/system/focus.service; then
+            echo 'Resuming existing Focus installation after incomplete HTTPS setup.'
+        else
+            echo 'An existing tokenapp.ru nginx virtual host was found. Review it before installing Focus.' >&2
+            exit 1
+        fi
     fi
 fi
 apt-get update
