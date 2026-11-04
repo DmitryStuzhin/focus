@@ -1,0 +1,24 @@
+[Unit]
+Description=Focus web application
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=focus
+Group=focus
+WorkingDirectory=/opt/focus/current
+EnvironmentFile=/etc/focus/app.env
+ExecStart=/opt/focus-node/bin/node scripts/dev.mjs
+Restart=always
+RestartSec=3
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictSUIDSGID=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -49,3 +49,9 @@ npm run validate
 ## Дизайн
 
 Применены рекомендации [Unslop](https://github.com/heydamir/unslop) by Damir Sokolovsky ([@heydamir](https://x.com/heydamir)), CC BY 4.0. Скилл использован как дизайн-руководство, не установлен глобально. Порядок работы и ограничения описаны в `docs/design.md`.
+
+## VPS и автодеплой
+
+Для `tokenapp.ru` подготовлен [установщик и инструкция](deploy/README.md).
+После установки VPS сам забирает изменения `main`, прошедшие GitHub Actions,
+проверяет сборку и перезапускает приложение с откатом при неудачном запуске.

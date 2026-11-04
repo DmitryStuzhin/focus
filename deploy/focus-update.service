@@ -1,0 +1,10 @@
+[Unit]
+Description=Deploy CI-approved Focus main revision
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+SuccessExitStatus=75
+ExecStart=/usr/local/sbin/focus-update
+TimeoutStartSec=10min
