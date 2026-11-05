@@ -166,7 +166,7 @@ test('Cloudflare capacity rejection switches to Klein and preserves the edit',as
  const imageReference={mimeType:'image/png',data:'iVBORw0KGgo=',width:1280,height:720};
  const r=await chat(req({messages:[{role:'user',content:'Добавь закат'}],imageReference}),cf,async(url,{body})=>{
   calls.push({url,steps:body.get('steps'),prompt:body.get('prompt'),width:body.get('width'),ref:await body.get('input_image_0').text()});
-  return calls.length===1?Response.json({errors:[{code:3040}]},{status:429}):Response.json({result:{image:imageReference.data}});
+  return calls.length===1?Response.json({errors:[{code:4006,message:'AiError: Service temporarily at capacity'}]},{status:429}):Response.json({result:{image:imageReference.data}});
  });
  assert.equal(r.status,200);
  assert.equal(calls.length,2);
@@ -179,8 +179,8 @@ test('Cloudflare capacity rejection switches to Klein and preserves the edit',as
  assert.equal(calls[1].ref,calls[0].ref);
  assert.match((await r.json()).model,/flux-2-klein-9b$/);
 });
-test('quota strings and long retry delays stop without repeated provider calls',async()=>{
- for(const [body,headers,code] of [[{errors:[{code:'3036'}]},{},'image_daily_quota'],[{errors:[]},{'retry-after':'60'},'image_rate_limit']]){
+test('wrapped quota and long retry delays stop without repeated provider calls',async()=>{
+ for(const [body,headers,code] of [[{errors:[{code:'3036'}]},{},'image_daily_quota'],[{errors:[{code:4006,message:'AiError: you have used up your daily free allocation of 10,000 neurons'}]},{},'image_daily_quota'],[{errors:[]},{'retry-after':'60'},'image_rate_limit']]){
   let calls=0;const r=await chat(req({messages:[{role:'user',content:'/image cat'}]}),{CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'cf'},async()=>{calls++;return Response.json(body,{status:429,headers})});
   assert.equal(calls,1);assert.equal(r.status,429);assert.equal((await r.json()).code,code);
  }

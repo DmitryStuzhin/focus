@@ -215,14 +215,17 @@ async function generateImage(prompt,request,env,fetcher,reference=null){
    const errorBody=await response.json().catch(()=>null);
    const errors=Array.isArray(errorBody?.errors)?errorBody.errors:[];
    const codes=errors.map(error=>Number(error?.code)).filter(n=>Number.isInteger(n)&&n>0);
-   const quota=cloudflare&&codes.includes(3036);
+   // REST can wrap both quota and capacity errors in code 4006.
+   const wrappedQuota=errors.some(error=>Number(error?.code)===4006&&
+    typeof error.message==='string'&&/daily free allocation|daily (?:neuron )?quota|10,?000 neurons/i.test(error.message));
+   const quota=cloudflare&&(codes.includes(3036)||wrappedQuota);
    if(quota)return json({error:'Дневная бесплатная квота Cloudflare закончилась. Она обновится в 00:00 UTC (03:00 МСК). Повторные попытки до сброса не помогут.',code:'image_daily_quota'},429);
    const retryHeader=response.headers.get('retry-after');
    const seconds=retryHeader===null?null:Number(retryHeader);
    const retryMs=retryHeader===null?1000*(attempt+1):Number.isFinite(seconds)?Math.max(0,seconds*1000):Math.max(0,Date.parse(retryHeader)-Date.now());
    // Retry only explicit rejections, never an ambiguous timeout after generation.
    const canSwitchModel=attempt<2&&cloudflare&&model===CLOUDFLARE_IMAGE_MODEL&&
-    (codes.includes(3040)||(!codes.length&&Number.isFinite(retryMs)&&retryMs<=10000));
+    (codes.includes(3040)||((!codes.length||codes.includes(4006))&&Number.isFinite(retryMs)&&retryMs<=10000));
    if(canSwitchModel){
     model=CLOUDFLARE_FALLBACK_MODEL;
     body.delete('steps'); // Klein uses a fixed number of steps.
