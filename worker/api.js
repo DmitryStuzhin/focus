@@ -166,17 +166,40 @@ function localSkill(content){
 }
 
 
+const CLOUDFLARE_IMAGE_MODEL='@cf/black-forest-labs/flux-1-schnell';
+
 async function generateImage(prompt,request,env,fetcher){
- if(!env.OPENROUTER_API_KEY||!env.OPENROUTER_IMAGE_MODEL)return json({error:'Настройте OPENROUTER_API_KEY и OPENROUTER_IMAGE_MODEL на сервере для генерации изображений.',code:'image_not_configured'},503);
- if(!prompt||prompt.length>4000)return json({error:'Введите описание до 4000 символов.',code:'image_prompt'},400);
+ const cloudflare=!!(env.CLOUDFLARE_ACCOUNT_ID||env.CLOUDFLARE_API_TOKEN);
+ const account=env.CLOUDFLARE_ACCOUNT_ID?.trim();
+ const token=cloudflare?env.CLOUDFLARE_API_TOKEN?.trim():env.OPENROUTER_API_KEY;
+ const model=cloudflare?CLOUDFLARE_IMAGE_MODEL:env.OPENROUTER_IMAGE_MODEL;
+ if(!token||!model||(cloudflare&&!/^[a-f0-9]{32}$/i.test(account||''))){
+  return json({error:'Для генерации настройте CLOUDFLARE_ACCOUNT_ID и CLOUDFLARE_API_TOKEN на сервере.',code:'image_not_configured'},503);
+ }
+ const maxLength=cloudflare?2048:4000;
+ if(!prompt||prompt.length>maxLength)return json({error:'Введите описание до '+maxLength+' символов.',code:'image_prompt'},400);
+ const url=cloudflare
+  ?'https://api.cloudflare.com/client/v4/accounts/'+account+'/ai/run/'+model
+  :'https://openrouter.ai/api/v1/images';
+ const payload=cloudflare?{prompt}:{model,prompt};
  try{
-  const response=await fetcher('https://openrouter.ai/api/v1/images',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+env.OPENROUTER_API_KEY},body:JSON.stringify({model:env.OPENROUTER_IMAGE_MODEL,prompt}),signal:AbortSignal.any([AbortSignal.timeout(90000),request.signal])});
-  if(!response.ok)return json({error:response.status===402?'Недостаточно средств OpenRouter для генерации.':'Сервис изображений отклонил запрос. Проверьте модель, ключ и квоту.',code:'image_provider'},response.status===429?429:502);
-  const data=await response.json(),base64=data.data?.[0]?.b64_json;
+  const response=await fetcher(url,{
+   method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+token},
+   body:JSON.stringify(payload),signal:AbortSignal.any([AbortSignal.timeout(90000),request.signal]),
+  });
+  if(response.status===429){
+   const errorBody=cloudflare?await response.json().catch(()=>null):null;
+   const quota=Array.isArray(errorBody?.errors)&&errorBody.errors.some(error=>error?.code===3036);
+   const error=quota?'Дневная квота Cloudflare закончилась. Попробуйте после сброса в 00:00 UTC.':'Сервис изображений перегружен или ограничил запросы. Попробуйте позже.';
+   return json({error,code:quota?'image_daily_quota':'image_provider'},429);
+  }
+  if(!response.ok)return json({error:!cloudflare&&response.status===402?'Недостаточно средств OpenRouter для генерации.':'Сервис изображений отклонил запрос. Проверьте доступ и настройки.',code:'image_provider'},502);
+  const data=await response.json();
+  const base64=cloudflare?data.result?.image:data.data?.[0]?.b64_json;
   if(typeof base64!=='string'||!base64.length||base64.length>14000000||!/^[A-Za-z0-9+/]+={0,2}$/.test(base64)||base64.length%4)throw Error('invalid image');
   const mime=base64.startsWith('iVBORw0KGgo')?'image/png':base64.startsWith('/9j/')?'image/jpeg':base64.startsWith('UklGR')&&atob(base64.slice(0,16)).slice(8,12)==='WEBP'?'image/webp':null;
   if(!mime)throw Error('unsupported image');
-  return json({text:'Изображение готово.',model:env.OPENROUTER_IMAGE_MODEL,provider:'image',image:{mimeType:mime,data:base64}});
+  return json({text:'Изображение готово.',model,provider:'image',image:{mimeType:mime,data:base64}});
  }catch{return json({error:'Не удалось получить изображение. Повторите запрос.',code:'image_connection'},502)}
 }
 

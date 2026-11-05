@@ -68,6 +68,17 @@ npm run validate
 Нажмите «Создать изображение» или отправьте команду /image кот-космонавт на Луне.
 Результат появляется в диалоге, сохраняется в файлах проекта и скачивается кнопкой под изображением.
 
-На сервере задайте OPENROUTER_API_KEY и OPENROUTER_IMAGE_MODEL (например, bytedance-seed/seedream-4.5), затем перезапустите приложение. Для VPS добавьте переменную модели в /etc/focus/app.env и выполните sudo systemctl restart focus.
-Генерация использует платные кредиты OpenRouter. Модели перечислены на https://openrouter.ai/collections/image-models/ .
+Для генерации в рамках бесплатной квоты выберите тариф Workers Free. В [панели Cloudflare](https://dash.cloudflare.com/) откройте Workers AI → Use REST API и получите Account ID и Workers AI API Token.
+
+Добавьте на VPS в `/etc/focus/app.env` следующие переменные.
+
+```dotenv
+CLOUDFLARE_ACCOUNT_ID=идентификатор_аккаунта
+CLOUDFLARE_API_TOKEN=токен_workers_ai
+```
+
+Перезапустите приложение командой `sudo systemctl restart focus`. Guzan использует FLUX.1 Schnell через Cloudflare. Дневная квота общая для аккаунта и обновляется в 00:00 UTC. При исчерпании квоты Guzan покажет ошибку, а запросы не будут переключаться на OpenRouter.
+
+Существующее платное подключение OpenRouter продолжает работать, если обе переменные Cloudflare отсутствуют и заданы OPENROUTER_API_KEY и OPENROUTER_IMAGE_MODEL.
+
 Команда создаёт изображение по тексту текущего сообщения. Остановка прерывает ожидание, но провайдер может продолжить генерацию и списать стоимость.

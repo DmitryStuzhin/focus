@@ -89,3 +89,35 @@ test('image configuration and provider errors are handled without exposing secre
  const r=await chat(req(input),{OPENROUTER_API_KEY:'secret',OPENROUTER_IMAGE_MODEL:'model'},async()=>Response.json({data:[{b64_json:'PHN2Zz4='}]}));
  assert.equal(r.status,502);
 });
+
+test('Cloudflare image generation uses its own token and returns the generated image',async()=>{
+ const png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
+ const account='a'.repeat(32);
+ const env={CLOUDFLARE_ACCOUNT_ID:account,CLOUDFLARE_API_TOKEN:'cloudflare',OPENROUTER_API_KEY:'openrouter',OPENROUTER_IMAGE_MODEL:'paid/model'};
+ let sent;
+ const r=await chat(req({messages:[{role:'user',content:'/image космос'}]}),env,async(url,options)=>{
+  sent={url,options};
+  return Response.json({success:true,result:{image:png}});
+ });
+ assert.equal(r.status,200);
+ assert.equal(sent.url,'https://api.cloudflare.com/client/v4/accounts/'+account+'/ai/run/@cf/black-forest-labs/flux-1-schnell');
+ assert.equal(sent.options.headers.authorization,'Bearer cloudflare');
+ assert.deepEqual(JSON.parse(sent.options.body),{prompt:'космос'});
+ assert.equal((await r.json()).image.data,png);
+});
+
+test('Cloudflare quota or incomplete config never falls back to paid images',async()=>{
+ const input={messages:[{role:'user',content:'/image кот'}]};
+ const env={CLOUDFLARE_ACCOUNT_ID:'b'.repeat(32),OPENROUTER_API_KEY:'paid',OPENROUTER_IMAGE_MODEL:'paid/model'};
+ const incomplete=await chat(req(input),env,async()=>assert.fail('must not call a provider'));
+ assert.equal(incomplete.status,503);
+ let calls=0;
+ const r=await chat(req(input),{...env,CLOUDFLARE_API_TOKEN:'token'},async(url)=>{
+  calls++;
+  assert.equal(new URL(url).hostname,'api.cloudflare.com');
+  return Response.json({errors:[{code:3036}]},{status:429});
+ });
+ assert.equal(r.status,429);
+ assert.equal((await r.json()).code,'image_daily_quota');
+ assert.equal(calls,1);
+});
