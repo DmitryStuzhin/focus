@@ -165,6 +165,21 @@ function localSkill(content){
  }
 }
 
+
+async function generateImage(prompt,request,env,fetcher){
+ if(!env.OPENROUTER_API_KEY||!env.OPENROUTER_IMAGE_MODEL)return json({error:'Настройте OPENROUTER_API_KEY и OPENROUTER_IMAGE_MODEL на сервере для генерации изображений.',code:'image_not_configured'},503);
+ if(!prompt||prompt.length>4000)return json({error:'Введите описание до 4000 символов.',code:'image_prompt'},400);
+ try{
+  const response=await fetcher('https://openrouter.ai/api/v1/images',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+env.OPENROUTER_API_KEY},body:JSON.stringify({model:env.OPENROUTER_IMAGE_MODEL,prompt}),signal:AbortSignal.any([AbortSignal.timeout(90000),request.signal])});
+  if(!response.ok)return json({error:response.status===402?'Недостаточно средств OpenRouter для генерации.':'Сервис изображений отклонил запрос. Проверьте модель, ключ и квоту.',code:'image_provider'},response.status===429?429:502);
+  const data=await response.json(),base64=data.data?.[0]?.b64_json;
+  if(typeof base64!=='string'||!base64.length||base64.length>14000000||!/^[A-Za-z0-9+/]+={0,2}$/.test(base64)||base64.length%4)throw Error('invalid image');
+  const mime=base64.startsWith('iVBORw0KGgo')?'image/png':base64.startsWith('/9j/')?'image/jpeg':base64.startsWith('UklGR')&&atob(base64.slice(0,16)).slice(8,12)==='WEBP'?'image/webp':null;
+  if(!mime)throw Error('unsupported image');
+  return json({text:'Изображение готово.',model:env.OPENROUTER_IMAGE_MODEL,provider:'image',image:{mimeType:mime,data:base64}});
+ }catch{return json({error:'Не удалось получить изображение. Повторите запрос.',code:'image_connection'},502)}
+}
+
 export async function chat(request,env,fetcher=fetch){
  const origin=request.headers.get('origin');if(origin&&origin!==new URL(request.url).origin)return json({error:'Запрос с другого сайта отклонён'},403);
  if(!/application\/json/i.test(request.headers.get('content-type')||''))return json({error:'Ожидается JSON'},415);
@@ -176,6 +191,8 @@ export async function chat(request,env,fetcher=fetch){
  if(total>150000)return json({error:'Диалог слишком длинный. Начните новый или сократите вложения.'},413);
  if(!contents.length||contents.at(-1).role!=='user')return json({error:'Нужно сообщение пользователя'},400);
  const latest=input.messages.at(-1);
+ const imageRequest=/^\/image(?=\s|$)\s*([\s\S]*)$/i.exec(latest.content.trim());
+ if(latest.role==='user'&&imageRequest)return generateImage(imageRequest[1].trim(),request,env,fetcher);
  if(latest.role==='user'){
   const result=localSkill(latest.content);
   if(result)return result;

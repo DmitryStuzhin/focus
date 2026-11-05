@@ -66,3 +66,26 @@ test('invalid local input is rejected without running code or falling through to
   assert.equal((await r.json()).code,'skill_input');
  }
 });
+
+test('image generation uses server model and returns validated raster data',async()=>{
+ const png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
+ let seen;
+ const r=await chat(req({messages:[{role:'user',content:'/image космос'}]}),{OPENROUTER_API_KEY:'secret',OPENROUTER_IMAGE_MODEL:'configured/model'},async(url,options)=>{
+  seen={url,options};return Response.json({data:[{b64_json:png,media_type:'image/png'}]});
+ });
+ assert.equal(r.status,200);
+ assert.equal(seen.url,'https://openrouter.ai/api/v1/images');
+ assert.deepEqual(JSON.parse(seen.options.body),{model:'configured/model',prompt:'космос'});
+ assert.equal((await r.json()).image.data,png);
+});
+test('image configuration and provider errors are handled without exposing secrets',async()=>{
+ const input={messages:[{role:'user',content:'/image кот'}]};
+ assert.equal((await chat(req(input),{},()=>assert.fail())).status,503);
+ for(const status of [402,429,500]){
+  const r=await chat(req(input),{OPENROUTER_API_KEY:'secret',OPENROUTER_IMAGE_MODEL:'model'},async()=>Response.json({error:'secret'},{status}));
+  assert.equal(r.status,status===429?429:502);
+  assert.ok(!(await r.text()).includes('secret'));
+ }
+ const r=await chat(req(input),{OPENROUTER_API_KEY:'secret',OPENROUTER_IMAGE_MODEL:'model'},async()=>Response.json({data:[{b64_json:'PHN2Zz4='}]}));
+ assert.equal(r.status,502);
+});
