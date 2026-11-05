@@ -1,5 +1,6 @@
 // Lucide-style line icons. Shared 18px canvas and 1.5px stroke.
 const paths={
+globe:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18z"/>',
 plus:'<path d="M12 5v14m-7-7h14"/>',
 compose:'<path d="m16 3 5 5M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15l-1 6z"/>',
 search:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/>',
@@ -38,3 +39,4 @@ command:'<path d="M9 7V5a2 2 0 1 0-2 2h10a2 2 0 1 0-2-2v14a2 2 0 1 0 2-2H7a2 2 0
 };
 export function icon(name,cls=''){return `<svg class="icon ${cls}" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]||paths.file}</svg>`}
 export const mark=`<svg class="focus-mark" width="56" height="56" viewBox="0 0 64 64" fill="none" aria-hidden="true"><circle cx="32" cy="32" r="23" stroke="currentColor" stroke-width="7"/><path d="M48.3 15.7A23 23 0 0 1 55 32" stroke="#9c805e" stroke-width="7"/><circle cx="55" cy="32" r="5.5" fill="#9c805e" stroke="var(--surface)" stroke-width="3"/></svg>`;
+
