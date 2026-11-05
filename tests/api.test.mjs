@@ -100,11 +100,11 @@ test('Cloudflare image generation uses its own token and returns the generated i
   return Response.json({success:true,result:{image:png}});
  });
  assert.equal(r.status,200);
- assert.equal(sent.url,'https://api.cloudflare.com/client/v4/accounts/'+account+'/ai/run/@cf/black-forest-labs/flux-2-klein-9b');
+ assert.equal(sent.url,'https://api.cloudflare.com/client/v4/accounts/'+account+'/ai/run/@cf/black-forest-labs/flux-2-dev');
  assert.equal(sent.options.headers.authorization,'Bearer cloudflare');
  assert.ok(sent.options.body instanceof FormData);
  assert.equal(sent.options.headers['content-type'],undefined);
- assert.deepEqual(Object.fromEntries(sent.options.body),{prompt:'космос',width:'1024',height:'1024'});
+ assert.deepEqual(Object.fromEntries(sent.options.body),{prompt:'космос',steps:'25',width:'1024',height:'1024'});
  assert.equal((await r.json()).image.data,png);
 });
 
@@ -129,7 +129,7 @@ test('Cloudflare image format is passed as dimensions and excluded from the prom
  const env={CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'cloudflare'};
  const messages=[{role:'user',content:'/image космос --ar 9:16'}];
  await chat(req({messages}),env,async(url,options)=>{
-  assert.deepEqual(Object.fromEntries(options.body),{prompt:'космос',width:'720',height:'1280'});
+  assert.deepEqual(Object.fromEntries(options.body),{prompt:'космос',steps:'25',width:'720',height:'1280'});
   return Response.json({result:{image:'iVBORw0KGgo='}});
  }).then(response=>assert.equal(response.status,200));
  messages[0].content='/image космос --ar 3:2';

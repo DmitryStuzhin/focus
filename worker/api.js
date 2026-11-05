@@ -166,7 +166,7 @@ function localSkill(content){
 }
 
 
-const CLOUDFLARE_IMAGE_MODEL='@cf/black-forest-labs/flux-2-klein-9b';
+const CLOUDFLARE_IMAGE_MODEL='@cf/black-forest-labs/flux-2-dev';
 const IMAGE_SIZES=new Map([
  ['1:1',[1024,1024]],
  ['16:9',[1280,720]],
@@ -196,6 +196,7 @@ async function generateImage(prompt,request,env,fetcher){
   const [width,height]=size;
   body=new FormData();
   body.set('prompt',prompt);
+  body.set('steps','25');
   body.set('width',String(width));
   body.set('height',String(height));
  }else{
