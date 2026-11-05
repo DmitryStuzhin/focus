@@ -159,3 +159,21 @@ test('edits send binary reference, retain output dimensions and reject invalid r
  assert.equal((await chat(req({messages:[{role:'user',content:'Измени изображение'}]}),cf)).status,400);
  assert.equal((await chat(req(request),{OPENROUTER_API_KEY:'key',OPENROUTER_IMAGE_MODEL:'model'},()=>{throw Error('must not fetch')})).status,503);
 });
+
+test('temporary image rate limit retries the same request and recovers',async()=>{
+ let calls=0;const cf={CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'cf'};
+ const r=await chat(req({messages:[{role:'user',content:'Нарисуй кота'}]}),cf,async(url,{body})=>{
+  calls++;assert.equal(body.get('prompt'),'Нарисуй кота');
+  return calls<3?Response.json({errors:[{code:3040}]},{status:429,headers:{'retry-after':'0'}}):Response.json({result:{image:'iVBORw0KGgo='}});
+ });assert.equal(calls,3);assert.equal(r.status,200);
+});
+test('quota strings and long retry delays stop without repeated provider calls',async()=>{
+ for(const [body,headers,code] of [[{errors:[{code:'3036'}]},{},'image_daily_quota'],[{errors:[{code:3040}]},{'retry-after':'60'},'image_rate_limit']]){
+  let calls=0;const r=await chat(req({messages:[{role:'user',content:'/image cat'}]}),{CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'cf'},async()=>{calls++;return Response.json(body,{status:429,headers})});
+  assert.equal(calls,1);assert.equal(r.status,429);assert.equal((await r.json()).code,code);
+ }
+});
+test('persistent image overload has a bounded retry count',async()=>{
+ let calls=0;const r=await chat(req({messages:[{role:'user',content:'/image cat'}]}),{CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'cf'},async()=>{calls++;return Response.json({errors:[{code:3040,message:'secret'}]},{status:429,headers:{'retry-after':'0'}})});
+ assert.equal(calls,3);assert.equal(r.status,429);assert.ok(!(await r.text()).includes('secret'));
+});

@@ -207,14 +207,28 @@ async function generateImage(prompt,request,env,fetcher,reference=null){
   body=JSON.stringify({model,prompt});
  }
  try{
-  const response=await fetcher(url,{
-   method:'POST',headers,body,signal:AbortSignal.any([AbortSignal.timeout(90000),request.signal]),
-  });
-  if(response.status===429){
-   const errorBody=cloudflare?await response.json().catch(()=>null):null;
-   const quota=Array.isArray(errorBody?.errors)&&errorBody.errors.some(error=>error?.code===3036);
-   const error=quota?'Дневная квота Cloudflare закончилась. Попробуйте после сброса в 00:00 UTC.':'Сервис изображений перегружен или ограничил запросы. Попробуйте позже.';
-   return json({error,code:quota?'image_daily_quota':'image_provider'},429);
+  const signal=AbortSignal.any([AbortSignal.timeout(90000),request.signal]);
+  let response;
+  for(let attempt=0;attempt<3;attempt++){
+   response=await fetcher(url,{method:'POST',headers,body,signal});
+   if(response.status!==429)break;
+   const errorBody=await response.json().catch(()=>null);
+   const errors=Array.isArray(errorBody?.errors)?errorBody.errors:[];
+   const quota=cloudflare&&errors.some(error=>Number(error?.code)===3036);
+   if(quota)return json({error:'Дневная бесплатная квота Cloudflare закончилась. Она обновится в 00:00 UTC (03:00 МСК). Повторные попытки до сброса не помогут.',code:'image_daily_quota'},429);
+   const retryHeader=response.headers.get('retry-after');
+   const seconds=retryHeader===null?null:Number(retryHeader);
+   const retryMs=retryHeader===null?1000*(attempt+1):Number.isFinite(seconds)?Math.max(0,seconds*1000):Math.max(0,Date.parse(retryHeader)-Date.now());
+   // Retry only explicit rejections, never an ambiguous timeout after generation.
+   if(attempt===2||!Number.isFinite(retryMs)||retryMs>10000){
+    const providerCode=cloudflare?errors.map(e=>Number(e?.code)).find(n=>Number.isInteger(n)&&n>0):undefined;
+    return json({error:'Сервис изображений временно ограничил запросы. '+(attempt?'Автоматические повторы не помогли. ':'')+'Повторите через '+(Number.isFinite(retryMs)?Math.max(1,Math.ceil(retryMs/1000))+' сек.':'минуту.'),code:'image_rate_limit',...(providerCode?{providerCode}:{})},429);
+   }
+   await new Promise((resolve,reject)=>{
+    const abort=()=>{clearTimeout(timer);reject(signal.reason)};
+    const timer=setTimeout(()=>{signal.removeEventListener('abort',abort);resolve()},retryMs);
+    if(signal.aborted)abort();else signal.addEventListener('abort',abort,{once:true});
+   });
   }
   if(!response.ok)return json({error:!cloudflare&&response.status===402?'Недостаточно средств OpenRouter для генерации.':'Сервис изображений отклонил запрос. Проверьте доступ и настройки.',code:'image_provider'},502);
   const data=await response.json();
