@@ -84,7 +84,7 @@ try{
  for(const [i,color] of [[1,[255,0,0]],[2,[0,0,255]]]){
   const ref=sent[i].imageReference;assert.equal(ref.width,1024);assert.equal(ref.height,1024);
   const decoded=await imagesPage.evaluate(async ref=>{
-   const blob=await (await fetch('data:image/png;base64,'+ref.data)).blob();const bmp=await createImageBitmap(blob);
+   const blob=new Blob([Uint8Array.from(atob(ref.data),c=>c.charCodeAt(0))],{type:'image/png'});const bmp=await createImageBitmap(blob);
    const c=document.createElement('canvas');c.width=c.height=1;const ctx=c.getContext('2d');ctx.drawImage(bmp,0,0,1,1);
    return {width:bmp.width,height:bmp.height,color:[...ctx.getImageData(0,0,1,1).data].slice(0,3)};
   },ref);
