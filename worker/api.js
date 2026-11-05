@@ -70,17 +70,117 @@ async function openRouterChat(contents,request,env,fetcher,research){
  if(typeof text!=='string'||!text.trim())return json({error:'Модель вернула пустой ответ. Повторите запрос.',code:'empty_response'},422);
  return json({text,search:research?{query:research.query,sources:publicSources(research),searchedAt:research.searchedAt}:null,model:data.model||OPENROUTER_MODEL,provider:'openrouter',usage:data.usage||null,truncated:choice.finish_reason==='length'});
 }
+// Rational arithmetic keeps decimal inputs and statistics exact.
+function fraction(n,d=1n){
+ if(!d)throw new Error('Деление на ноль.');
+ if(d<0n){n=-n;d=-d}
+ let a=n<0n?-n:n,b=d;
+ while(b)[a,b]=[b,a%b];
+ n/=a;d/=a;
+ if(n.toString().length>180||d.toString().length>180)throw new Error('Промежуточное число слишком большое.');
+ return [n,d];
+}
+function decimal(value){
+ if(!/^[+-]?(?:\d+(?:[.,]\d+)?|[.,]\d+)$/.test(value)||value.length>40)throw new Error('Ожидается число длиной до 40 символов.');
+ const [whole,tail='']=value.replace(/^[+-]/,'').split(/[.,]/);
+ return fraction((value.startsWith('-')?-1n:1n)*BigInt(whole+tail),10n**BigInt(tail.length));
+}
+function calculatePair(op,[a,b],[c,d]){
+ switch(op){
+  case '+':return fraction(a*d+b*c,b*d);
+  case '-':return fraction(a*d-b*c,b*d);
+  case '*':return fraction(a*c,b*d);
+  case '/':return fraction(a*d,b*c);
+  case '^':{
+   if(d!==1n||c>20n||c< -20n)throw new Error('Степень должна быть целым числом от −20 до 20.');
+   return c<0n?fraction(b**-c,a**-c):fraction(a**c,b**c);
+  }
+ }
+}
+function formatFraction([n,d]){
+ const abs=n<0n?-n:n;
+ let rest=abs%d, digits='';
+ while(rest&&digits.length<12){
+  rest*=10n;
+  digits+=String(rest/d);
+  rest%=d;
+ }
+ if(rest)return n+'/'+d;
+ return (n<0n?'−':'')+String(abs/d)+(digits?','+digits:'');
+}
+function calculate(expression){
+ if(!expression||expression.length>180)throw new Error('Введите выражение длиной до 180 символов. Пример: /calc (125 + 18) * 1,2');
+ const input=expression.replaceAll('×','*').replaceAll('÷','/').replaceAll('−','-');
+ const tokens=input.match(/\d+(?:[.,]\d+)?|[.,]\d+|[-+*/^%()]|\S/gu)||[];
+ const precedence={'+':1,'-':1,'*':2,'/':2,'^':3};
+ let index=0;
+ function read(min=1){
+  const token=tokens[index++];
+  let value;
+  if(token==='('){
+   value=read();
+   if(tokens[index++]!==')')throw new Error('Проверьте скобки в выражении.');
+  }else if(token==='+'||token==='-'){
+   const [n,d]=read(3);
+   value=[token==='-'?-n:n,d];
+  }else{
+   value=decimal(token||'');
+  }
+  if(tokens[index]==='%'){
+   index++;
+   value=fraction(value[0],value[1]*100n);
+  }
+  while(precedence[tokens[index]]>=min){
+   const op=tokens[index++];
+   value=calculatePair(op,value,read(precedence[op]+(op==='^'?0:1)));
+  }
+  return value;
+ }
+ const value=read();
+ if(index!==tokens.length)throw new Error('Проверьте знаки и скобки в выражении.');
+ return '**Результат** '+formatFraction(value);
+}
+function summarizeNumbers(input){
+ if(!input||input.length>2200)throw new Error('Введите числа через пробел, точку с запятой или новую строку. Пример: /stats 12; 18; 21; 24');
+ const tokens=input.split(/[\s;]+/u).filter(Boolean);
+ if(!tokens.length||tokens.length>100)throw new Error('Введите от 1 до 100 чисел.');
+ const values=tokens.map(decimal).sort(([a,b],[c,d])=>a*d<c*b?-1:a*d>c*b?1:0);
+ const count=values.length, middle=Math.floor(count/2);
+ const sum=values.reduce((total,value)=>calculatePair('+',total,value),[0n,1n]);
+ const mean=calculatePair('/',sum,[BigInt(count),1n]);
+ const median=count%2?values[middle]:calculatePair('/',calculatePair('+',values[middle-1],values[middle]),[2n,1n]);
+ return ['| Показатель | Значение |','| --- | --- |','| Количество | '+count+' |',
+  ...[['Сумма',sum],['Среднее',mean],['Медиана',median],['Минимум',values[0]],['Максимум',values.at(-1)]]
+   .map(([label,value])=>'| '+label+' | '+formatFraction(value)+' |')].join('\n');
+}
+function localSkill(content){
+ const match=/^\/(calc|stats)(?=\s|$)\s*([\s\S]*)$/iu.exec(content.trim());
+ if(!match)return null;
+ const calculator=match[1].toLowerCase()==='calc';
+ try{
+  const text=(calculator?calculate:summarizeNumbers)(match[2].trim());
+  return json({text,model:calculator?'local-calculator':'local-statistics',provider:'local',search:null,usage:null,truncated:false});
+ }catch(error){
+  return json({error:error.message,code:'skill_input'},400);
+ }
+}
+
 export async function chat(request,env,fetcher=fetch){
  const origin=request.headers.get('origin');if(origin&&origin!==new URL(request.url).origin)return json({error:'Запрос с другого сайта отклонён'},403);
  if(!/application\/json/i.test(request.headers.get('content-type')||''))return json({error:'Ожидается JSON'},415);
  if(Number(request.headers.get('content-length')||0)>12000000)return json({error:'Запрос слишком большой'},413);
- if(!modelConfig(env).configured)return json({error:'Модель ещё не подключена. Запрос сохранён в истории.',code:'not_configured'},503);
  const identity=request.headers.get('oai-authenticated-user-id')||request.headers.get('cf-connecting-ip')||'local';const now=Date.now();let usage=limiter.get(identity);if(!usage||now-usage.start>60000)usage={start:now,count:0};if(++usage.count>12)return json({error:'Слишком много запросов. Подождите минуту.',code:'rate_limit'},429);limiter.set(identity,usage);if(limiter.size>1000)for(const [k,v]of limiter)if(now-v.start>60000)limiter.delete(k);
  let input;try{const raw=await request.text();if(raw.length>12000000)return json({error:'Запрос слишком большой'},413);input=JSON.parse(raw)}catch{return json({error:'Не удалось прочитать запрос'},400)}
  if(!Array.isArray(input?.messages)||!input.messages.length||input.messages.length>60)return json({error:'Некорректная история диалога'},400);
  let total=0;const contents=[];for(const m of input.messages){if(!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'||(m.attachments!=null&&!Array.isArray(m.attachments)))return json({error:'Некорректное сообщение'},400);total+=m.content.length;const parts=[];if(m.content)parts.push({text:m.content});for(const f of (m.attachments||[]).slice(0,8)){if(!f||typeof f!=='object')continue;if(f.text&&typeof f.text==='string'){total+=f.text.length;parts.push({text:`Файл: ${String(f.name).slice(0,150)}\n${f.text}`})}else if(f.data&&['image/png','image/jpeg','image/webp','application/pdf'].includes(f.mimeType)&&typeof f.data==='string'&&/^[A-Za-z0-9+/=\r\n]+$/.test(f.data)&&f.data.length<8000000){parts.push({inlineData:{mimeType:f.mimeType,data:f.data}})}}if(parts.length)contents.push({role:m.role==='assistant'?'model':'user',parts})}
  if(total>150000)return json({error:'Диалог слишком длинный. Начните новый или сократите вложения.'},413);
  if(!contents.length||contents.at(-1).role!=='user')return json({error:'Нужно сообщение пользователя'},400);
+ const latest=input.messages.at(-1);
+ if(latest.role==='user'){
+  const result=localSkill(latest.content);
+  if(result)return result;
+ }
+ if(!modelConfig(env).configured)return json({error:'Модель ещё не подключена. Запрос сохранён в истории.',code:'not_configured'},503);
  let research=null;
  if(input.searchId){research=researchCache.get(input.searchId);if(!research||research.identity!==requester(request)||Date.now()-research.created>900000)return json({error:'Результаты поиска устарели. Повторите запрос с поиском.',code:'search_expired'},409)}
  if(research)contents.at(-1).parts.push(researchEvidence(research));

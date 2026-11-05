@@ -50,3 +50,13 @@ test('older binary attachments cannot exhaust the current request budget',async(
  assert.equal(result.length,3);
  assert.ok(new TextEncoder().encode(JSON.stringify({messages:result})).byteLength<12_000_000);
 });
+
+test('automatic excerpts retain relevant material near the end of a large project file',async()=>{
+ const file={id:'policy',name:'Правила.txt'};
+ const body='Общие положения. '.repeat(1500)+'\nПравило для командировки: лимит 20 000 рублей.\n'+'Приложение. '.repeat(600);
+ const result=await buildChatContext([user('Какой лимит для командировки?')],[file],async ids=>ids.map(()=>({name:file.name,text:body})));
+ const excerpt=result.at(-1).attachments[0].text;
+ assert.ok(excerpt.length<=12_000);
+ assert.match(excerpt,/лимит 20 000 рублей/);
+ assert.match(excerpt,/Текст файла сокращён/);
+});

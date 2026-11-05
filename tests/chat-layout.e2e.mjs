@@ -39,6 +39,28 @@ try{
   console.log(`Long-chat scroll and composer verified: ${viewport.width}x${viewport.height}`);
   await context.close();
  }
+ const context=await browser.newContext({viewport:{width:390,height:844},colorScheme:'light'});
+ const page=await context.newPage();
+ await page.goto('http://127.0.0.1:'+server.address().port);
+ await page.waitForLoadState('networkidle');
+ const toggle=page.getByRole('button',{name:'Тёмная тема',exact:true});
+ assert.equal(await toggle.getAttribute('aria-pressed'),'true');
+ assert.equal(await page.locator('html').getAttribute('data-theme'),'dark');
+ const composer=page.getByRole('textbox',{name:'Сообщение',exact:true});
+ await composer.fill('/calc 0,1 + 0,2');
+ await toggle.click();
+ assert.equal(await composer.inputValue(),'/calc 0,1 + 0,2');
+ assert.equal(await page.locator('html').getAttribute('data-theme'),'light');
+ await page.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ await page.getByText('0,3',{exact:false}).last().waitFor();
+ assert.equal(await page.locator('.assistant-message .assistant-label span').textContent(),'Калькулятор');
+ assert.equal(await page.locator('.topbar .status').textContent(),'Не подключено');
+ await page.reload();
+ await page.waitForLoadState('networkidle');
+ assert.equal(await toggle.getAttribute('aria-pressed'),'false');
+ assert.equal(await page.locator('html').getAttribute('data-theme'),'light');
+ await context.close();
+ console.log('Dark default, theme persistence and local calculator verified in the chat');
 }finally{
  if(browser)await browser.close();
  await new Promise(resolve=>server.close(resolve));

@@ -24,7 +24,7 @@ export function searchQuery(messages) {
 }
 
 function terms(value) {
-  return new Set((value.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) || [])
+  return new Set((value.toLowerCase().replaceAll('ё', 'е').match(/[\p{L}\p{N}]{3,}/gu) || [])
     .filter(word => !/^(?:для|или|как|что|это|файл|the|and|for|with|file)$/u.test(word)));
 }
 
@@ -37,6 +37,31 @@ export function rankProjectFiles(files, question) {
     .map(({file}) => file);
 }
 
+function excerpt(text, limit, query) {
+  const note = '[Текст файла сокращён из-за лимита контекста]';
+  const span = limit - note.length - 3;
+  if (span < 100) return null;
+
+  let bestStart = 0;
+  if (query?.size) {
+    const lastStart = text.length - span;
+    const step = Math.floor(span / 2);
+    let bestScore = -1;
+    for (let start = 0; ; start = Math.min(lastStart, start + step)) {
+      const sample = text.slice(start, start + span);
+      const score = [...terms(sample)].filter(word => query.has(word)).length;
+      if (score > bestScore) {
+        bestStart = start;
+        bestScore = score;
+      }
+      if (start === lastStart || score === query.size) break;
+    }
+  }
+  const end = bestStart + span;
+  const body = text.slice(bestStart, end);
+  return bestStart ? note + '\n' + body + (end < text.length ? '\n…' : '') : body + '\n' + note;
+}
+
 export async function buildChatContext(messages, projectFiles, readAttachments) {
   const selected = messages.slice(-40);
   const result = [];
@@ -44,14 +69,14 @@ export async function buildChatContext(messages, projectFiles, readAttachments) 
   let textLeft = TEXT_LIMIT;
   let bytesLeft = REQUEST_LIMIT;
 
-  function appendAttachment(message, file, textCap = textLeft) {
+  function appendAttachment(message, file, textCap = textLeft, query) {
     if (message.attachments.length >= ATTACHMENT_LIMIT) return false;
     const available = Math.min(textLeft, textCap);
     let attachment = file;
     if (typeof file.text === 'string' && file.text.length > available) {
-      const suffix = '\n[Текст файла сокращён из-за лимита контекста]';
-      if (available < suffix.length + 100) return false;
-      attachment = {...file, text: file.text.slice(0, available - suffix.length) + suffix};
+      const text = excerpt(file.text, available, query);
+      if (!text) return false;
+      attachment = {...file, text};
     }
     const cost = bytes(attachment) + 1;
     if (cost > bytesLeft) return false;
@@ -65,6 +90,7 @@ export async function buildChatContext(messages, projectFiles, readAttachments) 
   const latest = selected.at(-1);
   if (!latest) return result;
   const current = {role: latest.role || 'user', content: latest.content || '', attachments: []};
+  const query = terms(current.content);
   textLeft -= current.content.length;
   bytesLeft -= bytes(current) + 1;
   const currentIds = [...new Set(latest.files || [])].slice(0, ATTACHMENT_LIMIT);
@@ -72,7 +98,7 @@ export async function buildChatContext(messages, projectFiles, readAttachments) 
   let remainingTexts = explicit.filter(file => typeof file.text === 'string').length;
   for (const file of explicit) {
     if (typeof file.text === 'string') {
-      appendAttachment(current, file, Math.floor(textLeft / remainingTexts));
+      appendAttachment(current, file, Math.floor(textLeft / remainingTexts), query);
       remainingTexts--;
     } else {
       appendAttachment(current, file);
@@ -88,7 +114,7 @@ export async function buildChatContext(messages, projectFiles, readAttachments) 
       if (!attachment?.text) continue;
       const before = textLeft;
       // Cap each automatic excerpt so one document cannot consume all project context.
-      if (appendAttachment(current, attachment, Math.min(12_000, projectLeft))) {
+      if (appendAttachment(current, attachment, Math.min(12_000, projectLeft), query)) {
         seen.add(file.id);
         projectLeft -= before - textLeft;
       }

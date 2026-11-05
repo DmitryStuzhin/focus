@@ -37,8 +37,10 @@ try{
   assert.equal(searchCalls,1);assert.equal(chatCalls,1);
   const dimensions=await page.evaluate(()=>({width:innerWidth,documentWidth:document.documentElement.scrollWidth,composer:document.querySelector('.composer-area').getBoundingClientRect().bottom,height:innerHeight}));
   assert.ok(dimensions.documentWidth<=dimensions.width+1,'Source UI overflows horizontally');assert.ok(dimensions.composer<=dimensions.height+1,'Composer clipped by search controls');
+  const theme=page.getByRole('button',{name:'Тёмная тема',exact:true});
+  await theme.click();
   await page.screenshot({path:`test-artifacts/search-${viewport.width}.png`});
-  await page.evaluate(()=>document.documentElement.setAttribute('data-theme','dark'));
+  await theme.click();
   await page.screenshot({path:`test-artifacts/search-${viewport.width}-dark.png`});
   console.log(`Search phases, source pills, citations, persistence and layout verified: ${viewport.width}`);
   await context.close();

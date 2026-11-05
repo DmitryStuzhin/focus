@@ -34,3 +34,35 @@ test('malformed JSON message shapes return 400 before provider access',async()=>
  }
  assert.equal(providerCalls,0);
 });
+
+test('calculator returns exact results without a provider',async()=>{
+ const fail=()=>assert.fail('local skills must not use the provider');
+ for(const [expression,expected] of [
+  ['0,1 + 0.2','0,3'],['-2^2 + 2^-2','−3,75'],['2^2^3','256'],
+  ['15% × 800','120'],['1/3','1/3'],['(125 + 18) * 1,2','171,6'],
+ ]){
+  const r=await chat(req({messages:[{role:'user',content:'/calc '+expression}]}),{},fail);
+  assert.equal(r.status,200,expression);
+  const result=await r.json();
+  assert.equal(result.model,'local-calculator');
+  assert.equal(result.text,'**Результат** '+expected);
+ }
+});
+
+test('statistics returns exact median and mean for an unsorted list with decimals',async()=>{
+ const r=await chat(req({messages:[{role:'user',content:'/stats 5,5; -2.5\n2; 1'}]}),{},()=>assert.fail('must not fetch'));
+ assert.equal(r.status,200);
+ const data=await r.json();
+ assert.equal(data.model,'local-statistics');
+ for(const row of ['Количество | 4','Сумма | 6','Среднее | 1,5','Медиана | 1,5','Минимум | −2,5','Максимум | 5,5']){
+  assert.ok(data.text.includes('| '+row+' |'),row);
+ }
+});
+
+test('invalid local input is rejected without running code or falling through to a provider',async()=>{
+ for(const content of ['/calc 1/0','/calc 2^21','/calc (1+2','/calc 1 2','/calc globalThis.alert(1)','/stats 1; nope','/stats']){
+  const r=await chat(req({messages:[{role:'user',content}]}),env,()=>assert.fail('must not fetch'));
+  assert.equal(r.status,400,content);
+  assert.equal((await r.json()).code,'skill_input');
+ }
+});
