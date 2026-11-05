@@ -25,3 +25,12 @@ test('OpenRouter quota and authentication errors do not echo provider secrets',a
 test('OpenRouter rejects binary PDFs rather than silently ignoring them',async()=>{
  const r=await chat(req({messages:[{role:'user',content:'Read',attachments:[{mimeType:'application/pdf',data:'YWJj'}]}]}),{OPENROUTER_API_KEY:'router-secret'},()=>{throw Error('must not fetch')});assert.equal(r.status,400);assert.equal((await r.json()).code,'unsupported_attachment');
 });
+
+test('malformed JSON message shapes return 400 before provider access',async()=>{
+ let providerCalls=0;
+ const fetcher=async()=>{providerCalls++;throw Error('must not fetch')};
+ for(const input of [null,{messages:[null]},{messages:[{role:'user',content:'Question',attachments:{}}]}]){
+  assert.equal((await chat(req(input),env,fetcher)).status,400);
+ }
+ assert.equal(providerCalls,0);
+});

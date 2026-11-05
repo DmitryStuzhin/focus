@@ -1,3 +1,4 @@
+import {buildChatContext,searchQuery} from './chat-context.js';
 import {sourcePills,sourcesDialog,linkCitations} from './search-ui.js';
 import {icon,mark} from './icons.js';
 import {uid,readState,writeState,fresh,putBlob,getBlob,deleteBlob,validBackup} from './store.js';
@@ -194,7 +195,7 @@ async function requestAnswer(c){
  try{
   let searchId;
   if(withSearch){
-   const query=c.messages.filter(m=>m.role==='user').slice(-2).map(m=>m.content).join(' ').trim().slice(-600);
+   const query=searchQuery(c.messages);
    if(!query)throw new Error('Для поиска добавьте текст вопроса.');
    generation.query=query;
    const response=await fetch('/api/search',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({query}),signal:controller.signal});
@@ -204,12 +205,8 @@ async function requestAnswer(c){
    c.pendingSearch={query:research.query,sources:research.sources,searchedAt:research.searchedAt};
    generation.sources=research.sources;generation.phase='answering';persist();refresh();
   }
-  const selected=c.messages.slice(-40),messages=[];
-  for(const [index,m]of selected.entries()){
-   const ids=[...(m.files||[])];
-   if(index===selected.length-1&&m.role==='user')ids.push(...state.files.filter(f=>f.project===c.project&&!f.deleted&&f.kind!=='folder'&&isText(f)&&f.size<100000).slice(0,5).map(f=>f.id));
-   messages.push({role:m.role||'user',content:m.content,attachments:await attachmentPayload(ids)});
-  }
+  const projectFiles=state.files.filter(f=>f.project===c.project&&!f.deleted&&f.kind!=='folder'&&isText(f)&&f.size<100000);
+  const messages=await buildChatContext(c.messages,projectFiles,attachmentPayload);
   const response=await fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({messages,effort:state.settings.effort,...(searchId?{searchId}:{})}),signal:controller.signal});
   let data;try{data=await response.json()}catch{throw new Error('Сервер вернул некорректный ответ. Попробуйте ещё раз.')}
   if(!response.ok)throw new Error(data.error||'Не удалось получить ответ');
