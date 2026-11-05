@@ -4,7 +4,8 @@ const types={html:'text/html; charset=utf-8',css:'text/css; charset=utf-8',js:'t
 const assets={};
 for(const name of await readdir(new URL('public/',root))){assets['/'+name]={type:types[name.split('.').pop()]||'application/octet-stream',body:await readFile(new URL('public/'+name,root),'utf8')}}
 assets['/']=assets['/index.html'];
-const source=await readFile(new URL('worker/api.js',root),'utf8');
+const shared=(await readFile(new URL('public/image-intent.js',root),'utf8')).replaceAll('export ','');
+const source=(await readFile(new URL('worker/api.js',root),'utf8')).replace("import {imageIntent} from '../public/image-intent.js';",shared);
 await rm(new URL('dist/',root),{recursive:true,force:true});
 await mkdir(new URL('dist/server/',root),{recursive:true});
 await mkdir(new URL('dist/.openai/',root),{recursive:true});

@@ -137,3 +137,25 @@ test('Cloudflare image format is passed as dimensions and excluded from the prom
  assert.equal(response.status,400);
  assert.equal((await response.json()).code,'image_aspect_ratio');
 });
+
+test('natural image request uses the image provider without a chat model',async()=>{
+ const r=await chat(req({messages:[{role:'user',content:'Нарисуй кота'}]}),{CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'cf'},async(url,options)=>{
+  assert.ok(url.endsWith('/flux-2-dev'));assert.equal(options.body.get('prompt'),'Нарисуй кота');assert.equal(options.body.get('input_image_0'),null);
+  return Response.json({result:{image:'iVBORw0KGgo='}});
+ });assert.equal(r.status,200);
+});
+test('edits send binary reference, retain output dimensions and reject invalid references',async()=>{
+ const imageReference={mimeType:'image/png',data:'iVBORw0KGgo=',width:1280,height:720};
+ const request={messages:[{role:'user',content:'Добавь закат'}],imageReference};
+ const cf={CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'cf'};
+ const r=await chat(req(request),cf,async(url,{body})=>{
+  assert.equal(body.get('width'),'1280');assert.equal(body.get('height'),'720');
+  assert.match(body.get('prompt'),/Preserve all unmentioned/);
+  assert.equal(body.get('input_image_0').type,'image/png');
+  assert.deepEqual(new Uint8Array(await body.get('input_image_0').arrayBuffer()),Uint8Array.from(atob(imageReference.data),c=>c.charCodeAt(0)));
+  return Response.json({result:{image:imageReference.data}});
+ });assert.equal(r.status,200);
+ for(const ref of [{...imageReference,data:'https://evil.test/a.png'},{...imageReference,width:99999}])assert.equal((await chat(req({...request,imageReference:ref}),cf,()=>{throw Error('must not fetch')})).status,400);
+ assert.equal((await chat(req({messages:[{role:'user',content:'Измени изображение'}]}),cf)).status,400);
+ assert.equal((await chat(req(request),{OPENROUTER_API_KEY:'key',OPENROUTER_IMAGE_MODEL:'model'},()=>{throw Error('must not fetch')})).status,503);
+});

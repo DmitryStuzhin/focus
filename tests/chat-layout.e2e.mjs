@@ -61,6 +61,38 @@ try{
  assert.equal(await page.locator('html').getAttribute('data-theme'),'light');
  await context.close();
  console.log('Dark default, theme persistence and local calculator verified in the chat');
+ const imagesContext=await browser.newContext();
+ const imagesPage=await imagesContext.newPage();
+ await imagesPage.goto('http://127.0.0.1:'+server.address().port);
+ await imagesPage.waitForLoadState('networkidle');
+ const pngs=await imagesPage.evaluate(()=>['red','blue','green'].map(color=>{
+  const c=document.createElement('canvas');c.width=1024;c.height=1024;
+  const ctx=c.getContext('2d');ctx.fillStyle=color;ctx.fillRect(0,0,1024,1024);
+  return c.toDataURL('image/png').split(',')[1];
+ }));
+ const sent=[];
+ await imagesPage.route('**/api/chat',async route=>{
+  sent.push(route.request().postDataJSON());
+  await route.fulfill({json:{text:'Изображение готово.',provider:'image',model:'test',image:{mimeType:'image/png',data:pngs[sent.length-1]}}});
+ });
+ for(const [i,prompt] of ['Нарисуй кота','Добавь закат','Сделай фон темнее'].entries()){
+  await imagesPage.getByRole('textbox',{name:'Сообщение',exact:true}).fill(prompt);
+  await imagesPage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+  await imagesPage.waitForFunction(n=>document.querySelectorAll('[data-generated-file]').length===n,i+1);
+ }
+ assert.equal(sent[0].imageReference,undefined);
+ for(const [i,color] of [[1,[255,0,0]],[2,[0,0,255]]]){
+  const ref=sent[i].imageReference;assert.equal(ref.width,1024);assert.equal(ref.height,1024);
+  const decoded=await imagesPage.evaluate(async ref=>{
+   const blob=await (await fetch('data:image/png;base64,'+ref.data)).blob();const bmp=await createImageBitmap(blob);
+   const c=document.createElement('canvas');c.width=c.height=1;const ctx=c.getContext('2d');ctx.drawImage(bmp,0,0,1,1);
+   return {width:bmp.width,height:bmp.height,color:[...ctx.getImageData(0,0,1,1).data].slice(0,3)};
+  },ref);
+  assert.equal(decoded.width,512);assert.equal(decoded.height,512);assert.deepEqual(decoded.color,color);
+ }
+ await imagesContext.close();
+ console.log('Natural creation and two successive image edits preserve the latest image');
+
 }finally{
  if(browser)await browser.close();
  await new Promise(resolve=>server.close(resolve));

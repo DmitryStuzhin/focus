@@ -1,3 +1,4 @@
+import {imageIntent,latestImage,imageReference} from './image-intent.js';
 import {buildChatContext,searchQuery} from './chat-context.js';
 import {sourcePills,sourcesDialog,linkCitations} from './search-ui.js';
 import {icon,mark} from './icons.js';
@@ -212,7 +213,8 @@ async function requestAnswer(c){
  c.error=null;c.pendingSearch=null;
  const controller=new AbortController();const lastUser=c.messages.findLast(m=>m.role==='user');
  const localSkill=/^\/(?:calc|stats)(?=\s|$)/i.test(lastUser?.content.trim()||'');
- const imageRequest=/^\/image(?=\s|$)/i.test(lastUser?.content.trim()||'');
+ const previousImage=latestImage(c.messages);
+ const imageRequest=imageIntent(lastUser?.content,!!previousImage);
  const withSearch=!!lastUser?.webSearch&&!localSkill&&!imageRequest;
  generation={chatId:c.id,controller,phase:imageRequest?'imaging':withSearch?'searching':'answering'};
  const refresh=()=>{if(ui.view==='chat'&&state.activeChat===c.id){render();const scroll=el('main-scroll');if(scroll)scroll.scrollTop=scroll.scrollHeight}};
@@ -231,8 +233,15 @@ async function requestAnswer(c){
    generation.sources=research.sources;generation.phase='answering';persist();refresh();
   }
   const projectFiles=state.files.filter(f=>f.project===c.project&&!f.deleted&&f.kind!=='folder'&&isText(f)&&f.size<100000);
+  let reference;
+  if(imageRequest?.mode==='edit'){
+   const file=state.files.find(f=>f.id===previousImage?.imageFile&&!f.deleted);
+   const blob=file?await getBlob(file.id):null;
+   if(!blob)throw new Error('Последнее изображение недоступно. Создайте новое изображение в этом диалоге.');
+   reference=await imageReference(blob);
+  }
   const messages=(localSkill||imageRequest)?[{role:'user',content:lastUser.content}]:await buildChatContext(c.messages,projectFiles,attachmentPayload);
-  const response=await fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({messages,effort:state.settings.effort,...(searchId?{searchId}:{})}),signal:controller.signal});
+  const response=await fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({messages,...(reference?{imageReference:reference}:{}),effort:state.settings.effort,...(searchId?{searchId}:{})}),signal:controller.signal});
   let data;try{data=await response.json()}catch{throw new Error('Сервер вернул некорректный ответ. Попробуйте ещё раз.')}
   if(!response.ok)throw new Error(data.error||'Не удалось получить ответ');
   if(!data.text)throw new Error('Получен пустой ответ');
