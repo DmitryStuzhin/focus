@@ -166,7 +166,12 @@ function localSkill(content){
 }
 
 
-const CLOUDFLARE_IMAGE_MODEL='@cf/black-forest-labs/flux-1-schnell';
+const CLOUDFLARE_IMAGE_MODEL='@cf/black-forest-labs/flux-2-klein-9b';
+const IMAGE_SIZES=new Map([
+ ['1:1',[1024,1024]],
+ ['16:9',[1280,720]],
+ ['9:16',[720,1280]],
+]);
 
 async function generateImage(prompt,request,env,fetcher){
  const cloudflare=!!(env.CLOUDFLARE_ACCOUNT_ID||env.CLOUDFLARE_API_TOKEN);
@@ -176,16 +181,30 @@ async function generateImage(prompt,request,env,fetcher){
  if(!token||!model||(cloudflare&&!/^[a-f0-9]{32}$/i.test(account||''))){
   return json({error:'Для генерации настройте CLOUDFLARE_ACCOUNT_ID и CLOUDFLARE_API_TOKEN на сервере.',code:'image_not_configured'},503);
  }
+ const ratio=cloudflare?/\s+--ar\s+(\S+)\s*$/.exec(prompt):null;
+ const size=IMAGE_SIZES.get(ratio?.[1]||'1:1');
+ if(!size)return json({error:'Доступные форматы: --ar 1:1, --ar 16:9 и --ar 9:16.',code:'image_aspect_ratio'},400);
+ if(ratio)prompt=prompt.slice(0,ratio.index).trim();
  const maxLength=cloudflare?2048:4000;
  if(!prompt||prompt.length>maxLength)return json({error:'Введите описание до '+maxLength+' символов.',code:'image_prompt'},400);
  const url=cloudflare
   ?'https://api.cloudflare.com/client/v4/accounts/'+account+'/ai/run/'+model
   :'https://openrouter.ai/api/v1/images';
- const payload=cloudflare?{prompt}:{model,prompt};
+ const headers={authorization:'Bearer '+token};
+ let body;
+ if(cloudflare){
+  const [width,height]=size;
+  body=new FormData();
+  body.set('prompt',prompt);
+  body.set('width',String(width));
+  body.set('height',String(height));
+ }else{
+  headers['content-type']='application/json';
+  body=JSON.stringify({model,prompt});
+ }
  try{
   const response=await fetcher(url,{
-   method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+token},
-   body:JSON.stringify(payload),signal:AbortSignal.any([AbortSignal.timeout(90000),request.signal]),
+   method:'POST',headers,body,signal:AbortSignal.any([AbortSignal.timeout(90000),request.signal]),
   });
   if(response.status===429){
    const errorBody=cloudflare?await response.json().catch(()=>null):null;
