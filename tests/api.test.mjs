@@ -160,15 +160,27 @@ test('edits send binary reference, retain output dimensions and reject invalid r
  assert.equal((await chat(req(request),{OPENROUTER_API_KEY:'key',OPENROUTER_IMAGE_MODEL:'model'},()=>{throw Error('must not fetch')})).status,503);
 });
 
-test('temporary image rate limit retries the same request and recovers',async()=>{
- let calls=0;const cf={CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'cf'};
- const r=await chat(req({messages:[{role:'user',content:'Нарисуй кота'}]}),cf,async(url,{body})=>{
-  calls++;assert.equal(body.get('prompt'),'Нарисуй кота');
-  return calls<3?Response.json({errors:[{code:3040}]},{status:429,headers:{'retry-after':'0'}}):Response.json({result:{image:'iVBORw0KGgo='}});
- });assert.equal(calls,3);assert.equal(r.status,200);
+test('Cloudflare capacity rejection switches to Klein and preserves the edit',async()=>{
+ const calls=[];
+ const cf={CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'cf',OPENROUTER_API_KEY:'paid',OPENROUTER_IMAGE_MODEL:'paid'};
+ const imageReference={mimeType:'image/png',data:'iVBORw0KGgo=',width:1280,height:720};
+ const r=await chat(req({messages:[{role:'user',content:'Добавь закат'}],imageReference}),cf,async(url,{body})=>{
+  calls.push({url,steps:body.get('steps'),prompt:body.get('prompt'),width:body.get('width'),ref:await body.get('input_image_0').text()});
+  return calls.length===1?Response.json({errors:[{code:3040}]},{status:429}):Response.json({result:{image:imageReference.data}});
+ });
+ assert.equal(r.status,200);
+ assert.equal(calls.length,2);
+ assert.match(calls[0].url,/cloudflare.com.*flux-2-dev$/);
+ assert.match(calls[1].url,/cloudflare.com.*flux-2-klein-9b$/);
+ assert.equal(calls[0].steps,'25');
+ assert.equal(calls[1].steps,null);
+ assert.equal(calls[1].width,'1280');
+ assert.match(calls[1].prompt,/Добавь закат/);
+ assert.equal(calls[1].ref,calls[0].ref);
+ assert.match((await r.json()).model,/flux-2-klein-9b$/);
 });
 test('quota strings and long retry delays stop without repeated provider calls',async()=>{
- for(const [body,headers,code] of [[{errors:[{code:'3036'}]},{},'image_daily_quota'],[{errors:[{code:3040}]},{'retry-after':'60'},'image_rate_limit']]){
+ for(const [body,headers,code] of [[{errors:[{code:'3036'}]},{},'image_daily_quota'],[{errors:[]},{'retry-after':'60'},'image_rate_limit']]){
   let calls=0;const r=await chat(req({messages:[{role:'user',content:'/image cat'}]}),{CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'cf'},async()=>{calls++;return Response.json(body,{status:429,headers})});
   assert.equal(calls,1);assert.equal(r.status,429);assert.equal((await r.json()).code,code);
  }

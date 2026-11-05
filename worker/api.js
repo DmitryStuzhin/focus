@@ -168,6 +168,7 @@ function localSkill(content){
 
 
 const CLOUDFLARE_IMAGE_MODEL='@cf/black-forest-labs/flux-2-dev';
+const CLOUDFLARE_FALLBACK_MODEL='@cf/black-forest-labs/flux-2-klein-9b';
 const IMAGE_SIZES=new Map([
  ['1:1',[1024,1024]],
  ['16:9',[1280,720]],
@@ -178,7 +179,7 @@ async function generateImage(prompt,request,env,fetcher,reference=null){
  const cloudflare=!!(env.CLOUDFLARE_ACCOUNT_ID||env.CLOUDFLARE_API_TOKEN);
  const account=env.CLOUDFLARE_ACCOUNT_ID?.trim();
  const token=cloudflare?env.CLOUDFLARE_API_TOKEN?.trim():env.OPENROUTER_API_KEY;
- const model=cloudflare?CLOUDFLARE_IMAGE_MODEL:env.OPENROUTER_IMAGE_MODEL;
+ let model=cloudflare?CLOUDFLARE_IMAGE_MODEL:env.OPENROUTER_IMAGE_MODEL;
  if(!token||!model||(cloudflare&&!/^[a-f0-9]{32}$/i.test(account||''))){
   return json({error:'Для генерации настройте CLOUDFLARE_ACCOUNT_ID и CLOUDFLARE_API_TOKEN на сервере.',code:'image_not_configured'},503);
  }
@@ -189,9 +190,7 @@ async function generateImage(prompt,request,env,fetcher,reference=null){
  if(ratio)prompt=prompt.slice(0,ratio.index).trim();
  const maxLength=cloudflare?2048:4000;
  if(!prompt||prompt.length>maxLength)return json({error:'Введите описание до '+maxLength+' символов.',code:'image_prompt'},400);
- const url=cloudflare
-  ?'https://api.cloudflare.com/client/v4/accounts/'+account+'/ai/run/'+model
-  :'https://openrouter.ai/api/v1/images';
+ const cloudflareURL='https://api.cloudflare.com/client/v4/accounts/'+account+'/ai/run/';
  const headers={authorization:'Bearer '+token};
  let body;
  if(cloudflare){
@@ -210,19 +209,30 @@ async function generateImage(prompt,request,env,fetcher,reference=null){
   const signal=AbortSignal.any([AbortSignal.timeout(90000),request.signal]);
   let response;
   for(let attempt=0;attempt<3;attempt++){
+   const url=cloudflare?cloudflareURL+model:'https://openrouter.ai/api/v1/images';
    response=await fetcher(url,{method:'POST',headers,body,signal});
    if(response.status!==429)break;
    const errorBody=await response.json().catch(()=>null);
    const errors=Array.isArray(errorBody?.errors)?errorBody.errors:[];
-   const quota=cloudflare&&errors.some(error=>Number(error?.code)===3036);
+   const codes=errors.map(error=>Number(error?.code)).filter(n=>Number.isInteger(n)&&n>0);
+   const quota=cloudflare&&codes.includes(3036);
    if(quota)return json({error:'Дневная бесплатная квота Cloudflare закончилась. Она обновится в 00:00 UTC (03:00 МСК). Повторные попытки до сброса не помогут.',code:'image_daily_quota'},429);
    const retryHeader=response.headers.get('retry-after');
    const seconds=retryHeader===null?null:Number(retryHeader);
    const retryMs=retryHeader===null?1000*(attempt+1):Number.isFinite(seconds)?Math.max(0,seconds*1000):Math.max(0,Date.parse(retryHeader)-Date.now());
    // Retry only explicit rejections, never an ambiguous timeout after generation.
+   const canSwitchModel=attempt<2&&cloudflare&&model===CLOUDFLARE_IMAGE_MODEL&&
+    (codes.includes(3040)||(!codes.length&&Number.isFinite(retryMs)&&retryMs<=10000));
+   if(canSwitchModel){
+    model=CLOUDFLARE_FALLBACK_MODEL;
+    body.delete('steps'); // Klein uses a fixed number of steps.
+    continue;
+   }
    if(attempt===2||!Number.isFinite(retryMs)||retryMs>10000){
-    const providerCode=cloudflare?errors.map(e=>Number(e?.code)).find(n=>Number.isInteger(n)&&n>0):undefined;
-    return json({error:'Сервис изображений временно ограничил запросы. '+(attempt?'Автоматические повторы не помогли. ':'')+'Повторите через '+(Number.isFinite(retryMs)?Math.max(1,Math.ceil(retryMs/1000))+' сек.':'минуту.'),code:'image_rate_limit',...(providerCode?{providerCode}:{})},429);
+    const providerCode=cloudflare?codes[0]:undefined;
+    const detail=model===CLOUDFLARE_FALLBACK_MODEL?'Cloudflare отклонил запрос к обеим моделям FLUX.':'Сервис изображений ограничил запросы.';
+    const wait=retryHeader&&Number.isFinite(retryMs)?' Повторите через '+Math.max(1,Math.ceil(retryMs/1000))+' сек.':' Попробуйте позже.';
+    return json({error:detail+wait+(providerCode?' Код Cloudflare: '+providerCode+'.':''),code:'image_rate_limit',...(providerCode?{providerCode}:{})},429);
    }
    await new Promise((resolve,reject)=>{
     const abort=()=>{clearTimeout(timer);reject(signal.reason)};
