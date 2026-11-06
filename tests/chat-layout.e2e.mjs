@@ -206,6 +206,23 @@ try{
  await frame.getByRole('heading',{name:'Первый сайт'}).waitFor();
  await sitePage.close();
  console.log('Isolated interactive site preview opens beside chat and updates after revisions');
+ const draftPage=await browser.newPage({viewport:{width:1440,height:900}});
+ await draftPage.goto('http://127.0.0.1:'+server.address().port);
+ await draftPage.waitForLoadState('networkidle');
+ await draftPage.getByRole('textbox',{name:'Сообщение',exact:true}).fill('/site сделай сайт для стоматологической клиники');
+ await draftPage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ const draftFrame=draftPage.frameLocator('#preview-root iframe');
+ await draftFrame.getByRole('heading',{name:'Забота о вашей улыбке'}).waitFor();
+ await draftPage.getByText(/Открыл стартовую страницу/).waitFor();
+ const question=draftFrame.getByText('Как записаться?',{exact:true});
+ await question.click();
+ assert.equal(await draftFrame.locator('details[open]').count(),1);
+ const right=await draftPage.locator('#preview-root').boundingBox();
+ const chatBox=await draftPage.locator('.main').boundingBox();
+ assert.ok(right.x>=chatBox.x+chatBox.width-1);
+ await draftPage.close();
+ console.log('Dental site opens to the right using the actual API without model credentials');
+
 
 
 

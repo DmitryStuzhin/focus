@@ -369,3 +369,34 @@ test('a site refusal is returned without another model call',async()=>{
  assert.equal(count,1);
  assert.equal((await response.json()).code,'content_filtered');
 });
+
+test('non-JSON provider responses still produce a complete dental site',async()=>{
+ const requests=[];
+ const input={messages:[{role:'user',content:'/site сделай сайт для стоматологической клиники'}]};
+ const response=await chat(req(input),{OPENROUTER_API_KEY:'secret'},async(_url,options)=>{
+  requests.push(JSON.parse(options.body).model);
+  return new Response('<html>Service unavailable</html>',{status:502});
+ });
+ assert.deepEqual(requests,['openrouter/free','google/gemma-4-26b-a4b-it:free']);
+ assert.equal(response.status,200);
+ const data=await response.json();
+ assert.equal(data.model,'local-site-draft');
+ assert.match(data.text,/```html index\.html\n<!doctype html>/);
+ assert.match(data.text,/Забота о вашей улыбке/);
+ assert.match(data.text,/<\/body><\/html>\n```$/);
+});
+
+test('the local site generator escapes supplied branding and preserves existing previews on failure',async()=>{
+ const messages=[{role:'user',content:'/site стоматология с названием «<script>alert(1)</script>»'}];
+ const response=await chat(req({messages}),{},()=>assert.fail('local draft needs no model'));
+ assert.equal(response.status,200);
+ const {text}=await response.json();
+ assert.match(text,/&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+ assert.doesNotMatch(text,/<script>/);
+ const revision=await chat(req({sitePreview:true,messages:[{
+  role:'user',content:'Добавь тёмную тему',
+  attachments:[{name:'Текущая версия предпросмотра — index.html',text:'<html>старый сайт</html>'}],
+ }]}),{OPENROUTER_API_KEY:'secret'},async()=>new Response('broken',{status:502}));
+ assert.equal(revision.status,502);
+ assert.equal((await revision.json()).code,'site_revision_unavailable');
+});

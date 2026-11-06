@@ -440,7 +440,7 @@ async function requestAnswer(c){
  const codeMode=taskMode==='code'||website;
  const imageRequest=website?null:imageIntent(lastUser?.content,!!previousImage);
  const explicitSearch=/^\s*(?:пожалуйста[ ,]+)?(?:найди|поищи|проверь)\s+(?:в интернете|в сети)(?=\s|[,:]|$)/iu.test(lastUser?.content||'');
- const withSearch=(!!lastUser?.webSearch||explicitSearch)&&!localSkill&&!imageRequest;
+ const withSearch=(!!lastUser?.webSearch||explicitSearch)&&!localSkill&&!imageRequest&&!website;
  generation={chatId:c.id,controller,phase:imageRequest?'imaging':withSearch?'searching':'answering'};
  const refresh=()=>{if(ui.view==='chat'&&state.activeChat===c.id){render();const scroll=el('main-scroll');if(scroll)scroll.scrollTop=scroll.scrollHeight}};
  refresh();

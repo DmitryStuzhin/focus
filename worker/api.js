@@ -1,4 +1,5 @@
-import {siteIntent} from '../public/site-preview.js';
+import {createSiteDraft} from './site-draft.js';
+import {siteIntent,isPreviewBlock} from '../public/site-preview.js';
 import {compareText} from '../public/text-diff.js';
 import {imageIntent} from '../public/image-intent.js';
 // Provider credentials belong to runtime secrets, never to the browser bundle.
@@ -101,9 +102,13 @@ async function openRouterChat(contents,request,env,fetcher,research,taskMode,sit
    });
   }catch{return json({error:'Не удалось связаться с сервисом модели. Повторите запрос.',code:'connection'},502)}
   let data;
-  try{data=await response.json()}catch{return json({error:'Сервис модели вернул некорректный ответ.',code:'provider_error'},502)}
+  try{data=await response.json()}catch{
+   if(siteMode&&!attempt&&!signal.aborted&&(response.ok||response.status>=500))continue;
+   return json({error:'Сервис модели вернул некорректный ответ.',code:'provider_error'},502);
+  }
   if(!response.ok||data.error){
    const status=response.ok?Number(data.error?.code)||502:response.status;
+   if(siteMode&&!attempt&&!signal.aborted&&(status===404||status===503))continue;
    const error=status===429?'Бесплатный лимит Guzan 1.1 исчерпан или модель перегружена. Повторите позже.':status===401?'Сервис модели не принял API-ключ. Проверьте настройку на сервере.':status===403?'Сервис модели ограничил доступ к запросам с этого сервера.':status===402?'Для Guzan 1.1 нужна доступная бесплатная квота. Проверьте лимиты аккаунта.':status===404||status===503?'Сейчас нет доступной бесплатной модели. Повторите позже.':'Сервис модели отклонил запрос. Попробуйте новый диалог без вложений.';
    return json({error,code:'provider_error',providerStatus:status},status===429?429:502);
   }
@@ -120,10 +125,7 @@ async function openRouterChat(contents,request,env,fetcher,research,taskMode,sit
    const error=siteMode?'Бесплатные модели не вернули HTML. Повторите запрос или попросите более компактный сайт.':'Модель вернула пустой ответ. Повторите запрос.';
    return json({error,code:'empty_response'},422);
   }
-  const html=text.trim();
-  const rawPage=siteMode&&!truncated&&/^(?:<!doctype\s+html\b|<html(?:\s|>))/iu.test(html)&&/<\/html>$/iu.test(html);
-  const output=rawPage?'```html index.html\n'+html+'\n```':text;
-  return json({text:output,search,model:data.model||model,provider:'openrouter',usage:data.usage||null,truncated});
+  return json({text,search,model:data.model||model,provider:'openrouter',usage:data.usage||null,truncated});
  }
  return json({error:'Модель вернула пустой ответ. Повторите запрос.',code:'empty_response'},422);
 }
@@ -490,17 +492,45 @@ export async function chat(request,env,fetcher=fetch){
   const result=localSkill(latest.content,latest.attachments||[]);
   if(result)return result;
  }
- if(!modelConfig(env).configured)return json({error:'Модель ещё не подключена. Запрос сохранён в истории.',code:'not_configured'},503);
+ const configured=modelConfig(env).configured;
+ const existingPreview=latest.attachments?.some(file=>typeof file?.text==='string'&&
+  /^(?:Текущая версия предпросмотра — |.*\.html?$)/iu.test(String(file.name)));
+ const siteDraft=()=>json({
+  text:'Сервис модели не подготовил сайт. Открыл стартовую страницу, собранную внутри Guzan. Проверьте тексты и заполните контакты перед публикацией.\n\n```html index.html\n'+createSiteDraft(latest.content)+'\n```',
+  model:'local-site-draft',provider:'local',truncated:false,
+ });
+ if(!configured){
+  if(siteMode&&!existingPreview)return siteDraft();
+  return json({error:siteMode?'Модель недоступна. Текущая версия сайта сохранена.':'Модель ещё не подключена. Запрос сохранён в истории.',code:'not_configured'},503);
+ }
  let research=null;
  if(input.searchId){research=researchCache.get(input.searchId);if(!research||research.identity!==requester(request)||Date.now()-research.created>900000)return json({error:'Результаты поиска устарели. Повторите запрос с поиском.',code:'search_expired'},409)}
  if(research)contents.at(-1).parts.push(researchEvidence(research));
- if(env.OPENROUTER_API_KEY)return openRouterChat(contents,request,env,fetcher,research,taskMode,siteMode);
- const effort=['fast','balanced','deep'].includes(input.effort)?input.effort:'balanced';
+ const result=env.OPENROUTER_API_KEY
+  ?await openRouterChat(contents,request,env,fetcher,research,taskMode,siteMode)
+  :await googleChat(contents,request,env,fetcher,research,taskMode,siteMode,input.effort);
+ if(!siteMode||request.signal.aborted)return result;
+ const data=await result.clone().json();
+ if(result.ok&&!data.truncated&&typeof data.text==='string'){
+  const html=data.text.trim();
+  if(/^(?:<!doctype\s+html\b|<html(?:\s|>))/iu.test(html)&&/<\/html>$/iu.test(html)&&isPreviewBlock('html',html)){
+   return json({...data,text:'```html index.html\n'+html+'\n```'});
+  }
+  const blocks=html.replace(/\r\n/g,'\n').matchAll(/^[ \t]*```([^\n]*)\n([\s\S]*?)^[ \t]*```[ \t]*(?=$)/gm);
+  if(Array.from(blocks).some(([,header,code])=>isPreviewBlock(header,code)))return result;
+ }else if(!result.ok&&result.status<500&&result.status!==429&&data.code!=='empty_response'){
+  return result;
+ }
+ if(!existingPreview)return siteDraft();
+ return json({error:'Модель не подготовила правку. Текущая версия сайта осталась в предпросмотре. Попробуйте повторить запрос.',code:'site_revision_unavailable'},502);
+}
+async function googleChat(contents,request,env,fetcher,research,taskMode,siteMode,requestedEffort){
+ const effort=['fast','balanced','deep'].includes(requestedEffort)?requestedEffort:'balanced';
  const body={systemInstruction:{parts:[{text:chatSystem(research,taskMode,siteMode)}]},contents,generationConfig:{maxOutputTokens:8192,temperature:.6,thinkingConfig:{thinkingLevel:effort==='fast'?'minimal':effort==='deep'?'high':'low'}}};
  let response;try{response=await fetcher(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':env.GOOGLE_API_KEY},body:JSON.stringify(body),signal:AbortSignal.any([AbortSignal.timeout(90000),request.signal])})}catch(err){return json({error:err.name==='TimeoutError'?'Модель не успела ответить. Попробуйте ещё раз.':'Не удалось связаться с моделью. Попробуйте ещё раз.',code:'connection'},502)}
  if(!response.ok){const status=response.status;let code='';try{const d=await response.json();code=d.error?.details?.find(x=>x.reason)?.reason||''}catch{}const error=status===429?'Достигнут лимит Google API. Проверьте квоту или повторите позже.':status===401||status===403||code==='API_KEY_INVALID'?'Google не принял API-ключ или у него нет доступа к модели.':status===404?'Эта модель недоступна в Google API для данного ключа.':status===400?'Google отклонил запрос. Проверьте ключ API и поддерживаемые вложения.':'Сервис модели временно недоступен. Повторите позже.';return json({error,code:'provider_error',providerStatus:status},status===429?429:502)}
  let data;try{data=await response.json()}catch{return json({error:'Модель вернула некорректный ответ'},502)}
- const candidate=data.candidates?.[0];const text=candidate?.content?.parts?.filter(p=>!p.thought).map(p=>p.text||'').join('');if(!text)return json({error:data.promptFeedback?.blockReason||candidate?.finishReason==='SAFETY'?'Модель не смогла ответить на этот запрос. Попробуйте переформулировать.':'Получен пустой ответ. Попробуйте ещё раз.',code:'empty_response'},422);
+ const candidate=data.candidates?.[0];const text=candidate?.content?.parts?.filter(p=>!p.thought).map(p=>p.text||'').join('');if(!text)return json({error:data.promptFeedback?.blockReason||candidate?.finishReason==='SAFETY'?'Модель не смогла ответить на этот запрос. Попробуйте переформулировать.':'Получен пустой ответ. Попробуйте ещё раз.',code:data.promptFeedback?.blockReason||candidate?.finishReason==='SAFETY'?'content_filtered':'empty_response'},422);
  return json({text,search:research?{query:research.query,sources:publicSources(research),searchedAt:research.searchedAt}:null,model:MODEL,usage:data.usageMetadata||null,truncated:candidate.finishReason==='MAX_TOKENS'});
 }
 const PREVIEW_CSP="sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; form-action 'none'; base-uri 'none'; frame-ancestors 'self' https://chatgpt.com https://*.chatgpt.com";
