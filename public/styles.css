@@ -25,3 +25,11 @@
 
 .code-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px 12px;padding:5px 10px 5px 16px;background:var(--hover);color:var(--muted)}
 .code-toolbar small{overflow-wrap:anywhere}.code-actions{display:flex;flex-wrap:wrap;gap:4px}.code-actions .btn{font-size:11px;padding:4px 8px;min-height:28px}
+
+.plan-step{display:flex;align-items:flex-start;gap:10px;margin:8px 0;cursor:pointer}
+.plan-step input{accent-color:var(--accent);flex:none;width:16px;height:16px;margin:4px 0 0}
+.plan-step input:checked+span{color:var(--muted);text-decoration:line-through}
+.code-diff{max-height:260px;overflow:auto;margin-top:8px;border:1px solid var(--line);border-radius:8px}
+.diff-line{display:grid;grid-template-columns:4em 1fr;gap:10px;padding:3px 8px;min-width:max-content;font-family:monospace}
+.diff-line code{white-space:pre;min-height:1em}.diff-line span{color:var(--secondary)}
+.diff-added{background:#31805024}.diff-removed{background:#ad493e24}

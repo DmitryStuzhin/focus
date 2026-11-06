@@ -118,6 +118,9 @@ try{
  await codePage.getByRole('button',{name:'Сохранить в проект',exact:true}).nth(1).click();
  assert.equal(requests[1].messages.at(-1).attachments[0].text,original);
  assert.equal(await codePage.locator('#proposed-code').inputValue(),updated);
+ assert.match(await codePage.locator('.diff-removed').textContent(),/println\("hello"\)/);
+ assert.match(await codePage.locator('.diff-added').textContent(),/println\("updated"\)/);
+
  const fileId=await fileMenu.getAttribute('data-id');
  await codePage.evaluate(async id=>{
   const {putBlob}=await import('/store.js');
@@ -131,6 +134,31 @@ try{
  },fileId),'edited elsewhere');
  await codePage.close();
  console.log('Code generation, file preview and stale edit protection verified');
+ const planPage=await browser.newPage({viewport:{width:1440,height:900}});
+ await planPage.goto('http://127.0.0.1:'+server.address().port);
+ await planPage.waitForLoadState('networkidle');
+ const planRequests=[];
+ await planPage.route('**/api/chat',async route=>{
+  planRequests.push(route.request().postDataJSON());
+  await route.fulfill({json:{text:planRequests.length===1?'## План\n- [ ] Собрать материалы\n- [ ] Проверить результат':'Продолжаем со второго шага.',model:'test'}});
+ });
+ await planPage.getByRole('button',{name:'Продумать план',exact:true}).click();
+ const planComposer=planPage.getByRole('textbox',{name:'Сообщение',exact:true});
+ assert.equal(await planComposer.inputValue(),'/plan ');
+ await planComposer.fill('/plan подготовить выпуск');
+ await planPage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ await planPage.getByRole('checkbox',{name:'Собрать материалы'}).check();
+ await planPage.reload();
+ await planPage.waitForLoadState('networkidle');
+ assert.equal(await planPage.getByRole('checkbox',{name:'Собрать материалы'}).isChecked(),true);
+ assert.equal(await planPage.getByRole('checkbox',{name:'Проверить результат'}).isChecked(),false);
+ await planComposer.fill('Что осталось?');
+ await planPage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ await planPage.getByText('Продолжаем со второго шага.',{exact:true}).waitFor();
+ assert.match(planRequests[1].messages.find(m=>m.role==='assistant').content,/- \[x\] Собрать материалы/);
+ await planPage.close();
+ console.log('Plan progress persists and is included in the next chat request');
+
 
 
 }finally{

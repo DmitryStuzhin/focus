@@ -76,7 +76,7 @@ export async function buildChatContext(messages, projectFiles, readAttachments) 
     if (typeof file.text === 'string' && file.text.length > available) {
       const text = excerpt(file.text, available, query);
       if (!text) return false;
-      attachment = {...file, text};
+      attachment = {...file, text, truncated: true};
     }
     const cost = bytes(attachment) + 1;
     if (cost > bytesLeft) return false;

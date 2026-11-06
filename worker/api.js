@@ -1,3 +1,4 @@
+import {compareText} from '../public/text-diff.js';
 import {imageIntent} from '../public/image-intent.js';
 // Provider credentials belong to runtime secrets, never to the browser bundle.
 const headers={'x-content-type-options':'nosniff','referrer-policy':'same-origin','permissions-policy':'camera=(), microphone=(), geolocation=()'};
@@ -53,11 +54,25 @@ const CODE_GUIDANCE=[
  'Если файл неполный или отсутствует, не выдумывай его содержимое для замены. Запроси актуальный файл или покажи небольшой фрагмент без имени.',
  'Кратко опиши изменения, команды запуска и способы проверки, если это уместно. Никогда не утверждай, что выполнил команды или тесты.',
 ].join(' ');
-function chatSystem(research,codeMode){
- return SYSTEM+(research?RESEARCH_GUIDANCE:'')+(codeMode?'\n'+CODE_GUIDANCE:'');
+const TASK_GUIDANCE={
+ code:CODE_GUIDANCE,
+ plan:'Режим /plan. Составь план без выполнения и без готовых замен файлов. Начни с результата и ограничений. Дай 3–8 выполнимых шагов отдельными строками в формате Markdown "- [ ] Сделать ...". Каждый шаг — одно проверяемое действие. Сохрани важные зависимости, явно обозначь неизвестные и критерии готовности. Если пользователь возвращается к плану, учитывай отмеченные шаги.',
+ review:'Режим /review. Проведи ревью переданного кода или изменений. Сначала находки по серьёзности: воспроизводимые ошибки, регрессии, безопасность и недостающие проверки. Для каждой укажи уровень, имя файла, предоставленный номер строки или название функции, сценарий сбоя и конкретную правку. Используй номера только из исходника с пометкой «с номерами строк». Не выдумывай находки, файлы или выполненные проверки. Если исходников нет, попроси приложить их. Если проблем не видно, скажи об этом и обозначь границы проверки. Не переписывай файлы целиком.',
+};
+function chatSystem(research,taskMode){
+ const guidance=TASK_GUIDANCE[taskMode];
+ return SYSTEM+(research?RESEARCH_GUIDANCE:'')+(guidance?'\n'+guidance:'');
 }
-async function openRouterChat(contents,request,env,fetcher,research,codeMode){
- const messages=[{role:'system',content:chatSystem(research,codeMode)}];
+function sourcePart(file,numberLines){
+ const name=String(file.name).slice(0,150);
+ if(numberLines&&!file.truncated&&file.text.length<=60000){
+  const lines=file.text.split(/\r\n?|\n/u);
+  if(lines.length<=1500)return {text:'Файл: '+name+' (с номерами строк)\n'+lines.map((line,i)=>(i+1)+' | '+line).join('\n')};
+ }
+ return {text:'Файл: '+name+'\n'+file.text};
+}
+async function openRouterChat(contents,request,env,fetcher,research,taskMode){
+ const messages=[{role:'system',content:chatSystem(research,taskMode)}];
  for(const m of contents){
   const content=[];
   for(const p of m.parts){
@@ -70,7 +85,7 @@ async function openRouterChat(contents,request,env,fetcher,research,codeMode){
   messages.push({role:m.role==='model'?'assistant':'user',content});
  }
  let r;
- try{r=await fetcher('https://openrouter.ai/api/v1/chat/completions',{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${env.OPENROUTER_API_KEY}`},body:JSON.stringify({model:OPENROUTER_MODEL,messages,max_tokens:codeMode?8192:4096,stream:false}),signal:AbortSignal.any([AbortSignal.timeout(90000),request.signal])})}
+ try{r=await fetcher('https://openrouter.ai/api/v1/chat/completions',{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${env.OPENROUTER_API_KEY}`},body:JSON.stringify({model:OPENROUTER_MODEL,messages,max_tokens:taskMode==='code'?8192:4096,stream:false}),signal:AbortSignal.any([AbortSignal.timeout(90000),request.signal])})}
  catch{return json({error:'Не удалось связаться с сервисом модели. Повторите запрос.',code:'connection'},502)}
  let data;try{data=await r.json()}catch{return json({error:'Сервис модели вернул некорректный ответ.',code:'provider_error'},502)}
  if(!r.ok||data.error){
@@ -246,29 +261,11 @@ function analyzeCSV(text,option){
  return result.join('\n');
 }
 function compareFiles(before,after){
- const lines=text=>text.replace(/^\uFEFF/u,'').replace(/\r\n?/gu,'\n').replace(/\n$/u,'').split('\n');
- const old=before?lines(before):[],next=after?lines(after):[];
- if(old.length>500||next.length>500)throw new Error('Для сравнения используйте файлы до 500 строк каждый.');
- const length=Array.from({length:old.length+1},()=>new Uint16Array(next.length+1));
- for(let i=old.length-1;i>=0;i--)for(let j=next.length-1;j>=0;j--){
-  length[i][j]=old[i]===next[j]?1+length[i+1][j+1]:Math.max(length[i+1][j],length[i][j+1]);
- }
- const changes=[];
- let i=0,j=0,removed=0,added=0;
- while(i<old.length||j<next.length){
-  if(i<old.length&&j<next.length&&old[i]===next[j]){i++;j++;}
-  else if(i<old.length&&(j===next.length||length[i+1][j]>=length[i][j+1])){
-   if(changes.length<40)changes.push(['Удалено',i+1,old[i]]);
-   removed++;i++;
-  }else{
-   if(changes.length<40)changes.push(['Добавлено',j+1,next[j]]);
-   added++;j++;
-  }
- }
+ const {added,removed,changes}=compareText(before,after);
  if(!removed&&!added)return 'Содержимое файлов совпадает.';
  return ['Добавлено строк: '+added+' · Удалено: '+removed,'',
-  ...changes.map(([type,line,value])=>type+' | '+line+' | '+(value.length>240?value.slice(0,240)+'…':value||'∅')),
-  ...(added+removed>40?['','Показаны первые 40 изменений.']:[])].join('\n');
+  ...changes.map(({type,line,text})=>(type==='removed'?'Удалено':'Добавлено')+' | '+line+' | '+(text.length>240?text.slice(0,240)+'…':text||'∅')),
+  ...(added+removed>changes.length?['','Показаны первые '+changes.length+' изменений.']:[])].join('\n');
 }
 function localSkill(content,attachments=[]){
  const match=/^\/(calc|stats|convert|csv|diff)(?=\s|$)\s*([\s\S]*)$/iu.exec(content.trim());
@@ -439,13 +436,14 @@ export async function chat(request,env,fetcher=fetch){
  const identity=request.headers.get('oai-authenticated-user-id')||request.headers.get('cf-connecting-ip')||'local';const now=Date.now();let usage=limiter.get(identity);if(!usage||now-usage.start>60000)usage={start:now,count:0};if(++usage.count>12)return json({error:'Слишком много запросов. Подождите минуту.',code:'rate_limit'},429);limiter.set(identity,usage);if(limiter.size>1000)for(const [k,v]of limiter)if(now-v.start>60000)limiter.delete(k);
  let input;try{const raw=await request.text();if(raw.length>12000000)return json({error:'Запрос слишком большой'},413);input=JSON.parse(raw)}catch{return json({error:'Не удалось прочитать запрос'},400)}
  if(!Array.isArray(input?.messages)||!input.messages.length||input.messages.length>60)return json({error:'Некорректная история диалога'},400);
- let total=0;const contents=[];for(const m of input.messages){if(!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'||(m.attachments!=null&&!Array.isArray(m.attachments)))return json({error:'Некорректное сообщение'},400);total+=m.content.length;const parts=[];if(m.content)parts.push({text:m.content});for(const f of (m.attachments||[]).slice(0,8)){if(!f||typeof f!=='object')continue;if(f.text&&typeof f.text==='string'){total+=f.text.length;parts.push({text:`Файл: ${String(f.name).slice(0,150)}\n${f.text}`})}else if(f.data&&['image/png','image/jpeg','image/webp','application/pdf'].includes(f.mimeType)&&typeof f.data==='string'&&/^[A-Za-z0-9+/=\r\n]+$/.test(f.data)&&f.data.length<8000000){parts.push({inlineData:{mimeType:f.mimeType,data:f.data}})}}if(parts.length)contents.push({role:m.role==='assistant'?'model':'user',parts})}
+ const latest=input.messages.at(-1);
+ const taskRequest=latest?.role==='user'&&typeof latest.content==='string'&&/^\s*\/(code|plan|review)(?=\s|$)\s*([\s\S]*)$/iu.exec(latest.content);
+ const taskMode=taskRequest?taskRequest[1].toLowerCase():null;
+ let total=0;const contents=[];for(const m of input.messages){if(!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'||(m.attachments!=null&&!Array.isArray(m.attachments)))return json({error:'Некорректное сообщение'},400);total+=m.content.length;const parts=[];if(m.content)parts.push({text:m.content});for(const f of (m.attachments||[]).slice(0,8)){if(!f||typeof f!=='object')continue;if(f.text&&typeof f.text==='string'){total+=f.text.length;parts.push(sourcePart(f,m===latest&&taskMode==='review'))}else if(f.data&&['image/png','image/jpeg','image/webp','application/pdf'].includes(f.mimeType)&&typeof f.data==='string'&&/^[A-Za-z0-9+/=\r\n]+$/.test(f.data)&&f.data.length<8000000){parts.push({inlineData:{mimeType:f.mimeType,data:f.data}})}}if(parts.length)contents.push({role:m.role==='assistant'?'model':'user',parts})}
  if(total>150000)return json({error:'Диалог слишком длинный. Начните новый или сократите вложения.'},413);
  if(!contents.length||contents.at(-1).role!=='user')return json({error:'Нужно сообщение пользователя'},400);
- const latest=input.messages.at(-1);
- const codeRequest=latest.role==='user'&&/^\s*\/code(?=\s|$)\s*([\s\S]*)$/iu.exec(latest.content);
- if(codeRequest&&!codeRequest[1].trim())return json({error:'Опишите задачу после /code. Например: /code напиши тесты для приложенного файла на Python.',code:'code_input'},400);
- const codeMode=!!codeRequest;
+ if(taskMode==='code'&&!taskRequest[2].trim())return json({error:'Опишите задачу после /code. Например: /code напиши тесты для приложенного файла на Python.',code:'code_input'},400);
+ if(taskMode==='plan'&&!taskRequest[2].trim())return json({error:'Опишите цель после /plan.',code:'plan_input'},400);
  const reference=input.imageReference;
  const imageRequest=imageIntent(latest.content,!!reference);
  if(latest.role==='user'&&imageRequest){
@@ -463,9 +461,9 @@ export async function chat(request,env,fetcher=fetch){
  let research=null;
  if(input.searchId){research=researchCache.get(input.searchId);if(!research||research.identity!==requester(request)||Date.now()-research.created>900000)return json({error:'Результаты поиска устарели. Повторите запрос с поиском.',code:'search_expired'},409)}
  if(research)contents.at(-1).parts.push(researchEvidence(research));
- if(env.OPENROUTER_API_KEY)return openRouterChat(contents,request,env,fetcher,research,codeMode);
+ if(env.OPENROUTER_API_KEY)return openRouterChat(contents,request,env,fetcher,research,taskMode);
  const effort=['fast','balanced','deep'].includes(input.effort)?input.effort:'balanced';
- const body={systemInstruction:{parts:[{text:chatSystem(research,codeMode)}]},contents,generationConfig:{maxOutputTokens:8192,temperature:.6,thinkingConfig:{thinkingLevel:effort==='fast'?'minimal':effort==='deep'?'high':'low'}}};
+ const body={systemInstruction:{parts:[{text:chatSystem(research,taskMode)}]},contents,generationConfig:{maxOutputTokens:8192,temperature:.6,thinkingConfig:{thinkingLevel:effort==='fast'?'minimal':effort==='deep'?'high':'low'}}};
  let response;try{response=await fetcher(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':env.GOOGLE_API_KEY},body:JSON.stringify(body),signal:AbortSignal.any([AbortSignal.timeout(90000),request.signal])})}catch(err){return json({error:err.name==='TimeoutError'?'Модель не успела ответить. Попробуйте ещё раз.':'Не удалось связаться с моделью. Попробуйте ещё раз.',code:'connection'},502)}
  if(!response.ok){const status=response.status;let code='';try{const d=await response.json();code=d.error?.details?.find(x=>x.reason)?.reason||''}catch{}const error=status===429?'Достигнут лимит Google API. Проверьте квоту или повторите позже.':status===401||status===403||code==='API_KEY_INVALID'?'Google не принял API-ключ или у него нет доступа к модели.':status===404?'Эта модель недоступна в Google API для данного ключа.':status===400?'Google отклонил запрос. Проверьте ключ API и поддерживаемые вложения.':'Сервис модели временно недоступен. Повторите позже.';return json({error,code:'provider_error',providerStatus:status},status===429?429:502)}
  let data;try{data=await response.json()}catch{return json({error:'Модель вернула некорректный ответ'},502)}

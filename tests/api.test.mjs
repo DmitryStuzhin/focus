@@ -296,3 +296,34 @@ test('coding mode passes source context and requests named complete files',async
  assert.equal(empty.status,400);
  assert.equal((await empty.json()).code,'code_input');
 });
+
+test('review mode grounds findings in source line numbers and leaves excerpts unnumbered',async()=>{
+ const messages=[{role:'user',content:'/review найди ошибки',attachments:[
+  {name:'main.py',text:'def score(x):\r\n    return 1 / x'},
+  {name:'large.py',text:'[Текст файла сокращён из-за лимита контекста]\nreturn x',truncated:true},
+ ]}];
+ const response=await chat(req({messages}),{OPENROUTER_API_KEY:'secret'},async(url,options)=>{
+  const body=JSON.parse(options.body);
+  assert.match(body.messages[0].content,/Режим \/review/);
+  const parts=body.messages.at(-1).content;
+  assert.match(parts[1].text,/main.py \(с номерами строк\)\n1 \| def score\(x\):\n2 \|     return 1 \/ x/);
+  assert.doesNotMatch(parts[2].text,/с номерами строк|1 \|/);
+  return Response.json({choices:[{message:{content:'main.py:2 — деление на ноль при x=0.'},finish_reason:'stop'}]});
+ });
+ assert.equal(response.status,200);
+});
+
+test('plan mode asks the provider for a checkable plan and accepts marked history',async()=>{
+ const messages=[
+  {role:'user',content:'/plan собрать проект'},
+  {role:'assistant',content:'- [x] Установить зависимости'},
+  {role:'user',content:'/plan продолжи'},
+ ];
+ const response=await chat(req({messages}),{GOOGLE_API_KEY:'secret'},async(url,options)=>{
+  const body=JSON.parse(options.body);
+  assert.match(body.systemInstruction.parts[0].text,/- \[ \] Сделать/);
+  assert.equal(body.contents[1].parts[0].text,'- [x] Установить зависимости');
+  return Response.json({candidates:[{content:{parts:[{text:'- [ ] Собрать проект'}]},finishReason:'STOP'}]});
+ });
+ assert.equal(response.status,200);
+});
