@@ -344,3 +344,28 @@ test('natural site requests use the HTML preview prompt without intercepting ima
  });
  assert.equal(image.status,200);
 });
+
+test('empty website output retries once with a different free model and opens raw HTML',async()=>{
+ const messages=[{role:'user',content:'/site сделай сайт стоматологии'}];
+ const requests=[];
+ const response=await chat(req({messages}),{OPENROUTER_API_KEY:'secret'},async(url,options)=>{
+  requests.push(JSON.parse(options.body));
+  return Response.json(requests.length===1
+   ?{choices:[{message:{content:'',reasoning:'private reasoning'},finish_reason:'length'}]}
+   :{choices:[{message:{content:[{type:'text',text:'<!doctype html><html><body><h1>Стоматология</h1></body></html>'}]},finish_reason:'stop'}]});
+ });
+ assert.equal(response.status,200);
+ assert.deepEqual(requests.map(r=>r.model),['openrouter/free','google/gemma-4-26b-a4b-it:free']);
+ assert.deepEqual(requests[0].messages.at(-1),requests[1].messages.at(-1));
+ assert.match((await response.json()).text,/^```html index\.html\n<!doctype html>/);
+});
+
+test('a site refusal is returned without another model call',async()=>{
+ let count=0;
+ const response=await chat(req({messages:[{role:'user',content:'/site сделай сайт'}]}),{OPENROUTER_API_KEY:'secret'},async()=>{
+  count++;
+  return Response.json({choices:[{message:{content:null},finish_reason:'content_filter'}]});
+ });
+ assert.equal(count,1);
+ assert.equal((await response.json()).code,'content_filtered');
+});

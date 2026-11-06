@@ -86,18 +86,46 @@ async function openRouterChat(contents,request,env,fetcher,research,taskMode,sit
   }
   messages.push({role:m.role==='model'?'assistant':'user',content});
  }
- let r;
- try{r=await fetcher('https://openrouter.ai/api/v1/chat/completions',{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${env.OPENROUTER_API_KEY}`},body:JSON.stringify({model:OPENROUTER_MODEL,messages,max_tokens:taskMode==='code'||siteMode?8192:4096,stream:false}),signal:AbortSignal.any([AbortSignal.timeout(90000),request.signal])})}
- catch{return json({error:'Не удалось связаться с сервисом модели. Повторите запрос.',code:'connection'},502)}
- let data;try{data=await r.json()}catch{return json({error:'Сервис модели вернул некорректный ответ.',code:'provider_error'},502)}
- if(!r.ok||data.error){
-  const status=r.ok?Number(data.error?.code)||502:r.status;
-  const error=status===429?'Бесплатный лимит Guzan 1.1 исчерпан или модель перегружена. Повторите позже.':status===401?'Сервис модели не принял API-ключ. Проверьте настройку на сервере.':status===403?'Сервис модели ограничил доступ к запросам с этого сервера.':status===402?'Для Guzan 1.1 нужна доступная бесплатная квота. Проверьте лимиты аккаунта.':status===404||status===503?'Сейчас нет доступной бесплатной модели. Повторите позже.':'Сервис модели отклонил запрос. Попробуйте новый диалог без вложений.';
-  return json({error,code:'provider_error',providerStatus:status},status===429?429:502);
+ const signal=AbortSignal.any([AbortSignal.timeout(90000),request.signal]);
+ const fallbackModel='google/gemma-4-26b-a4b-it:free';
+ const search=research?{query:research.query,sources:publicSources(research),searchedAt:research.searchedAt}:null;
+ for(let attempt=0;attempt<(siteMode?2:1);attempt++){
+  const model=attempt?fallbackModel:OPENROUTER_MODEL;
+  const requestMessages=attempt?[{role:'system',content:messages[0].content+
+   '\nВерни компактный, законченный HTML. Сначала выведи блок с сайтом. Сократи декоративные детали и пояснения, чтобы вместить весь документ.'},...messages.slice(1)]:messages;
+  let response;
+  try{
+   response=await fetcher('https://openrouter.ai/api/v1/chat/completions',{
+    method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${env.OPENROUTER_API_KEY}`},
+    body:JSON.stringify({model,messages:requestMessages,max_tokens:attempt?6144:taskMode==='code'||siteMode?8192:4096,stream:false}),signal,
+   });
+  }catch{return json({error:'Не удалось связаться с сервисом модели. Повторите запрос.',code:'connection'},502)}
+  let data;
+  try{data=await response.json()}catch{return json({error:'Сервис модели вернул некорректный ответ.',code:'provider_error'},502)}
+  if(!response.ok||data.error){
+   const status=response.ok?Number(data.error?.code)||502:response.status;
+   const error=status===429?'Бесплатный лимит Guzan 1.1 исчерпан или модель перегружена. Повторите позже.':status===401?'Сервис модели не принял API-ключ. Проверьте настройку на сервере.':status===403?'Сервис модели ограничил доступ к запросам с этого сервера.':status===402?'Для Guzan 1.1 нужна доступная бесплатная квота. Проверьте лимиты аккаунта.':status===404||status===503?'Сейчас нет доступной бесплатной модели. Повторите позже.':'Сервис модели отклонил запрос. Попробуйте новый диалог без вложений.';
+   return json({error,code:'provider_error',providerStatus:status},status===429?429:502);
+  }
+  const choice=data.choices?.[0];
+  const content=choice?.message?.content;
+  const text=typeof content==='string'?content:Array.isArray(content)
+   ?content.filter(part=>['text','output_text'].includes(part?.type)&&typeof part.text==='string').map(part=>part.text).join(''):'';
+  if(choice?.finish_reason==='content_filter'||choice?.message?.refusal){
+   return json({error:'Модель не смогла ответить на этот запрос. Попробуйте переформулировать.',code:'content_filtered'},422);
+  }
+  const truncated=choice?.finish_reason==='length';
+  if(siteMode&&!attempt&&!signal.aborted&&(!text.trim()||truncated))continue;
+  if(!text.trim()){
+   const error=siteMode?'Бесплатные модели не вернули HTML. Повторите запрос или попросите более компактный сайт.':'Модель вернула пустой ответ. Повторите запрос.';
+   return json({error,code:'empty_response'},422);
+  }
+  const html=text.trim();
+  const rawPage=siteMode&&!truncated&&/^(?:<!doctype\s+html\b|<html(?:\s|>))/iu.test(html)&&/<\/html>$/iu.test(html);
+  const output=rawPage?'```html index.html\n'+html+'\n```':text;
+  return json({text:output,search,model:data.model||model,provider:'openrouter',usage:data.usage||null,truncated});
  }
- const choice=data.choices?.[0];const text=choice?.message?.content;
- if(typeof text!=='string'||!text.trim())return json({error:'Модель вернула пустой ответ. Повторите запрос.',code:'empty_response'},422);
- return json({text,search:research?{query:research.query,sources:publicSources(research),searchedAt:research.searchedAt}:null,model:data.model||OPENROUTER_MODEL,provider:'openrouter',usage:data.usage||null,truncated:choice.finish_reason==='length'});
+ return json({error:'Модель вернула пустой ответ. Повторите запрос.',code:'empty_response'},422);
 }
 // Rational arithmetic keeps decimal inputs and statistics exact.
 function fraction(n,d=1n){
