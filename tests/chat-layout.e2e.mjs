@@ -118,8 +118,8 @@ try{
  await codePage.getByRole('button',{name:'Сохранить в проект',exact:true}).nth(1).click();
  assert.equal(requests[1].messages.at(-1).attachments[0].text,original);
  assert.equal(await codePage.locator('#proposed-code').inputValue(),updated);
- assert.match(await codePage.locator('.diff-removed').textContent(),/println\("hello"\)/);
- assert.match(await codePage.locator('.diff-added').textContent(),/println\("updated"\)/);
+ assert.match(await codePage.locator('.diff-removed').textContent(),/println!\("hello"\)/);
+ assert.match(await codePage.locator('.diff-added').textContent(),/println!\("updated"\)/);
 
  const fileId=await fileMenu.getAttribute('data-id');
  await codePage.evaluate(async id=>{
