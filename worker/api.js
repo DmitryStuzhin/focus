@@ -1,3 +1,4 @@
+import {localIntent,taskIntent} from '../public/work-intent.js';
 import {createSiteDraft} from './site-draft.js';
 import {siteIntent,isPreviewBlock} from '../public/site-preview.js';
 import {compareText} from '../public/text-diff.js';
@@ -300,16 +301,16 @@ function compareFiles(before,after){
   ...(added+removed>changes.length?['','Показаны первые '+changes.length+' изменений.']:[])].join('\n');
 }
 function localSkill(content,attachments=[]){
- const match=/^\/(calc|stats|convert|csv|diff)(?=\s|$)\s*([\s\S]*)$/iu.exec(content.trim());
- if(!match)return null;
- const skill=match[1].toLowerCase();
+ const intent=localIntent(content);
+ if(!intent)return null;
+ const skill=intent.mode;
  const files=attachments.filter(file=>typeof file?.text==='string');
  const [solve,model]={
   calc:[calculate,'local-calculator'],
   stats:[summarizeNumbers,'local-statistics'],
   convert:[convertUnits,'local-conversion'],
   csv:[option=>{
-   if(files.length!==1||attachments.length!==1)throw new Error('Прикрепите один CSV-файл к сообщению /csv.');
+   if(files.length!==1||attachments.length!==1)throw new Error('Прикрепите один CSV-файл к сообщению «Проанализируй CSV».');
    return analyzeCSV(files[0].text,option);
   },'local-csv'],
   diff:[()=>{
@@ -318,7 +319,7 @@ function localSkill(content,attachments=[]){
   },'local-diff'],
  }[skill];
  try{
-  const text=solve(match[2].trim());
+  const text=solve(intent.details);
   return json({text,model,provider:'local',search:null,usage:null,truncated:false});
  }catch(error){
   return json({error:error.message,code:'skill_input'},400);
@@ -469,18 +470,18 @@ export async function chat(request,env,fetcher=fetch){
  let input;try{const raw=await request.text();if(raw.length>12000000)return json({error:'Запрос слишком большой'},413);input=JSON.parse(raw)}catch{return json({error:'Не удалось прочитать запрос'},400)}
  if(!Array.isArray(input?.messages)||!input.messages.length||input.messages.length>60)return json({error:'Некорректная история диалога'},400);
  const latest=input.messages.at(-1);
- const taskRequest=latest?.role==='user'&&typeof latest.content==='string'&&/^\s*\/(code|plan|review)(?=\s|$)\s*([\s\S]*)$/iu.exec(latest.content);
- const taskMode=taskRequest?taskRequest[1].toLowerCase():null;
+ const taskRequest=latest?.role==='user'&&typeof latest.content==='string'?taskIntent(latest.content):null;
+ const taskMode=taskRequest?.mode;
  let total=0;const contents=[];for(const m of input.messages){if(!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'||(m.attachments!=null&&!Array.isArray(m.attachments)))return json({error:'Некорректное сообщение'},400);total+=m.content.length;const parts=[];if(m.content)parts.push({text:m.content});for(const f of (m.attachments||[]).slice(0,8)){if(!f||typeof f!=='object')continue;if(f.text&&typeof f.text==='string'){total+=f.text.length;parts.push(sourcePart(f,m===latest&&taskMode==='review'))}else if(f.data&&['image/png','image/jpeg','image/webp','application/pdf'].includes(f.mimeType)&&typeof f.data==='string'&&/^[A-Za-z0-9+/=\r\n]+$/.test(f.data)&&f.data.length<8000000){parts.push({inlineData:{mimeType:f.mimeType,data:f.data}})}}if(parts.length)contents.push({role:m.role==='assistant'?'model':'user',parts})}
  if(total>150000)return json({error:'Диалог слишком длинный. Начните новый или сократите вложения.'},413);
  if(!contents.length||contents.at(-1).role!=='user')return json({error:'Нужно сообщение пользователя'},400);
- if(taskMode==='code'&&!taskRequest[2].trim())return json({error:'Опишите задачу после /code. Например: /code напиши тесты для приложенного файла на Python.',code:'code_input'},400);
- if(taskMode==='plan'&&!taskRequest[2].trim())return json({error:'Опишите цель после /plan.',code:'plan_input'},400);
+ if(taskMode==='code'&&!taskRequest.details.trim())return json({error:'Опишите задачу после /code. Например: /code напиши тесты для приложенного файла на Python.',code:'code_input'},400);
+ if(taskMode==='plan'&&!taskRequest.details.trim())return json({error:'Опишите цель после /plan.',code:'plan_input'},400);
  const siteMode=latest.role==='user'&&(!taskMode||taskMode==='code')&&
   (siteIntent(latest.content)||input.sitePreview===true);
  if(/^\s*\/site\s*$/iu.test(latest.content))return json({error:'Опишите сайт после /site.',code:'site_input'},400);
  const reference=input.imageReference;
- const imageRequest=siteMode?null:imageIntent(latest.content,!!reference);
+ const imageRequest=siteMode||taskMode||localIntent(latest.content)?null:imageIntent(latest.content,!!reference);
  if(latest.role==='user'&&imageRequest){
   if(imageRequest.mode==='edit'){
    if(!reference)return json({error:'Сначала создайте изображение в этом диалоге.',code:'image_reference_missing'},400);

@@ -400,3 +400,20 @@ test('the local site generator escapes supplied branding and preserves existing 
  assert.equal(revision.status,502);
  assert.equal((await revision.json()).code,'site_revision_unavailable');
 });
+
+test('natural phrases route a poster, code review and file comparison to their specialized handlers',async()=>{
+ const user=content=>({role:'user',content});
+ const poster=await chat(req({messages:[user('Сделай постер для джазового концерта')]}),{CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'token'},async url=>{
+  assert.match(url,/lucid-origin$/);
+  return Response.json({result:{image:'iVBORw0KGgo='}});
+ });
+ assert.equal(poster.status,200);
+ const review=await chat(req({messages:[user('Проверь код: найди ошибки')]}),{OPENROUTER_API_KEY:'secret'},async(url,options)=>{
+  assert.match(JSON.parse(options.body).messages[0].content,/Режим \/review/);
+  return Response.json({choices:[{message:{content:'Прикрепите исходник.'},finish_reason:'stop'}]});
+ });
+ assert.equal(review.status,200);
+ const diff=await chat(req({messages:[{...user('Сравни два файла построчно'),attachments:[{name:'old.txt',text:'старое'},{name:'new.txt',text:'новое'}]}]}),{},()=>assert.fail('compare files locally'));
+ assert.equal(diff.status,200);
+ assert.equal((await diff.json()).model,'local-diff');
+});

@@ -9,6 +9,8 @@ export function imageIntent(content,hasImage=false){
  // Requests for advice, text, or prompts must remain ordinary conversation.
  if(/^(?:как |почему |объясни|расскажи|напиши|придумай промпт|не |don't |how |explain|write )/u.test(t)||/^(?:измени|сделай|добавь|убери|замени|перепиши).*?(?:ответ|абзац|код|текст ответа|список|таблиц)/u.test(t))return null;
  if(hasImage&&/^(?:сделай|make)\s/u.test(t)&&/(?:ярче|темнее|светлее|реалистичнее|лучше|краснее|brighter|darker|realistic)/u.test(t))return {mode:'edit',prompt:text};
+ const poster=/^(?:нарисуй|нарисовать|создай|создать|сделай|сделать|сгенерируй|сгенерировать|оформи|create|make|design|draw)\s+[^\n]{0,60}?(?:постер|афиш|обложк|poster\b|cover\b)/u;
+ if(poster.test(t))return {mode:'create',preset:'design',prompt:text};
  const visual=/(?:картин|изображен|фото|иллюстрац|портрет|аватар|логотип|обложк|постер|рисунок|image|picture|photo|illustration|logo|poster)/u;
  if(/^(?:нарисуй|нарисовать|изобрази|изобразить)\s/u.test(t)||/^(?:создай|создать|сгенерируй|сгенерировать|сделай|сделать)\s/u.test(t)&&visual.test(t)||/^(?:draw|paint)\s/u.test(t)||/^(?:create|generate|make)\s/u.test(t)&&visual.test(t))return {mode:'create',prompt:text};
  const editing=/^(?:измени|поменяй|замени|добавь|убери|удали|перекрась|осветли|затемни|улучши|отредактируй|сделай|пусть|увеличь|уменьши|edit|change|replace|add|remove|make)\s/u.test(t);

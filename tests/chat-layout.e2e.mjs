@@ -47,9 +47,9 @@ try{
  assert.equal(await toggle.getAttribute('aria-pressed'),'true');
  assert.equal(await page.locator('html').getAttribute('data-theme'),'dark');
  const composer=page.getByRole('textbox',{name:'Сообщение',exact:true});
- await composer.fill('/calc 0,1 + 0,2');
+ await composer.fill('Посчитай 0,1 + 0,2');
  await toggle.click();
- assert.equal(await composer.inputValue(),'/calc 0,1 + 0,2');
+ assert.equal(await composer.inputValue(),'Посчитай 0,1 + 0,2');
  assert.equal(await page.locator('html').getAttribute('data-theme'),'light');
  await page.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
  await page.getByText('0,3',{exact:false}).last().waitFor();
@@ -104,8 +104,8 @@ try{
  });
  await codePage.getByRole('button',{name:'Написать код',exact:true}).click();
  const codeComposer=codePage.getByRole('textbox',{name:'Сообщение',exact:true});
- assert.equal(await codeComposer.inputValue(),'/code ');
- await codeComposer.fill('/code создай main.rs');
+ assert.equal(await codeComposer.inputValue(),'Напиши код для ');
+ await codeComposer.fill('Создай файл main.rs');
  await codePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
  await codePage.getByRole('button',{name:'Сохранить в проект',exact:true}).click();
  assert.equal(await codePage.locator('#proposed-code').inputValue(),original);
@@ -113,7 +113,7 @@ try{
  const fileMenu=codePage.getByRole('button',{name:'Действия с файлом main.rs'});
  await fileMenu.click();
  await codePage.getByText('Прикрепить к сообщению',{exact:true}).click();
- await codeComposer.fill('/code измени main.rs');
+ await codeComposer.fill('Измени main.rs');
  await codePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
  await codePage.getByRole('button',{name:'Сохранить в проект',exact:true}).nth(1).click();
  assert.equal(requests[1].messages.at(-1).attachments[0].text,original);
@@ -144,8 +144,8 @@ try{
  });
  await planPage.getByRole('button',{name:'Продумать план',exact:true}).click();
  const planComposer=planPage.getByRole('textbox',{name:'Сообщение',exact:true});
- assert.equal(await planComposer.inputValue(),'/plan ');
- await planComposer.fill('/plan подготовить выпуск');
+ assert.equal(await planComposer.inputValue(),'Составь план для ');
+ await planComposer.fill('Составь план подготовки выпуска');
  await planPage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
  await planPage.getByRole('checkbox',{name:'Собрать материалы'}).check();
  await planPage.reload();
@@ -176,7 +176,7 @@ try{
  await sitePage.waitForLoadState('networkidle');
  const siteComposer=sitePage.getByRole('textbox',{name:'Сообщение',exact:true});
  await sitePage.getByRole('button',{name:'Создать сайт',exact:true}).click();
- assert.equal(await siteComposer.inputValue(),'/site ');
+ assert.equal(await siteComposer.inputValue(),'Сделай сайт для ');
  await siteComposer.fill('Сделай сайт со счётчиком');
  await sitePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
  const frame=sitePage.frameLocator('#preview-root iframe');
@@ -209,7 +209,7 @@ try{
  const draftPage=await browser.newPage({viewport:{width:1440,height:900}});
  await draftPage.goto('http://127.0.0.1:'+server.address().port);
  await draftPage.waitForLoadState('networkidle');
- await draftPage.getByRole('textbox',{name:'Сообщение',exact:true}).fill('/site сделай сайт для стоматологической клиники');
+ await draftPage.getByRole('textbox',{name:'Сообщение',exact:true}).fill('Сделай сайт для стоматологической клиники');
  await draftPage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
  const draftFrame=draftPage.frameLocator('#preview-root iframe');
  await draftFrame.getByRole('heading',{name:'Забота о вашей улыбке'}).waitFor();
