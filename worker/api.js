@@ -479,6 +479,9 @@ export async function chat(request,env,fetcher=fetch){
  if(taskMode==='plan'&&!taskRequest.details.trim())return json({error:'Опишите цель после /plan.',code:'plan_input'},400);
  const siteMode=latest.role==='user'&&(!taskMode||taskMode==='code')&&
   (siteIntent(latest.content)||input.sitePreview===true);
+ if(siteMode&&/^\s*сделай\s+сайт[.!?]*\s*$/iu.test(latest.content)){
+  return json({text:'Какой сайт сделать? Напишите, для кого или для чего он нужен.',model:'local-site-question',provider:'local'});
+ }
  if(/^\s*\/site\s*$/iu.test(latest.content))return json({error:'Опишите сайт после /site.',code:'site_input'},400);
  const reference=input.imageReference;
  const imageRequest=siteMode||taskMode||localIntent(latest.content)?null:imageIntent(latest.content,!!reference);
@@ -497,7 +500,8 @@ export async function chat(request,env,fetcher=fetch){
  const existingPreview=latest.attachments?.some(file=>typeof file?.text==='string'&&
   /^(?:Текущая версия предпросмотра — |.*\.html?$)/iu.test(String(file.name)));
  const siteDraft=()=>json({
-  text:'Сервис модели не подготовил сайт. Открыл стартовую страницу, собранную внутри Guzan. Проверьте тексты и заполните контакты перед публикацией.\n\n```html index.html\n'+createSiteDraft(latest.content)+'\n```',
+  text:'Сервис модели не подготовил сайт. Открыл стартовую страницу, собранную внутри Guzan. Проверьте тексты и заполните контакты перед публикацией.\n\n```html index.html\n'+createSiteDraft(siteIntent(latest.content)?latest.content:
+   'Сделай сайт '+(/^\s*(?:для|про|о)\s+/iu.test(latest.content)?'':'для ')+latest.content)+'\n```',
   model:'local-site-draft',provider:'local',truncated:false,
  });
  if(!configured){

@@ -176,7 +176,7 @@ try{
  await sitePage.waitForLoadState('networkidle');
  const siteComposer=sitePage.getByRole('textbox',{name:'Сообщение',exact:true});
  await sitePage.getByRole('button',{name:'Создать сайт',exact:true}).click();
- assert.equal(await siteComposer.inputValue(),'Сделай сайт для ');
+ assert.equal(await siteComposer.inputValue(),'Сделай сайт');
  await siteComposer.fill('Сделай сайт со счётчиком');
  await sitePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
  const frame=sitePage.frameLocator('#preview-root iframe');
@@ -209,7 +209,12 @@ try{
  const draftPage=await browser.newPage({viewport:{width:1440,height:900}});
  await draftPage.goto('http://127.0.0.1:'+server.address().port);
  await draftPage.waitForLoadState('networkidle');
- await draftPage.getByRole('textbox',{name:'Сообщение',exact:true}).fill('Сделай сайт для стоматологической клиники');
+ await draftPage.getByRole('button',{name:'Создать сайт',exact:true}).click();
+ const draftComposer=draftPage.getByRole('textbox',{name:'Сообщение',exact:true});
+ assert.equal(await draftComposer.inputValue(),'Сделай сайт');
+ await draftPage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ await draftPage.getByText(/Какой сайт сделать/).waitFor();
+ await draftComposer.fill('Для стоматологической клиники');
  await draftPage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
  const draftFrame=draftPage.frameLocator('#preview-root iframe');
  await draftFrame.getByRole('heading',{name:'Забота о вашей улыбке'}).waitFor();
