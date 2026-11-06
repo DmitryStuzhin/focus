@@ -1,6 +1,8 @@
 // Shared routing keeps browser progress and server execution in agreement.
 export function imageIntent(content,hasImage=false){
  const text=String(content||'').trim();
+ const design=/^\/design(?=\s|$)\s*([\s\S]*)$/iu.exec(text);
+ if(design)return {mode:'create',preset:'design',prompt:design[1].trim()};
  const command=/^\/image(?=\s|$)\s*([\s\S]*)$/iu.exec(text);
  if(command)return {mode:'create',prompt:command[1].trim()};
  const t=text.toLowerCase().replace(/ё/g,'е').replace(/^(?:бро[,! ]*|пожалуйста[, ]*|можешь\s+|можно\s+|давай\s+|теперь\s+|а\s+)+/u,'');

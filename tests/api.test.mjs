@@ -246,3 +246,39 @@ test('unit conversion is exact and refuses incompatible dimensions',async()=>{
  assert.equal((await (await run('/convert 2,5 км в м')).json()).text,'**Результат** 2500 м');
  assert.equal((await run('/convert 5 кг в л')).status,400);
 });
+
+test('design mode uses Leonardo JSON while ordinary edits keep their reference',async()=>{
+ const env={CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'token'};
+ const response=await chat(req({messages:[{role:'user',content:'/design афиша --ar 9:16'}]}),env,async(url,options)=>{
+  assert.match(url,/\/leonardo\/lucid-origin$/);
+  assert.equal(options.headers['content-type'],'application/json');
+  assert.deepEqual(JSON.parse(options.body),{prompt:'афиша',width:720,height:1280,num_steps:25});
+  return Response.json({result:{image:'iVBORw0KGgo='}});
+ });
+ assert.equal(response.status,200);
+ assert.equal((await response.json()).model,'@cf/leonardo/lucid-origin');
+});
+
+test('CSV handles quoted delimiters, decimal commas and blanks without a model',async()=>{
+ const run=text=>chat(req({messages:[{role:'user',content:'/csv',attachments:[{name:'test.csv',text}]}]}),{},()=>assert.fail('local analysis should not call a provider'));
+ const response=await run('Название;Цена;Количество\r\n"чай; мята";10,5;2\r\nкофе;20,5;\r\n');
+ assert.equal(response.status,200);
+ const {text}=await response.json();
+ assert.match(text,/Строк данных:\*\* 2/);
+ assert.match(text,/\| Цена \| 0 \| 10,5 \| 20,5 \| 31 \| 15,5 \|/);
+ assert.match(text,/\| Количество \| 1 \| 2 \| 2 \| 2 \| 2 \|/);
+ assert.equal((await run('Название;Цена\n"незакрыто;10')).status,400);
+});
+
+test('file comparison preserves line order and finds additions and deletions',async()=>{
+ const response=await chat(req({messages:[{role:'user',content:'/diff',attachments:[
+  {name:'old.txt',text:'Первая\nСтарая\nПоследняя\n'},
+  {name:'new.txt',text:'Первая\nНовая\nПоследняя\nДополнение\n'},
+ ]}]}),{},()=>assert.fail('local comparison should not call a provider'));
+ assert.equal(response.status,200);
+ const {text}=await response.json();
+ assert.match(text,/Удалено \| 2 \| Старая/);
+ assert.match(text,/Добавлено \| 2 \| Новая/);
+ assert.match(text,/Добавлено \| 4 \| Дополнение/);
+ assert.doesNotMatch(text,/Последняя/);
+});

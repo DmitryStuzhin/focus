@@ -170,14 +170,112 @@ function convertUnits(input){
  const base=calculatePair('*',decimal(value),decimal(source[1]));
  return '**Результат** '+formatFraction(calculatePair('/',base,decimal(target[1])))+' '+to.toLowerCase();
 }
-function localSkill(content){
- const match=/^\/(calc|stats|convert)(?=\s|$)\s*([\s\S]*)$/iu.exec(content.trim());
+function readCSV(input,separator){
+ const rows=[];
+ let row=[],field='',quoted=false,closed=false;
+ const text=input.replace(/^\uFEFF/u,'').replace(/\r\n?/gu,'\n');
+ const finishField=()=>{
+  row.push(field.trim());
+  field='';
+  closed=false;
+  if(row.length>64)throw new Error('CSV должен содержать до 64 столбцов.');
+ };
+ const finishRow=()=>{
+  finishField();
+  if(row.some(Boolean)||row.length>1)rows.push(row);
+  row=[];
+  if(rows.length>5001)throw new Error('CSV должен содержать до 5000 строк данных.');
+ };
+ for(let i=0;i<text.length;i++){
+  const c=text[i];
+  if(quoted){
+   if(c!=='"')field+=c;
+   else if(text[i+1]==='"'){field+='"';i++;}
+   else{quoted=false;closed=true;}
+  }else if(c===separator)finishField();
+  else if(c==='\n')finishRow();
+  else if(c==='"'&&!field&&!closed)quoted=true;
+  else if(closed||c==='"')throw new Error('Проверьте кавычки в CSV.');
+  else field+=c;
+ }
+ if(quoted)throw new Error('В CSV есть незакрытые кавычки.');
+ if(field||row.length||closed)finishRow();
+ return rows;
+}
+const tableCell=value=>String(value).slice(0,160).replace(/[\r\n]+/gu,' ').replace(/[|\\`*_~<>[\]]/gu,' ');
+function analyzeCSV(text,option){
+ const delimiters=option?[{'запятая':',','точка-с-запятой':';','табуляция':'\t',',':',',';':';'}[option]]:[';',',','\t'];
+ if(!delimiters[0])throw new Error('Укажите разделитель: /csv ; или /csv , или /csv табуляция.');
+ let rows,problem;
+ for(const separator of delimiters){
+  try{
+   const candidate=readCSV(text,separator);
+   if(candidate.length&&candidate.every(row=>row.length===candidate[0].length)&&(!rows||candidate[0].length>rows[0].length))rows=candidate;
+  }catch(error){problem=error;}
+ }
+ if(!rows||rows[0].length<2&&!option)throw new Error(rows||!problem?'Не удалось определить разделитель. Попробуйте /csv ; или /csv ,':problem.message);
+ const [head,...data]=rows;
+ const result=['**Строк данных:** '+data.length+' · **Столбцов:** '+head.length,'','| Столбец | Пустых | Мин. | Макс. | Сумма | Среднее |','| --- | ---: | ---: | ---: | ---: | ---: |'];
+ for(const [index,name] of head.entries()){
+  const filled=data.map(row=>row[index]).filter(Boolean);
+  let stats=['—','—','—','—'];
+  if(filled.length&&filled.every(value=>value.length<=40&&/^[+-]?(?:\d+(?:[.,]\d+)?|[.,]\d+)$/u.test(value))){
+   const values=filled.map(decimal);
+   const compare=([a,b],[c,d])=>a*d<c*b?-1:a*d>c*b?1:0;
+   let low=values[0],high=low,sum=[0n,1n];
+   for(const value of values){
+    if(compare(value,low)<0)low=value;
+    if(compare(value,high)>0)high=value;
+    sum=calculatePair('+',sum,value);
+   }
+   stats=[low,high,sum,calculatePair('/',sum,[BigInt(values.length),1n])].map(formatFraction);
+  }
+  result.push('| '+(tableCell(name)||'Столбец '+(index+1))+' | '+(data.length-filled.length)+' | '+stats.join(' | ')+' |');
+ }
+ return result.join('\n');
+}
+function compareFiles(before,after){
+ const lines=text=>text.replace(/^\uFEFF/u,'').replace(/\r\n?/gu,'\n').replace(/\n$/u,'').split('\n');
+ const old=before?lines(before):[],next=after?lines(after):[];
+ if(old.length>500||next.length>500)throw new Error('Для сравнения используйте файлы до 500 строк каждый.');
+ const length=Array.from({length:old.length+1},()=>new Uint16Array(next.length+1));
+ for(let i=old.length-1;i>=0;i--)for(let j=next.length-1;j>=0;j--){
+  length[i][j]=old[i]===next[j]?1+length[i+1][j+1]:Math.max(length[i+1][j],length[i][j+1]);
+ }
+ const changes=[];
+ let i=0,j=0,removed=0,added=0;
+ while(i<old.length||j<next.length){
+  if(i<old.length&&j<next.length&&old[i]===next[j]){i++;j++;}
+  else if(i<old.length&&(j===next.length||length[i+1][j]>=length[i][j+1])){
+   if(changes.length<40)changes.push(['Удалено',i+1,old[i]]);
+   removed++;i++;
+  }else{
+   if(changes.length<40)changes.push(['Добавлено',j+1,next[j]]);
+   added++;j++;
+  }
+ }
+ if(!removed&&!added)return 'Содержимое файлов совпадает.';
+ return ['Добавлено строк: '+added+' · Удалено: '+removed,'',
+  ...changes.map(([type,line,value])=>type+' | '+line+' | '+(value.length>240?value.slice(0,240)+'…':value||'∅')),
+  ...(added+removed>40?['','Показаны первые 40 изменений.']:[])].join('\n');
+}
+function localSkill(content,attachments=[]){
+ const match=/^\/(calc|stats|convert|csv|diff)(?=\s|$)\s*([\s\S]*)$/iu.exec(content.trim());
  if(!match)return null;
  const skill=match[1].toLowerCase();
+ const files=attachments.filter(file=>typeof file?.text==='string');
  const [solve,model]={
   calc:[calculate,'local-calculator'],
   stats:[summarizeNumbers,'local-statistics'],
   convert:[convertUnits,'local-conversion'],
+  csv:[option=>{
+   if(files.length!==1||attachments.length!==1)throw new Error('Прикрепите один CSV-файл к сообщению /csv.');
+   return analyzeCSV(files[0].text,option);
+  },'local-csv'],
+  diff:[()=>{
+   if(files.length!==2||attachments.length!==2)throw new Error('Прикрепите два текстовых файла: сначала старую версию, затем новую.');
+   return compareFiles(files[0].text,files[1].text);
+  },'local-diff'],
  }[skill];
  try{
   const text=solve(match[2].trim());
@@ -188,6 +286,7 @@ function localSkill(content){
 }
 
 
+const DESIGN_IMAGE_MODEL='@cf/leonardo/lucid-origin';
 const OPENAI_IMAGE_MODEL='gpt-image-2.5-sunburst';
 const CLOUDFLARE_IMAGE_MODEL='@cf/black-forest-labs/flux-2-klein-4b';
 const CLOUDFLARE_FALLBACK_MODEL='@cf/black-forest-labs/flux-2-klein-9b';
@@ -208,7 +307,7 @@ async function hasImageSubscription(code,env){
  });
 }
 
-async function generateImage(prompt,request,env,fetcher,reference=null){
+async function generateImage(prompt,request,env,fetcher,reference=null,preset=null){
  const code=request.headers.get('x-focus-image-pass');
  const subscribed=code!==null&&await hasImageSubscription(code,env);
  if(code!==null&&!subscribed){
@@ -218,7 +317,8 @@ async function generateImage(prompt,request,env,fetcher,reference=null){
  const cloudflare=!openAIKey&&!!(env.CLOUDFLARE_ACCOUNT_ID||env.CLOUDFLARE_API_TOKEN);
  const account=env.CLOUDFLARE_ACCOUNT_ID?.trim();
  const token=openAIKey||(cloudflare?env.CLOUDFLARE_API_TOKEN?.trim():subscribed?env.OPENROUTER_API_KEY:null);
- let model=openAIKey?OPENAI_IMAGE_MODEL:cloudflare?CLOUDFLARE_IMAGE_MODEL:env.OPENROUTER_IMAGE_MODEL;
+ const design=preset==='design'&&cloudflare;
+ let model=openAIKey?OPENAI_IMAGE_MODEL:design?DESIGN_IMAGE_MODEL:cloudflare?CLOUDFLARE_IMAGE_MODEL:env.OPENROUTER_IMAGE_MODEL;
  if(!token||!model||(cloudflare&&!/^[a-f0-9]{32}$/i.test(account||''))){
   return json({error:'Для генерации настройте CLOUDFLARE_ACCOUNT_ID и CLOUDFLARE_API_TOKEN на сервере.',code:'image_not_configured'},503);
  }
@@ -246,6 +346,10 @@ async function generateImage(prompt,request,env,fetcher,reference=null){
    headers['content-type']='application/json';
    body=JSON.stringify(params);
   }
+ }else if(design){
+  const [width,height]=size;
+  headers['content-type']='application/json';
+  body=JSON.stringify({prompt,width,height,num_steps:25});
  }else if(cloudflare){
   const [width,height]=size;
   body=new FormData();
@@ -335,10 +439,10 @@ export async function chat(request,env,fetcher=fetch){
    if(!reference)return json({error:'Сначала создайте изображение в этом диалоге.',code:'image_reference_missing'},400);
    if(reference.mimeType!=='image/png'||typeof reference.data!=='string'||reference.data.length>2000000||!/^iVBORw0KGgo[A-Za-z0-9+/]*={0,2}$/.test(reference.data)||reference.data.length%4||![reference.width,reference.height].every(n=>Number.isInteger(n)&&n>=256&&n<=1920))return json({error:'Некорректное изображение для редактирования.',code:'image_reference_invalid'},400);
   }
-  return generateImage(imageRequest.prompt,request,env,fetcher,imageRequest.mode==='edit'?reference:null);
+  return generateImage(imageRequest.prompt,request,env,fetcher,imageRequest.mode==='edit'?reference:null,imageRequest.preset);
  }
  if(latest.role==='user'){
-  const result=localSkill(latest.content);
+  const result=localSkill(latest.content,latest.attachments||[]);
   if(result)return result;
  }
  if(!modelConfig(env).configured)return json({error:'Модель ещё не подключена. Запрос сохранён в истории.',code:'not_configured'},503);
