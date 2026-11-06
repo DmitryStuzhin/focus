@@ -35,6 +35,7 @@ external:'<path d="M14 3h7v7m0-7L10 14M10 3H3v18h18v-7"/>',
 rename:'<path d="M4 20h16M15 4l5 5M4 16l2 2 13-13a2 2 0 0 0-3-3L3 15v4h4"/>',
 clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
 image:'<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8" cy="8" r="1.5"/><path d="m21 15-5-5L5 21"/>',
+poster:'<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 17h8"/><rect x="8" y="10" width="8" height="4" rx="1"/>',
 command:'<path d="M9 7V5a2 2 0 1 0-2 2h10a2 2 0 1 0-2-2v14a2 2 0 1 0 2-2H7a2 2 0 1 0 2 2V7z"/>',
 };
 export function icon(name,cls=''){return `<svg class="icon ${cls}" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]||paths.file}</svg>`}
