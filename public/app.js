@@ -53,7 +53,7 @@ function sidebar(){
 }
 function header(){let title=ui.view==='workspace'?'Рабочее пространство':ui.view==='trash'?'Корзина':ui.view==='archive'?'Архив':activeProject()?.name||'Новый диалог';return `<header class="topbar"><div class="topbar-title">${ib('toggle-sidebar','menu','Открыть навигацию',ui.sidebarClosed?'':`class="mobile-only"`)}<span class="truncate">${e(title)}</span>${ui.view==='chat'&&activeChat()?`<span class="top-divider desktop-only"></span><span class="truncate desktop-only" style="color:var(--muted);font-size:12px;font-weight:400">${e(activeChat().title)}</span>`:''}</div><div class="topbar-actions">${themeButton()}${ui.view==='chat'?`<button class="status" data-action="model-info" title="Статус подключения"><span class="status-dot"></span>${apiStatus.configured?e(MODEL_LABEL):'Не подключено'}</button><span class="top-divider"></span>${activeChat()?ib('current-chat-menu','more','Действия с диалогом'):''}${ib('toggle-files','panel','Показать или скрыть файлы',`aria-pressed="${state.settings.showFiles}"`)}`:button('new-chat',`${icon('plus')} Новый диалог`,'ghost')}</div></header>`}
 function chatView(){const c=activeChat();if(!c||!c.messages.length)return `<section class="welcome"><div class="welcome-inner">${mark}<h1>Над чем поработаем?</h1><p class="welcome-sub">От первой мысли до готового результата</p><div class="suggestions"><button class="suggestion" data-action="prompt" data-prompt="/image ">${icon('image')}Создать изображение</button><button class="suggestion" data-action="prompt" data-prompt="/design ">${icon('poster')}Постер или обложка</button><button class="suggestion" data-action="prompt" data-prompt="Подготовь документ на тему: ">${icon('file')}Создать документ</button><button class="suggestion" data-action="prompt" data-prompt="Собери презентацию на 8 слайдов о ">${icon('slides')}Собрать презентацию</button><button class="suggestion" data-action="prompt" data-prompt="Создай таблицу для ">${icon('table')}Сделать таблицу</button><button class="suggestion" data-action="prompt" data-prompt="Помоги составить пошаговый план для ">${icon('plan')}Продумать план</button></div></div></section>`;
- return `<section class="messages" aria-label="Сообщения диалога">${c.messages.map(m=>m.role==='assistant'?`<article class="assistant-message"><div class="assistant-label">Focus <span>${e(m.model==='local-calculator'?'Калькулятор':m.model==='local-statistics'?'Статистика':m.model==='local-conversion'?'Конвертер':m.model==='local-csv'?'Анализ CSV':m.model==='local-diff'?'Сравнение файлов':MODEL_LABEL)}</span></div>${sourcePills({...m.search,owner:m.id})}<div class="markdown">${m.model==='local-diff'?'<div class="code-block"><pre><code>'+e(m.content)+'</code></pre></div>':linkCitations(markdown(m.content),m.search)}</div>${m.imageFile&&state.files.some(f=>f.id===m.imageFile&&!f.deleted)?'<figure class="generated-image"><img data-generated-file="'+e(m.imageFile)+'" alt="Сгенерированное изображение" /><button class="btn" data-action="download-file" data-id="'+e(m.imageFile)+'">Скачать изображение</button></figure>':''}<div class="assistant-actions">${ib('copy-message','copy','Скопировать ответ',`data-id="${m.id}"`)}${ib('save-answer','file','Сохранить ответ в файл',`data-id="${m.id}"`)}${ib('download-answer','download','Скачать ответ',`data-id="${m.id}"`)}${ib('retry-answer','refresh','Повторить ответ')}${m.truncated?'<small>Достигнута максимальная длина ответа</small>':''}</div></article>`:`<article class="message">${m.files?.length?`<div class="message-files">${m.files.map(id=>{const f=state.files.find(x=>x.id===id&&!x.deleted);return f?`<button class="message-file" data-action="preview-file" data-id="${f.id}">${icon(fileIcon(f))}<span class="truncate">${e(f.name)}</span></button>`:''}).join('')}</div>`:''}<div class="message-bubble">${e(m.content)}</div><div class="message-time"><span>${time(m.at)}</span>${ib('copy-message','copy','Скопировать сообщение',`data-id="${m.id}"`)}${ib('edit-message','rename','Изменить сообщение',`data-id="${m.id}"`)}${ib('delete-message','trash','Удалить сообщение',`data-id="${m.id}"`)}</div></article>`).join('')}${generation?.chatId===c.id?`<div class="assistant-message" role="status"><div class="assistant-label">Focus</div>${generation.sources?.length?sourcePills({sources:generation.sources,query:generation.query,owner:'pending'}):''}<div class="generating ${generation.phase==='searching'?'web-searching':''}">${generation.phase==='searching'?'Ищу в интернете':generation.phase==='imaging'?'Создаю изображение':'Готовлю ответ'}<span class="typing-dots"><i></i><i></i><i></i></span></div></div>`:c.error?`<div class="request-error" role="alert">${icon('info')}<div>${c.pendingSearch?.sources?.length?sourcePills({...c.pendingSearch,owner:'pending'}):''}<p>${e(c.error)}</p><button class="inline-link" data-action="retry-answer">Повторить запрос</button></div></div>`:c.messages.at(-1)?.role==='user'?`<div class="pending-note">${icon('info')}<span>${apiStatus.configured?'Ответ не получен. Вы можете повторить запрос.':'Запрос сохранён. Модель ещё не подключена.'} <button class="inline-link" data-action="retry-answer">Повторить</button></span></div>`:''}</section>`}
+ return `<section class="messages" aria-label="Сообщения диалога">${c.messages.map(m=>m.role==='assistant'?`<article class="assistant-message"><div class="assistant-label">Focus <span>${e(m.model==='local-calculator'?'Калькулятор':m.model==='local-statistics'?'Статистика':m.model==='local-conversion'?'Конвертер':m.model==='local-csv'?'Анализ CSV':m.model==='local-diff'?'Сравнение файлов':MODEL_LABEL)}</span></div>${sourcePills({...m.search,owner:m.id})}<div class="markdown">${m.model==='local-diff'?'<div class="code-block"><pre><code>'+e(m.content)+'</code></pre></div>':linkCitations(markdown(m.content,m),m.search)}</div>${m.imageFile&&state.files.some(f=>f.id===m.imageFile&&!f.deleted)?'<figure class="generated-image"><img data-generated-file="'+e(m.imageFile)+'" alt="Сгенерированное изображение" /><button class="btn" data-action="download-file" data-id="'+e(m.imageFile)+'">Скачать изображение</button></figure>':''}<div class="assistant-actions">${ib('copy-message','copy','Скопировать ответ',`data-id="${m.id}"`)}${ib('save-answer','file','Сохранить ответ в файл',`data-id="${m.id}"`)}${ib('download-answer','download','Скачать ответ',`data-id="${m.id}"`)}${ib('retry-answer','refresh','Повторить ответ')}${m.truncated?'<small>Достигнута максимальная длина ответа</small>':''}</div></article>`:`<article class="message">${m.files?.length?`<div class="message-files">${m.files.map(id=>{const f=state.files.find(x=>x.id===id&&!x.deleted);return f?`<button class="message-file" data-action="preview-file" data-id="${f.id}">${icon(fileIcon(f))}<span class="truncate">${e(f.name)}</span></button>`:''}).join('')}</div>`:''}<div class="message-bubble">${e(m.content)}</div><div class="message-time"><span>${time(m.at)}</span>${ib('copy-message','copy','Скопировать сообщение',`data-id="${m.id}"`)}${ib('edit-message','rename','Изменить сообщение',`data-id="${m.id}"`)}${ib('delete-message','trash','Удалить сообщение',`data-id="${m.id}"`)}</div></article>`).join('')}${generation?.chatId===c.id?`<div class="assistant-message" role="status"><div class="assistant-label">Focus</div>${generation.sources?.length?sourcePills({sources:generation.sources,query:generation.query,owner:'pending'}):''}<div class="generating ${generation.phase==='searching'?'web-searching':''}">${generation.phase==='searching'?'Ищу в интернете':generation.phase==='imaging'?'Создаю изображение':'Готовлю ответ'}<span class="typing-dots"><i></i><i></i><i></i></span></div></div>`:c.error?`<div class="request-error" role="alert">${icon('info')}<div>${c.pendingSearch?.sources?.length?sourcePills({...c.pendingSearch,owner:'pending'}):''}<p>${e(c.error)}</p><button class="inline-link" data-action="retry-answer">Повторить запрос</button></div></div>`:c.messages.at(-1)?.role==='user'?`<div class="pending-note">${icon('info')}<span>${apiStatus.configured?'Ответ не получен. Вы можете повторить запрос.':'Запрос сохранён. Модель ещё не подключена.'} <button class="inline-link" data-action="retry-answer">Повторить</button></span></div>`:''}</section>`}
 
 function composer(){return `<div class="composer-area"><div class="composer-wrap"><form class="composer" id="composer-form"><div class="attachment-list" ${ui.attachments.length?'':'hidden'}>${ui.attachments.map(id=>{const f=state.files.find(x=>x.id===id);return f?`<span class="attachment-chip">${icon(fileIcon(f))}<span class="truncate">${e(f.name)}</span>${ib('remove-attachment','close','Убрать вложение',`data-id="${id}"`)}</span>`:''}).join('')}</div><textarea id="composer-input" rows="2" placeholder="Задача, вопрос или идея…" aria-label="Сообщение" maxlength="100000">${e(ui.draft)}</textarea><div class="composer-bottom"><div class="composer-left">${ib('attach','attach','Прикрепить файлы')}<button class="web-search-toggle ${state.settings.webSearch?'active':''}" type="button" data-action="toggle-web-search" aria-label="Поиск в интернете" aria-pressed="${!!state.settings.webSearch}" title="${apiStatus.searchConfigured?'Искать источники перед ответом':'Поиск ещё не подключён на сервере'}" ${generation?'disabled':''}>${icon('globe')}<span>Поиск</span></button><button class="composer-select" type="button" data-action="model-menu" aria-label="Выбрать модель">${e(MODEL_LABEL)}${icon('down')}</button><button class="composer-select" type="button" data-action="effort-menu" aria-label="Режим ответа">${apiStatus.provider==='openrouter'?'Обычный ответ':effortLabel()}${icon('down')}</button><button class="composer-select project-context" type="button" data-action="context-menu" aria-label="Контекст проекта">${icon('folder')}<span class="truncate">Файлы проекта</span>${icon('down')}</button></div><button class="send" id="send-button" type="${generation?'button':'submit'}" ${generation?'data-action="stop-generation"':''} aria-label="${generation?'Остановить ответ':'Отправить сообщение'}" ${generation||ui.draft.trim()||ui.attachments.length?'':'disabled'}>${generation?'<span class="stop-square"></span>':icon('arrow')}</button></div></form><div class="composer-hint"><span>История сохраняется в этом браузере</span><span class="enter-hint">· ${state.settings.sendOnEnter?'Enter — отправить, Shift + Enter — новая строка':'Ctrl + Enter — отправить'}</span></div></div></div>`}
 function effortLabel(){return {fast:'Быстро',balanced:'Вдумчиво',deep:'Подробно'}[state.settings.effort]||'Вдумчиво'}
@@ -104,7 +104,7 @@ function pickFiles(attach=false){if(!activeProject()){projectDialog();return}upl
 function answerMarkdown(m){return m.content+(m.search?.sources?.length?'\n\nИсточники:\n'+m.search.sources.map(s=>`[${s.id}] ${s.title} — ${s.url}`).join('\n'):'')}
 function download(blob,name){const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),1000)}
 async function downloadFile(id){const f=state.files.find(x=>x.id===id);const b=await getBlob(id);if(!b){toast('Файл недоступен на этом устройстве');return}download(b,f.name)}
-function isText(f){return f.type?.startsWith('text/')||/\.(md|txt|csv|json|html?|css|js|jsx|tsx?|py|xml|ya?ml|log|svg)$/i.test(f.name)}
+function isText(f){return f.type?.startsWith('text/')||/\.(md|txt|csv|json|html?|css|js|jsx|tsx?|py|xml|ya?ml|log|svg|c|h|cpp|cc|hpp|cs|java|kt|kts|go|rs|rb|php|swift|sql|sh|bash|ps1|lua|toml|ini|vue|svelte|dart|scala|r|ipynb)$/i.test(f.name)||/^(?:Dockerfile|Makefile|CMakeLists\.txt)$/i.test(f.name)}
 async function previewFile(id){const f=state.files.find(x=>x.id===id&&!x.deleted);if(!f)return;const blob=await getBlob(id);if(!blob){toast('Файл недоступен на этом устройстве');return}const text=isText(f)&&blob.size<=2*1048576?await blob.text():null;let content;if(text!==null)content=`<pre>${e(text)||'Файл пуст'}</pre>`;else if(f.type?.startsWith('image/')){const url=URL.createObjectURL(blob);content=`<img src="${url}" alt="${e(f.name)}" />`}else content=`<div class="list-empty">${icon(fileIcon(f))}<h2>${e(f.name)}</h2><p>Скачайте файл, чтобы открыть его в подходящем приложении</p></div>`;
  const urlToKeep=content.match(/src="(blob:[^"]+)"/)?.[1];modal(f.name,`<div class="file-preview-header"><span class="file-preview-meta">${humanSize(f.size)} · ${date(f.updated)}</span><div style="display:flex;gap:8px">${text!==null?button('edit-file',`${icon('rename')} Изменить`,'',`data-id="${id}"`):''}${button('download-file',`${icon('download')} Скачать`,'',`data-id="${id}"`)}</div></div><div class="file-preview-content">${content}</div>`,{wide:true});if(urlToKeep)objectURLs.push(urlToKeep)}
 async function editFile(id){const f=state.files.find(x=>x.id===id),blob=await getBlob(id);if(!f||!blob)return;const text=await blob.text();modal(f.name,`<form><div class="form-field"><label for="editor-text">Содержимое файла</label><textarea id="editor-text" class="file-editor" name="content" maxlength="2000000" spellcheck="false">${e(text)}</textarea></div><p class="error-text" id="form-error" hidden></p><div class="dialog-footer">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">Сохранить изменения</button></div></form>`,{wide:true,onSubmit:async(data,form)=>{form.querySelector('[type=submit]').disabled=true;try{const b=new Blob([data.get('content')],{type:f.type||'text/plain'});await putBlob(id,b);f.size=b.size;f.updated=Date.now();log(`Изменён файл «${f.name}»`,f.project);persist();closeModal();render();toast('Изменения сохранены')}catch{form.querySelector('[type=submit]').disabled=false;el('form-error').textContent='Не удалось сохранить файл';el('form-error').hidden=false}}})}
@@ -194,6 +194,9 @@ case 'close-modal':closeModal();break;
 case 'stop-generation':if(generation){generation.controller.abort()}break;
 case 'retry-answer':{const c=activeChat();if(c&&!generation){const lastUser=c.messages.findLastIndex(m=>m.role==='user');if(lastUser>=0){c.messages=c.messages.slice(0,lastUser+1);persist();requestAnswer(c)}}break;}
 case 'save-answer':{const m=activeChat()?.messages.find(x=>x.id===id);if(m){const fId=uid(),blob=new Blob([answerMarkdown(m)],{type:'text/markdown;charset=utf-8'});await putBlob(fId,blob);let name=(activeChat().title.slice(0,40).replace(/[\\/:*?"<>|]/g,'')||'Ответ')+'.md',n=1;while(fileExists(name))name='Ответ ('+(n++)+').md';state.files.push({id:fId,project:state.activeProject,parent:ui.folder,name,kind:'file',type:'text/markdown',size:blob.size,created:Date.now(),updated:Date.now(),deleted:false});log(`Сохранён ответ «${name}»`);persist();render();toast('Ответ сохранён в файлы проекта')}break;}
+case 'copy-code':{const block=codeBlockAction(t);if(block)await copy(block.code);break;}
+case 'download-code':{const block=codeBlockAction(t);if(block)download(new Blob([block.code],{type:'text/plain;charset=utf-8'}),block.filename||'code.txt');break;}
+case 'review-code':await reviewCodeFile(codeBlockAction(t));break;
 case 'download-answer':{const m=activeChat()?.messages.find(x=>x.id===id);if(m)download(new Blob([answerMarkdown(m)],{type:'text/markdown;charset=utf-8'}),'Ответ.md');break;}
 case 'copy-message':{const m=activeChat()?.messages.find(x=>x.id===id);if(m)await copy(m.content);break;}
 case 'edit-message':{const m=activeChat()?.messages.find(x=>x.id===id);if(m)modal('Изменить сообщение',`<form><div class="form-field"><textarea name="content" aria-label="Текст сообщения" rows="6" required autofocus>${e(m.content)}</textarea></div><div class="dialog-footer">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">Сохранить</button></div></form>`,{onSubmit:data=>{m.content=data.get('content').trim();activeChat().updated=Date.now();persist();closeModal();render()}});break;}
@@ -213,18 +216,95 @@ document.addEventListener('drop',ev=>{if(!ev.dataTransfer?.files.length)return;e
 window.addEventListener('resize',()=>{closeMenu();if(innerWidth>=640&&ui.mobileNav){ui.mobileNav=false;render()}if(innerWidth>=960&&ui.mobileFiles){ui.mobileFiles=false;state.settings.showFiles=true;persist();render()}});
 matchMedia('(prefers-color-scheme:dark)').addEventListener('change',()=>{if(state.settings.theme==='system')applyTheme()});
 render();
-function markdown(text){
- const blocks=String(text).split(/```([^\n]*)\n([\s\S]*?)```/g);let out='';
- const inline=str=>e(str).replace(/`([^`\n]+)`/g,'<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g,'<strong>$1</strong>').replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g,'<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
- for(let i=0;i<blocks.length;i+=3){const lines=blocks[i].split('\n');let list=false;for(let j=0;j<lines.length;j++){const line=lines[j];if(/^\s*\|/.test(line)&&j+1<lines.length&&/^\s*\|?[\s:|-]+\|/.test(lines[j+1])){if(list){out+='</ul>';list=false}const cells=line.trim().replace(/^\||\|$/g,'').split('|');out+='<div class="table-wrap"><table><thead><tr>'+cells.map(c=>'<th>'+inline(c.trim())+'</th>').join('')+'</tr></thead><tbody>';j++;while(j+1<lines.length&&/^\s*\|/.test(lines[j+1])){j++;out+='<tr>'+lines[j].trim().replace(/^\||\|$/g,'').split('|').map(c=>'<td>'+inline(c.trim())+'</td>').join('')+'</tr>'}out+='</tbody></table></div>';continue}const li=line.match(/^\s*(?:[-*]|\d+\.)\s+(.+)/);if(li){if(!list){out+='<ul>';list=true}out+='<li>'+inline(li[1])+'</li>';continue}if(list){out+='</ul>';list=false}const h=line.match(/^(#{1,4})\s+(.+)/);if(h)out+=`<h${h[1].length+1}>${inline(h[2])}</h${h[1].length+1}>`;else if(/^\s*---+\s*$/.test(line))out+='<hr>';else if(line.trim())out+='<p>'+inline(line)+'</p>'}if(list)out+='</ul>';if(i+2<blocks.length)out+=`<div class="code-block"><small>${e(blocks[i+1])}</small><pre><code>${e(blocks[i+2])}</code></pre></div>`}return out;
+const validCodeFilename=name=>/^[a-z0-9][a-z0-9._-]{0,99}$/i.test(name);
+const splitCodeBlocks=text=>String(text).replace(/\r\n/g,'\n').split(/^[ \t]*```([^\n]*)\n([\s\S]*?)^[ \t]*```[ \t]*(?=$)/gm);
+function codeBlockInfo(header){
+ const [language,filename,...rest]=header.trim().split(/\s+/u);
+ return {language,filename:!rest.length&&filename&&validCodeFilename(filename)?filename:null};
 }
-async function attachmentPayload(ids){const result=[];let bytes=0;for(const id of [...new Set(ids)]){const f=state.files.find(f=>f.id===id&&!f.deleted&&f.kind!=='folder');if(!f)continue;const blob=await getBlob(id);if(!blob)continue;if(isText(f)&&blob.size<500000){result.push({name:f.name,text:await blob.text()})}else if(['image/png','image/jpeg','image/webp','application/pdf'].includes(f.type)&&blob.size<5*1048576&&bytes+blob.size<6*1048576){bytes+=blob.size;const data=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result.split(',')[1]);r.onerror=reject;r.readAsDataURL(blob)});result.push({name:f.name,mimeType:f.type,data})}else if(ids.includes(id)){toast(`«${f.name}» сохранён, но не передан модели: используйте текст, PDF или изображение до 5 МБ`)}}return result}
+function codeBlockAction(button){
+ const chat=activeChat();
+ const message=chat?.messages.find(m=>m.id===button.dataset.id&&m.role==='assistant');
+ if(!message)return;
+ const parts=splitCodeBlocks(message.content);
+ const index=Number(button.dataset.block);
+ if(!Number.isInteger(index)||index<0||index*3+2>=parts.length)return;
+ const info=codeBlockInfo(parts[index*3+1]);
+ return {chat,message,...info,code:parts[index*3+2]};
+}
+async function codeHash(text){
+ if(!globalThis.crypto?.subtle)return null;
+ const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text));
+ return Array.from(new Uint8Array(digest),byte=>byte.toString(16).padStart(2,'0')).join('');
+}
+async function reviewCodeFile(block){
+ if(!block?.filename||!block.message.codeMode||block.message.truncated)return;
+ const {chat,message,filename,code}=block;
+ const targets=(Array.isArray(message.codeTargets)?message.codeTargets:[]).filter(item=>item?.name===filename);
+ if(targets.length>1){toast('Уточните файл: к запросу прикреплены две версии с одинаковым именем.');return}
+ const target=targets[0];
+ const project=()=>state.projects.find(p=>p.id===chat.project&&!p.deleted);
+ const rootEntry=()=>state.files.find(f=>f.project===chat.project&&!f.deleted&&!f.parent&&f.name.toLowerCase()===filename.toLowerCase());
+ const targetFile=()=>state.files.find(f=>f.id===target?.id&&f.project===chat.project&&!f.deleted&&f.kind==='file'&&f.name===filename);
+ const getOriginal=async()=>{
+  const file=targetFile();
+  const blob=file?await getBlob(file.id):null;
+  if(!blob||!target.hash)throw Error('Исходный файл недоступен. Прикрепите актуальную версию и повторите запрос.');
+  const text=await blob.text();
+  if(await codeHash(text)!==target.hash)throw Error('Исходный файл изменился или был показан модели частично. Прикрепите актуальную версию и повторите запрос.');
+  return {file,text};
+ };
+ try{
+  if(!project())throw Error('Проект недоступен.');
+  if(!target&&rootEntry())throw Error('Файл уже существует. Прикрепите его к запросу /code для безопасной замены.');
+  const original=target?await getOriginal():null;
+  modal(filename,`<form>
+   ${original?`<details class="form-field"><summary>Текущая версия</summary><div class="code-block"><pre><code>${e(original.text)}</code></pre></div></details>`:''}
+   <div class="form-field"><label for="proposed-code">Предложенная версия</label><textarea id="proposed-code" class="file-editor" readonly spellcheck="false">${e(code)}</textarea></div>
+   <p id="code-save-error" class="error-text" hidden></p>
+   <div class="dialog-footer">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">${target?'Применить правку':'Сохранить файл'}</button></div>
+  </form>`,{wide:true,onSubmit:async(_,form)=>{
+   const submit=form.querySelector('[type=submit]');
+   submit.disabled=true;
+   try{
+    if(!project())throw Error('Проект недоступен.');
+    const file=target?(await getOriginal()).file:null;
+    if(!target&&rootEntry())throw Error('Файл с таким именем уже появился в проекте.');
+    const id=file?.id||uid();
+    const blob=new Blob([code],{type:'text/plain;charset=utf-8'});
+    await putBlob(id,blob);
+    const now=Date.now();
+    if(file){file.size=blob.size;file.updated=now;}
+    else state.files.push({id,project:chat.project,parent:null,name:filename,kind:'file',type:'text/plain',size:blob.size,created:now,updated:now,deleted:false});
+    log((file?'Изменён файл «':'Создан файл «')+filename+'»',chat.project);
+    persist();closeModal();render();toast(file?'Правка применена':'Файл сохранён');
+   }catch(error){
+    submit.disabled=false;
+    const notice=form.querySelector('#code-save-error');
+    notice.textContent=error.message||'Не удалось сохранить файл.';
+    notice.hidden=false;
+   }
+  }});
+ }catch(error){toast(error.message||'Не удалось открыть предпросмотр.')}
+}
+function markdown(text,message){
+ const blocks=splitCodeBlocks(text);let out='';
+ const inline=str=>e(str).replace(/`([^`\n]+)`/g,'<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g,'<strong>$1</strong>').replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g,'<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+ for(let i=0;i<blocks.length;i+=3){const lines=blocks[i].split('\n');let list=false;for(let j=0;j<lines.length;j++){const line=lines[j];if(/^\s*\|/.test(line)&&j+1<lines.length&&/^\s*\|?[\s:|-]+\|/.test(lines[j+1])){if(list){out+='</ul>';list=false}const cells=line.trim().replace(/^\||\|$/g,'').split('|');out+='<div class="table-wrap"><table><thead><tr>'+cells.map(c=>'<th>'+inline(c.trim())+'</th>').join('')+'</tr></thead><tbody>';j++;while(j+1<lines.length&&/^\s*\|/.test(lines[j+1])){j++;out+='<tr>'+lines[j].trim().replace(/^\||\|$/g,'').split('|').map(c=>'<td>'+inline(c.trim())+'</td>').join('')+'</tr>'}out+='</tbody></table></div>';continue}const li=line.match(/^\s*(?:[-*]|\d+\.)\s+(.+)/);if(li){if(!list){out+='<ul>';list=true}out+='<li>'+inline(li[1])+'</li>';continue}if(list){out+='</ul>';list=false}const h=line.match(/^(#{1,4})\s+(.+)/);if(h)out+=`<h${h[1].length+1}>${inline(h[2])}</h${h[1].length+1}>`;else if(/^\s*---+\s*$/.test(line))out+='<hr>';else if(line.trim())out+='<p>'+inline(line)+'</p>'}if(list)out+='</ul>';if(i+2<blocks.length){
+ const info=codeBlockInfo(blocks[i+1]);
+ const attrs=message?`data-id="${e(message.id)}" data-block="${i/3}" type="button"`:'';
+ const actions=message?`<span class="code-actions">${button('copy-code','Копировать','ghost',attrs)}${button('download-code','Скачать','ghost',attrs)}${message.codeMode&&info.filename&&!message.truncated?button('review-code','Сохранить в проект','ghost',attrs):''}</span>`:'';
+ out+=`<div class="code-block"><div class="code-toolbar"><small>${e(info.filename||info.language||'Код')}</small>${actions}</div><pre><code>${e(blocks[i+2])}</code></pre></div>`;
+}}return out;
+}
+async function attachmentPayload(ids){const result=[];let bytes=0;for(const id of [...new Set(ids)]){const f=state.files.find(f=>f.id===id&&!f.deleted&&f.kind!=='folder');if(!f)continue;const blob=await getBlob(id);if(!blob)continue;if(isText(f)&&blob.size<500000){result.push({id,name:f.name,text:await blob.text()})}else if(['image/png','image/jpeg','image/webp','application/pdf'].includes(f.type)&&blob.size<5*1048576&&bytes+blob.size<6*1048576){bytes+=blob.size;const data=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result.split(',')[1]);r.onerror=reject;r.readAsDataURL(blob)});result.push({name:f.name,mimeType:f.type,data})}else if(ids.includes(id)){toast(`«${f.name}» сохранён, но не передан модели: используйте текст, PDF или изображение до 5 МБ`)}}return result}
 async function requestAnswer(c){
  if(generation)return;
  c.error=null;c.pendingSearch=null;
  const controller=new AbortController();const lastUser=c.messages.findLast(m=>m.role==='user');
  const localSkill=/^\/(?:calc|stats|convert|csv|diff)(?=\s|$)/i.test(lastUser?.content.trim()||'');
  const fileSkill=/^\/(?:csv|diff)(?=\s|$)/i.test(lastUser?.content.trim()||'');
+ const codeMode=/^\s*\/code(?=\s|$)/iu.test(lastUser?.content||'');
  const previousImage=latestImage(c.messages);
  const imageRequest=imageIntent(lastUser?.content,!!previousImage);
  const explicitSearch=/^\s*(?:пожалуйста[ ,]+)?(?:найди|поищи|проверь)\s+(?:в интернете|в сети)(?=\s|[,:]|$)/iu.test(lastUser?.content||'');
@@ -256,6 +336,9 @@ async function requestAnswer(c){
   const messages=(localSkill||imageRequest)
    ?[{role:'user',content:lastUser.content,...(fileSkill?{attachments:await attachmentPayload(lastUser.files||[])}:{})}]
    :await buildChatContext(c.messages,projectFiles,attachmentPayload);
+  const codeTargets=codeMode?await Promise.all((messages.at(-1)?.attachments||[])
+   .filter(file=>lastUser.files?.includes(file.id)&&typeof file.text==='string')
+   .map(async file=>({id:file.id,name:file.name,hash:await codeHash(file.text)}))):[];
   const pass=imageRequest&&isSecureContext?sessionStorage.getItem('focus-image-pass'):null;
   const headers={'content-type':'application/json',...(pass?{'x-focus-image-pass':pass}:{})};
   const response=await fetch('/api/chat',{method:'POST',headers,body:JSON.stringify({messages,...(reference?{imageReference:reference}:{}),effort:state.settings.effort,...(searchId?{searchId}:{})}),signal:controller.signal});
@@ -270,7 +353,7 @@ async function requestAnswer(c){
    const extension={'image/png':'png','image/jpeg':'jpg','image/webp':'webp'}[blob.type];
    state.files.push({id:imageFile,project:c.project,parent:null,name:'Guzan-'+imageFile.slice(0,8)+'.'+extension,kind:'file',type:blob.type,size:blob.size,created:Date.now(),updated:Date.now(),deleted:false});
   }
-  c.messages.push({id:uid(),role:'assistant',...(imageFile?{imageFile}:{}),content:data.text,at:Date.now(),model:data.model||apiStatus.model||'Модель',usage:data.usage,truncated:!!data.truncated,...(data.search?{search:data.search}:{})});
+  c.messages.push({id:uid(),role:'assistant',...(codeMode?{codeMode,codeTargets}:{}),...(imageFile?{imageFile}:{}),content:data.text,at:Date.now(),model:data.model||apiStatus.model||'Модель',usage:data.usage,truncated:!!data.truncated,...(data.search?{search:data.search}:{})});
   c.pendingSearch=null;c.updated=Date.now();if(data.provider!=='local'&&data.provider!=='image')apiStatus.configured=true;
  }catch(err){c.error=err.name==='AbortError'?'Запрос остановлен. Его можно повторить.':err.message||'Не удалось получить ответ';}
  finally{generation=null;persist();refresh()}

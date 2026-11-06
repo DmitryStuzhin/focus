@@ -45,8 +45,19 @@ export async function searchWeb(request,env,fetcher=fetch){
 }
 const OPENROUTER_MODEL='openrouter/free';
 function modelConfig(env){return env.OPENROUTER_API_KEY?{configured:true,provider:'openrouter',model:OPENROUTER_MODEL,label:'Guzan 1.1'}:{configured:!!env.GOOGLE_API_KEY,provider:'google',model:MODEL,label:'Guzan 1.1'}}
-async function openRouterChat(contents,request,env,fetcher,research){
- const messages=[{role:'system',content:SYSTEM+(research?RESEARCH_GUIDANCE:'')}];
+const CODE_GUIDANCE=[
+ 'Пользователь выбрал режим программирования /code. Работай на языке программирования, который указан или следует из исходников. Если выбор свободен, назови разумный вариант.',
+ 'Учитывай исходники проекта, совместимость API, обработку ошибок и граничные случаи. При исправлении сначала определи причину, затем предложи минимальную правку.',
+ 'Для каждого файла, который нужно создать или заменить, верни отдельный Markdown-блок с языком и точным именем файла в заголовке, например: ```python main.py. Используй имя без каталогов и полное содержимое файла. Один блок на файл.',
+ 'Имена файлов для сохранения могут содержать латинские буквы, цифры, точки, дефисы и подчёркивания. Не смешивай фрагменты с полными файлами: для фрагментов указывай только язык.',
+ 'Если файл неполный или отсутствует, не выдумывай его содержимое для замены. Запроси актуальный файл или покажи небольшой фрагмент без имени.',
+ 'Кратко опиши изменения, команды запуска и способы проверки, если это уместно. Никогда не утверждай, что выполнил команды или тесты.',
+].join(' ');
+function chatSystem(research,codeMode){
+ return SYSTEM+(research?RESEARCH_GUIDANCE:'')+(codeMode?'\n'+CODE_GUIDANCE:'');
+}
+async function openRouterChat(contents,request,env,fetcher,research,codeMode){
+ const messages=[{role:'system',content:chatSystem(research,codeMode)}];
  for(const m of contents){
   const content=[];
   for(const p of m.parts){
@@ -59,7 +70,7 @@ async function openRouterChat(contents,request,env,fetcher,research){
   messages.push({role:m.role==='model'?'assistant':'user',content});
  }
  let r;
- try{r=await fetcher('https://openrouter.ai/api/v1/chat/completions',{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${env.OPENROUTER_API_KEY}`},body:JSON.stringify({model:OPENROUTER_MODEL,messages,max_tokens:4096,stream:false}),signal:AbortSignal.any([AbortSignal.timeout(90000),request.signal])})}
+ try{r=await fetcher('https://openrouter.ai/api/v1/chat/completions',{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${env.OPENROUTER_API_KEY}`},body:JSON.stringify({model:OPENROUTER_MODEL,messages,max_tokens:codeMode?8192:4096,stream:false}),signal:AbortSignal.any([AbortSignal.timeout(90000),request.signal])})}
  catch{return json({error:'Не удалось связаться с сервисом модели. Повторите запрос.',code:'connection'},502)}
  let data;try{data=await r.json()}catch{return json({error:'Сервис модели вернул некорректный ответ.',code:'provider_error'},502)}
  if(!r.ok||data.error){
@@ -432,6 +443,9 @@ export async function chat(request,env,fetcher=fetch){
  if(total>150000)return json({error:'Диалог слишком длинный. Начните новый или сократите вложения.'},413);
  if(!contents.length||contents.at(-1).role!=='user')return json({error:'Нужно сообщение пользователя'},400);
  const latest=input.messages.at(-1);
+ const codeRequest=latest.role==='user'&&/^\s*\/code(?=\s|$)\s*([\s\S]*)$/iu.exec(latest.content);
+ if(codeRequest&&!codeRequest[1].trim())return json({error:'Опишите задачу после /code. Например: /code напиши тесты для приложенного файла на Python.',code:'code_input'},400);
+ const codeMode=!!codeRequest;
  const reference=input.imageReference;
  const imageRequest=imageIntent(latest.content,!!reference);
  if(latest.role==='user'&&imageRequest){
@@ -449,9 +463,9 @@ export async function chat(request,env,fetcher=fetch){
  let research=null;
  if(input.searchId){research=researchCache.get(input.searchId);if(!research||research.identity!==requester(request)||Date.now()-research.created>900000)return json({error:'Результаты поиска устарели. Повторите запрос с поиском.',code:'search_expired'},409)}
  if(research)contents.at(-1).parts.push(researchEvidence(research));
- if(env.OPENROUTER_API_KEY)return openRouterChat(contents,request,env,fetcher,research);
+ if(env.OPENROUTER_API_KEY)return openRouterChat(contents,request,env,fetcher,research,codeMode);
  const effort=['fast','balanced','deep'].includes(input.effort)?input.effort:'balanced';
- const body={systemInstruction:{parts:[{text:SYSTEM+(research?RESEARCH_GUIDANCE:'')}]},contents,generationConfig:{maxOutputTokens:8192,temperature:.6,thinkingConfig:{thinkingLevel:effort==='fast'?'minimal':effort==='deep'?'high':'low'}}};
+ const body={systemInstruction:{parts:[{text:chatSystem(research,codeMode)}]},contents,generationConfig:{maxOutputTokens:8192,temperature:.6,thinkingConfig:{thinkingLevel:effort==='fast'?'minimal':effort==='deep'?'high':'low'}}};
  let response;try{response=await fetcher(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':env.GOOGLE_API_KEY},body:JSON.stringify(body),signal:AbortSignal.any([AbortSignal.timeout(90000),request.signal])})}catch(err){return json({error:err.name==='TimeoutError'?'Модель не успела ответить. Попробуйте ещё раз.':'Не удалось связаться с моделью. Попробуйте ещё раз.',code:'connection'},502)}
  if(!response.ok){const status=response.status;let code='';try{const d=await response.json();code=d.error?.details?.find(x=>x.reason)?.reason||''}catch{}const error=status===429?'Достигнут лимит Google API. Проверьте квоту или повторите позже.':status===401||status===403||code==='API_KEY_INVALID'?'Google не принял API-ключ или у него нет доступа к модели.':status===404?'Эта модель недоступна в Google API для данного ключа.':status===400?'Google отклонил запрос. Проверьте ключ API и поддерживаемые вложения.':'Сервис модели временно недоступен. Повторите позже.';return json({error,code:'provider_error',providerStatus:status},status===429?429:502)}
  let data;try{data=await response.json()}catch{return json({error:'Модель вернула некорректный ответ'},502)}

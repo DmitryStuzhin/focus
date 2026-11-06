@@ -92,6 +92,46 @@ try{
  }
  await imagesContext.close();
  console.log('Natural creation and two successive image edits preserve the latest image');
+ const codePage=await browser.newPage({viewport:{width:1440,height:900}});
+ await codePage.goto('http://127.0.0.1:'+server.address().port);
+ await codePage.waitForLoadState('networkidle');
+ const requests=[];
+ const original='fn main() { println!("hello"); }\n';
+ const updated='fn main() { println!("updated"); }\n';
+ await codePage.route('**/api/chat',async route=>{
+  requests.push(route.request().postDataJSON());
+  await route.fulfill({json:{text:'```rust main.rs\n'+(requests.length===1?original:updated)+'```',model:'test'}});
+ });
+ await codePage.getByRole('button',{name:'Написать код',exact:true}).click();
+ const codeComposer=codePage.getByRole('textbox',{name:'Сообщение',exact:true});
+ assert.equal(await codeComposer.inputValue(),'/code ');
+ await codeComposer.fill('/code создай main.rs');
+ await codePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ await codePage.getByRole('button',{name:'Сохранить в проект',exact:true}).click();
+ assert.equal(await codePage.locator('#proposed-code').inputValue(),original);
+ await codePage.getByRole('button',{name:'Сохранить файл',exact:true}).click();
+ const fileMenu=codePage.getByRole('button',{name:'Действия с файлом main.rs'});
+ await fileMenu.click();
+ await codePage.getByText('Прикрепить к сообщению',{exact:true}).click();
+ await codeComposer.fill('/code измени main.rs');
+ await codePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ await codePage.getByRole('button',{name:'Сохранить в проект',exact:true}).nth(1).click();
+ assert.equal(requests[1].messages.at(-1).attachments[0].text,original);
+ assert.equal(await codePage.locator('#proposed-code').inputValue(),updated);
+ const fileId=await fileMenu.getAttribute('data-id');
+ await codePage.evaluate(async id=>{
+  const {putBlob}=await import('/store.js');
+  await putBlob(id,new Blob(['edited elsewhere'],{type:'text/plain'}));
+ },fileId);
+ await codePage.getByRole('button',{name:'Применить правку',exact:true}).click();
+ await codePage.getByText(/Исходный файл изменился/).waitFor();
+ assert.equal(await codePage.evaluate(async id=>{
+  const {getBlob}=await import('/store.js');
+  return (await getBlob(id)).text();
+ },fileId),'edited elsewhere');
+ await codePage.close();
+ console.log('Code generation, file preview and stale edit protection verified');
+
 
 }finally{
  if(browser)await browser.close();

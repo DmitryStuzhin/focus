@@ -282,3 +282,17 @@ test('file comparison preserves line order and finds additions and deletions',as
  assert.match(text,/Добавлено \| 4 \| Дополнение/);
  assert.doesNotMatch(text,/Последняя/);
 });
+
+test('coding mode passes source context and requests named complete files',async()=>{
+ const messages=[{role:'user',content:'/code исправь Rust-функцию',attachments:[{name:'main.rs',text:'fn main() {}'}]}];
+ const response=await chat(req({messages}),{OPENROUTER_API_KEY:'secret'},async(url,options)=>{
+  const body=JSON.parse(options.body);
+  assert.match(body.messages[0].content,/полное содержимое файла/);
+  assert.match(body.messages.at(-1).content[1].text,/Файл: main\.rs\nfn main\(\) \{\}/);
+  return Response.json({choices:[{message:{content:'Исправил пример.'},finish_reason:'stop'}]});
+ });
+ assert.equal(response.status,200);
+ const empty=await chat(req({messages:[{role:'user',content:'/code'}]}),{},()=>assert.fail('empty code request should not call a model'));
+ assert.equal(empty.status,400);
+ assert.equal((await empty.json()).code,'code_input');
+});
