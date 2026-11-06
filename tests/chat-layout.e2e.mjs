@@ -132,8 +132,15 @@ try{
   const {getBlob}=await import('/store.js');
   return (await getBlob(id)).text();
  },fileId),'edited elsewhere');
+ await codePage.getByRole('button',{name:'Отмена',exact:true}).click();
+ await codeComposer.fill('Найди в проекте «edited elsewhere»');
+ await codePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ await codePage.getByRole('button',{name:/main\.rs:1.*edited elsewhere/}).click();
+ const matchDialog=codePage.getByRole('dialog',{name:'main.rs:1'});
+ await matchDialog.getByText('edited elsewhere',{exact:true}).waitFor();
+ assert.equal(requests.length,2,'project search must not call the provider or chat API');
  await codePage.close();
- console.log('Code generation, file preview and stale edit protection verified');
+ console.log('Code generation, stale edit protection and local project search verified');
  const planPage=await browser.newPage({viewport:{width:1440,height:900}});
  await planPage.goto('http://127.0.0.1:'+server.address().port);
  await planPage.waitForLoadState('networkidle');

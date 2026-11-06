@@ -25,7 +25,7 @@ export function searchQuery(messages) {
 
 function terms(value) {
   return new Set((value.toLowerCase().replaceAll('ё', 'е').match(/[\p{L}\p{N}]{3,}/gu) || [])
-    .filter(word => !/^(?:для|или|как|что|это|файл|the|and|for|with|file)$/u.test(word)));
+    .filter(word => !/^(?:для|или|как|что|это|файл|файле|файлы|где|покажи|найди|проверь|проекте|исправь|напиши|the|and|for|with|file)$/u.test(word)));
 }
 
 export function rankProjectFiles(files, question) {
@@ -35,6 +35,24 @@ export function rankProjectFiles(files, question) {
     score: [...terms(file.name.replace(/\.[^.]+$/, ''))].filter(word => query.has(word)).length,
   })).sort((a, b) => b.score - a.score || (b.file.updated || 0) - (a.file.updated || 0))
     .map(({file}) => file);
+}
+
+async function readRelevantProjectFiles(files,question,readAttachments){
+  const query=terms(question);
+  const candidates=[];
+  let total=0;
+  for(const file of rankProjectFiles(files,question).slice(0,60)){
+    if(total>=2_000_000)break;
+    const [attachment]=await readAttachments([file.id]);
+    if(!attachment?.text)continue;
+    total+=attachment.text.length;
+    const nameScore=[...terms(file.name.replace(/\.[^.]+$/, ''))].filter(word=>query.has(word)).length;
+    const words=terms(attachment.text);
+    const bodyScore=[...query].filter(word=>words.has(word)).length;
+    candidates.push({file,attachment,score:nameScore*8+Math.min(7,bodyScore)});
+    if(!query.size&&candidates.length===5)break;
+  }
+  return candidates.sort((a,b)=>b.score-a.score).slice(0,5);
 }
 
 function excerpt(text, limit, query) {
@@ -109,10 +127,11 @@ export async function buildChatContext(messages, projectFiles, readAttachments, 
 
   if (current.role === 'user') {
     let projectLeft = PROJECT_TEXT_LIMIT;
-    for (const file of rankProjectFiles(projectFiles, current.content).filter(file => !seen.has(file.id)).slice(0, 5)) {
+    const availableFiles=projectFiles.filter(file=>!seen.has(file.id));
+    const candidates=current.attachments.length<ATTACHMENT_LIMIT&&textLeft>=500
+      ?await readRelevantProjectFiles(availableFiles,current.content,readAttachments):[];
+    for (const {file,attachment} of candidates) {
       if (current.attachments.length >= ATTACHMENT_LIMIT || Math.min(projectLeft, textLeft) < 500) break;
-      const [attachment] = await readAttachments([file.id]);
-      if (!attachment?.text) continue;
       const before = textLeft;
       // Cap each automatic excerpt so one document cannot consume all project context.
       if (appendAttachment(current, attachment, Math.min(12_000, projectLeft), query)) {

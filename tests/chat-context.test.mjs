@@ -60,3 +60,12 @@ test('automatic excerpts retain relevant material near the end of a large projec
  assert.match(excerpt,/лимит 20 000 рублей/);
  assert.match(excerpt,/Текст файла сокращён/);
 });
+
+test('a symbol in an older file outranks unrelated recent source files',async()=>{
+ const files=Array.from({length:8},(_,i)=>({id:String(i),name:'module-'+i+'.js',updated:8-i}));
+ const result=await buildChatContext([user('Проверь функцию resolveInvoice')],files,async ids=>ids.map(id=>({
+  id,name:files[Number(id)].name,text:id==='7'?'export function resolveInvoice() {}':'export const enabled = true;',
+ })));
+ assert.equal(result.at(-1).attachments[0].id,'7');
+ assert.ok(result.at(-1).attachments.length<=5);
+});
