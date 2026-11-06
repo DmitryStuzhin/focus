@@ -215,7 +215,6 @@ document.addEventListener('dragleave',()=>{dragDepth--;if(dragDepth<=0){document
 document.addEventListener('drop',ev=>{if(!ev.dataTransfer?.files.length)return;ev.preventDefault();dragDepth=0;document.querySelector('.drop-overlay')?.remove();if(ui.view==='chat')uploadFiles([...ev.dataTransfer.files],!!ev.target.closest('.composer'))});
 window.addEventListener('resize',()=>{closeMenu();if(innerWidth>=640&&ui.mobileNav){ui.mobileNav=false;render()}if(innerWidth>=960&&ui.mobileFiles){ui.mobileFiles=false;state.settings.showFiles=true;persist();render()}});
 matchMedia('(prefers-color-scheme:dark)').addEventListener('change',()=>{if(state.settings.theme==='system')applyTheme()});
-render();
 const validCodeFilename=name=>/^[a-z0-9][a-z0-9._-]{0,99}$/i.test(name);
 const splitCodeBlocks=text=>String(text).replace(/\r\n/g,'\n').split(/^[ \t]*```([^\n]*)\n([\s\S]*?)^[ \t]*```[ \t]*(?=$)/gm);
 function codeBlockInfo(header){
@@ -358,5 +357,6 @@ async function requestAnswer(c){
  }catch(err){c.error=err.name==='AbortError'?'Запрос остановлен. Его можно повторить.':err.message||'Не удалось получить ответ';}
  finally{generation=null;persist();refresh()}
 }
+render();
 fetch('/api/status').then(r=>r.json()).then(d=>{apiStatus=d;render()}).catch(()=>{});
 
