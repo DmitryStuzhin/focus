@@ -327,3 +327,20 @@ test('plan mode asks the provider for a checkable plan and accepts marked histor
  });
  assert.equal(response.status,200);
 });
+
+test('natural site requests use the HTML preview prompt without intercepting image requests',async()=>{
+ const response=await chat(req({messages:[{role:'user',content:'Сделай сайт с галереей фотографий'}]}),{OPENROUTER_API_KEY:'secret'},async(url,options)=>{
+  assert.match(url,/chat\/completions$/);
+  const body=JSON.parse(options.body);
+  assert.match(body.messages[0].content,/html index\.html/);
+  assert.equal(body.max_tokens,8192);
+  return Response.json({choices:[{message:{content:'Готовый HTML'},finish_reason:'stop'}]});
+ });
+ assert.equal(response.status,200);
+ const env={CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'token'};
+ const image=await chat(req({messages:[{role:'user',content:'Сделай обложку для сайта'}]}),env,async url=>{
+  assert.match(url,/api.cloudflare.com/);
+  return Response.json({result:{image:'iVBORw0KGgo='}});
+ });
+ assert.equal(image.status,200);
+});

@@ -158,6 +158,55 @@ try{
  assert.match(planRequests[1].messages.find(m=>m.role==='assistant').content,/- \[x\] Собрать материалы/);
  await planPage.close();
  console.log('Plan progress persists and is included in the next chat request');
+ const sitePage=await browser.newPage({viewport:{width:1440,height:900}});
+ const siteRequests=[];
+ const siteHTML=(heading)=>`<!doctype html><html><head><style>h1{color:rgb(18, 52, 86)}</style></head>
+ <body><h1>${heading}</h1><button id="count">0</button><script>
+ const button=document.getElementById('count');
+ button.onclick=()=>button.textContent=String(Number(button.textContent)+1);
+ try { parent.document.body.dataset.compromised='true'; } catch { document.body.dataset.isolated='true'; }
+ fetch('/api/status').catch(()=>document.body.dataset.networkBlocked='true');
+ </script></body></html>`;
+ await sitePage.route('**/api/chat',async route=>{
+  siteRequests.push(route.request().postDataJSON());
+  const heading=siteRequests.length===1?'Первый сайт':'Вторая версия';
+  await route.fulfill({json:{text:'```html index.html\n'+siteHTML(heading)+'\n```',model:'test'}});
+ });
+ await sitePage.goto('http://127.0.0.1:'+server.address().port);
+ await sitePage.waitForLoadState('networkidle');
+ const siteComposer=sitePage.getByRole('textbox',{name:'Сообщение',exact:true});
+ await sitePage.getByRole('button',{name:'Создать сайт',exact:true}).click();
+ assert.equal(await siteComposer.inputValue(),'/site ');
+ await siteComposer.fill('Сделай сайт со счётчиком');
+ await sitePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ const frame=sitePage.frameLocator('#preview-root iframe');
+ const heading=frame.getByRole('heading',{name:'Первый сайт'});
+ await heading.waitFor();
+ assert.equal(await heading.evaluate(el=>getComputedStyle(el).color),'rgb(18, 52, 86)');
+ const sandbox=sitePage.locator('#preview-root iframe');
+ assert.equal(await sandbox.getAttribute('sandbox'),'allow-scripts');
+ await frame.locator('body[data-isolated=true][data-network-blocked=true]').waitFor();
+ assert.equal(await sitePage.locator('body').getAttribute('data-compromised'),null);
+ const bounds=await sitePage.locator('#preview-root').boundingBox();
+ const chatBounds=await sitePage.locator('.main').boundingBox();
+ assert.ok(bounds.x>=chatBounds.x+chatBounds.width-1,'preview must appear to the right of the chat');
+ await frame.getByRole('button',{name:'0'}).click();
+ await frame.getByRole('button',{name:'1'}).waitFor();
+ await siteComposer.fill('Добавь новый заголовок');
+ await frame.getByRole('button',{name:'1'}).waitFor();
+ await sitePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ await frame.getByRole('heading',{name:'Вторая версия'}).waitFor();
+ assert.equal(siteRequests[1].sitePreview,true);
+ assert.match(siteRequests[1].messages.at(-1).attachments[0].text,/<h1>Первый сайт<\/h1>/);
+ await sitePage.reload();
+ await frame.getByRole('heading',{name:'Вторая версия'}).waitFor();
+ await sitePage.getByRole('button',{name:'Закрыть предпросмотр',exact:true}).click();
+ await sitePage.locator('#preview-root').waitFor({state:'hidden'});
+ await sitePage.getByRole('button',{name:'Предпросмотр',exact:true}).first().click();
+ await frame.getByRole('heading',{name:'Первый сайт'}).waitFor();
+ await sitePage.close();
+ console.log('Isolated interactive site preview opens beside chat and updates after revisions');
+
 
 
 

@@ -1,3 +1,4 @@
+import {siteIntent} from '../public/site-preview.js';
 import {compareText} from '../public/text-diff.js';
 import {imageIntent} from '../public/image-intent.js';
 // Provider credentials belong to runtime secrets, never to the browser bundle.
@@ -59,9 +60,10 @@ const TASK_GUIDANCE={
  plan:'Режим /plan. Составь план без выполнения и без готовых замен файлов. Начни с результата и ограничений. Дай 3–8 выполнимых шагов отдельными строками в формате Markdown "- [ ] Сделать ...". Каждый шаг — одно проверяемое действие. Сохрани важные зависимости, явно обозначь неизвестные и критерии готовности. Если пользователь возвращается к плану, учитывай отмеченные шаги.',
  review:'Режим /review. Проведи ревью переданного кода или изменений. Сначала находки по серьёзности: воспроизводимые ошибки, регрессии, безопасность и недостающие проверки. Для каждой укажи уровень, имя файла, предоставленный номер строки или название функции, сценарий сбоя и конкретную правку. Используй номера только из исходника с пометкой «с номерами строк». Не выдумывай находки, файлы или выполненные проверки. Если исходников нет, попроси приложить их. Если проблем не видно, скажи об этом и обозначь границы проверки. Не переписывай файлы целиком.',
 };
-function chatSystem(research,taskMode){
+const SITE_GUIDANCE='Подготовь рабочий предпросмотр запрошенного сайта. Верни один полный Markdown-блок с заголовком ```html index.html: HTML-документ со встроенными <style> и <script>. Используй обычные HTML, CSS и JavaScript, без внешних библиотек, шрифтов, изображений или API. Для иллюстраций подойдут SVG и CSS. Сделай страницу адаптивной, а интерактивные элементы рабочими. При правке используй приложенную текущую версию и верни весь обновлённый документ, сохранив остальные функции. Краткое пояснение вынеси за пределы блока.';
+function chatSystem(research,taskMode,siteMode){
  const guidance=TASK_GUIDANCE[taskMode];
- return SYSTEM+(research?RESEARCH_GUIDANCE:'')+(guidance?'\n'+guidance:'');
+ return SYSTEM+(research?RESEARCH_GUIDANCE:'')+(guidance?'\n'+guidance:'')+(siteMode?'\n'+SITE_GUIDANCE:'');
 }
 function sourcePart(file,numberLines){
  const name=String(file.name).slice(0,150);
@@ -71,8 +73,8 @@ function sourcePart(file,numberLines){
  }
  return {text:'Файл: '+name+'\n'+file.text};
 }
-async function openRouterChat(contents,request,env,fetcher,research,taskMode){
- const messages=[{role:'system',content:chatSystem(research,taskMode)}];
+async function openRouterChat(contents,request,env,fetcher,research,taskMode,siteMode){
+ const messages=[{role:'system',content:chatSystem(research,taskMode,siteMode)}];
  for(const m of contents){
   const content=[];
   for(const p of m.parts){
@@ -85,7 +87,7 @@ async function openRouterChat(contents,request,env,fetcher,research,taskMode){
   messages.push({role:m.role==='model'?'assistant':'user',content});
  }
  let r;
- try{r=await fetcher('https://openrouter.ai/api/v1/chat/completions',{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${env.OPENROUTER_API_KEY}`},body:JSON.stringify({model:OPENROUTER_MODEL,messages,max_tokens:taskMode==='code'?8192:4096,stream:false}),signal:AbortSignal.any([AbortSignal.timeout(90000),request.signal])})}
+ try{r=await fetcher('https://openrouter.ai/api/v1/chat/completions',{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${env.OPENROUTER_API_KEY}`},body:JSON.stringify({model:OPENROUTER_MODEL,messages,max_tokens:taskMode==='code'||siteMode?8192:4096,stream:false}),signal:AbortSignal.any([AbortSignal.timeout(90000),request.signal])})}
  catch{return json({error:'Не удалось связаться с сервисом модели. Повторите запрос.',code:'connection'},502)}
  let data;try{data=await r.json()}catch{return json({error:'Сервис модели вернул некорректный ответ.',code:'provider_error'},502)}
  if(!r.ok||data.error){
@@ -444,8 +446,11 @@ export async function chat(request,env,fetcher=fetch){
  if(!contents.length||contents.at(-1).role!=='user')return json({error:'Нужно сообщение пользователя'},400);
  if(taskMode==='code'&&!taskRequest[2].trim())return json({error:'Опишите задачу после /code. Например: /code напиши тесты для приложенного файла на Python.',code:'code_input'},400);
  if(taskMode==='plan'&&!taskRequest[2].trim())return json({error:'Опишите цель после /plan.',code:'plan_input'},400);
+ const siteMode=latest.role==='user'&&(!taskMode||taskMode==='code')&&
+  (siteIntent(latest.content)||input.sitePreview===true);
+ if(/^\s*\/site\s*$/iu.test(latest.content))return json({error:'Опишите сайт после /site.',code:'site_input'},400);
  const reference=input.imageReference;
- const imageRequest=imageIntent(latest.content,!!reference);
+ const imageRequest=siteMode?null:imageIntent(latest.content,!!reference);
  if(latest.role==='user'&&imageRequest){
   if(imageRequest.mode==='edit'){
    if(!reference)return json({error:'Сначала создайте изображение в этом диалоге.',code:'image_reference_missing'},400);
@@ -461,14 +466,15 @@ export async function chat(request,env,fetcher=fetch){
  let research=null;
  if(input.searchId){research=researchCache.get(input.searchId);if(!research||research.identity!==requester(request)||Date.now()-research.created>900000)return json({error:'Результаты поиска устарели. Повторите запрос с поиском.',code:'search_expired'},409)}
  if(research)contents.at(-1).parts.push(researchEvidence(research));
- if(env.OPENROUTER_API_KEY)return openRouterChat(contents,request,env,fetcher,research,taskMode);
+ if(env.OPENROUTER_API_KEY)return openRouterChat(contents,request,env,fetcher,research,taskMode,siteMode);
  const effort=['fast','balanced','deep'].includes(input.effort)?input.effort:'balanced';
- const body={systemInstruction:{parts:[{text:chatSystem(research,taskMode)}]},contents,generationConfig:{maxOutputTokens:8192,temperature:.6,thinkingConfig:{thinkingLevel:effort==='fast'?'minimal':effort==='deep'?'high':'low'}}};
+ const body={systemInstruction:{parts:[{text:chatSystem(research,taskMode,siteMode)}]},contents,generationConfig:{maxOutputTokens:8192,temperature:.6,thinkingConfig:{thinkingLevel:effort==='fast'?'minimal':effort==='deep'?'high':'low'}}};
  let response;try{response=await fetcher(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':env.GOOGLE_API_KEY},body:JSON.stringify(body),signal:AbortSignal.any([AbortSignal.timeout(90000),request.signal])})}catch(err){return json({error:err.name==='TimeoutError'?'Модель не успела ответить. Попробуйте ещё раз.':'Не удалось связаться с моделью. Попробуйте ещё раз.',code:'connection'},502)}
  if(!response.ok){const status=response.status;let code='';try{const d=await response.json();code=d.error?.details?.find(x=>x.reason)?.reason||''}catch{}const error=status===429?'Достигнут лимит Google API. Проверьте квоту или повторите позже.':status===401||status===403||code==='API_KEY_INVALID'?'Google не принял API-ключ или у него нет доступа к модели.':status===404?'Эта модель недоступна в Google API для данного ключа.':status===400?'Google отклонил запрос. Проверьте ключ API и поддерживаемые вложения.':'Сервис модели временно недоступен. Повторите позже.';return json({error,code:'provider_error',providerStatus:status},status===429?429:502)}
  let data;try{data=await response.json()}catch{return json({error:'Модель вернула некорректный ответ'},502)}
  const candidate=data.candidates?.[0];const text=candidate?.content?.parts?.filter(p=>!p.thought).map(p=>p.text||'').join('');if(!text)return json({error:data.promptFeedback?.blockReason||candidate?.finishReason==='SAFETY'?'Модель не смогла ответить на этот запрос. Попробуйте переформулировать.':'Получен пустой ответ. Попробуйте ещё раз.',code:'empty_response'},422);
  return json({text,search:research?{query:research.query,sources:publicSources(research),searchedAt:research.searchedAt}:null,model:MODEL,usage:data.usageMetadata||null,truncated:candidate.finishReason==='MAX_TOKENS'});
 }
-export default{async fetch(request,env,ctx){const url=new URL(request.url);if(url.pathname==='/api/status')return request.method==='GET'?json({...modelConfig(env),searchConfigured:!!env.TAVILY_API_KEY}):json({error:'Метод не поддерживается'},405);if(url.pathname==='/api/search')return request.method==='POST'?searchWeb(request,env):json({error:'Метод не поддерживается'},405);if(url.pathname==='/api/chat')return request.method==='POST'?chat(request,env):json({error:'Метод не поддерживается'},405);if(!['GET','HEAD'].includes(request.method))return new Response('Method not allowed',{status:405,headers});const asset=ASSETS[url.pathname];if(!asset)return new Response('Not found',{status:404,headers});return new Response(request.method==='HEAD'?null:asset.body,{headers:{...headers,'content-type':asset.type,'cache-control':'no-cache','content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self' https://chatgpt.com https://*.chatgpt.com"}})}};
+const PREVIEW_CSP="sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; form-action 'none'; base-uri 'none'; frame-ancestors 'self' https://chatgpt.com https://*.chatgpt.com";
+export default{async fetch(request,env,ctx){const url=new URL(request.url);if(url.pathname==='/preview.html'&&['GET','HEAD'].includes(request.method))return new Response(request.method==='HEAD'?null:ASSETS['/preview.html'].body,{headers:{...headers,'content-type':'text/html; charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer','content-security-policy':PREVIEW_CSP}});if(url.pathname==='/api/status')return request.method==='GET'?json({...modelConfig(env),searchConfigured:!!env.TAVILY_API_KEY}):json({error:'Метод не поддерживается'},405);if(url.pathname==='/api/search')return request.method==='POST'?searchWeb(request,env):json({error:'Метод не поддерживается'},405);if(url.pathname==='/api/chat')return request.method==='POST'?chat(request,env):json({error:'Метод не поддерживается'},405);if(!['GET','HEAD'].includes(request.method))return new Response('Method not allowed',{status:405,headers});const asset=ASSETS[url.pathname];if(!asset)return new Response('Not found',{status:404,headers});return new Response(request.method==='HEAD'?null:asset.body,{headers:{...headers,'content-type':asset.type,'cache-control':'no-cache','content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self' https://chatgpt.com https://*.chatgpt.com"}})}};
 

@@ -62,7 +62,7 @@ function excerpt(text, limit, query) {
   return bestStart ? note + '\n' + body + (end < text.length ? '\n…' : '') : body + '\n' + note;
 }
 
-export async function buildChatContext(messages, projectFiles, readAttachments) {
+export async function buildChatContext(messages, projectFiles, readAttachments, preview = null) {
   const selected = messages.slice(-40);
   const result = [];
   const seen = new Set();
@@ -93,6 +93,7 @@ export async function buildChatContext(messages, projectFiles, readAttachments) 
   const query = terms(current.content);
   textLeft -= current.content.length;
   bytesLeft -= bytes(current) + 1;
+  if (preview) appendAttachment(current, preview, Math.min(110_000, Math.floor(textLeft * 0.8)));
   const currentIds = [...new Set(latest.files || [])].slice(0, ATTACHMENT_LIMIT);
   const explicit = await readAttachments(currentIds);
   let remainingTexts = explicit.filter(file => typeof file.text === 'string').length;
