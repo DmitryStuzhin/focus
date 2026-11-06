@@ -189,3 +189,31 @@ test('persistent image overload has a bounded retry count',async()=>{
  let calls=0;const r=await chat(req({messages:[{role:'user',content:'/image cat'}]}),{CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'cf'},async()=>{calls++;return Response.json({errors:[{code:3040,message:'secret'}]},{status:429,headers:{'retry-after':'0'}})});
  assert.equal(calls,3);assert.equal(r.status,429);assert.ok(!(await r.text()).includes('secret'));
 });
+
+test('OpenAI image opt-in supports generation and edits with the dedicated server key',async()=>{
+ const env={FOCUS_OPENAI_IMAGE_API_KEY:'openai-secret',CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'cf'};
+ const png='iVBORw0KGgo=';
+ const generated=await chat(req({messages:[{role:'user',content:'Нарисуй кота --ar 16:9'}]}),env,async(url,{body,headers})=>{
+  assert.equal(url,'https://api.openai.com/v1/images/generations');
+  assert.equal(headers.authorization,'Bearer openai-secret');
+  assert.deepEqual(JSON.parse(body),{model:'gpt-image-2.5-sunburst',prompt:'Нарисуй кота',size:'1280x720',quality:'medium',output_format:'jpeg'});
+  return Response.json({data:[{b64_json:png}]});
+ });
+ assert.equal(generated.status,200);
+ assert.equal((await generated.json()).image.data,png);
+ const imageReference={mimeType:'image/png',data:png,width:1280,height:720};
+ const edited=await chat(req({messages:[{role:'user',content:'Добавь закат'}],imageReference}),env,async(url,{body,headers})=>{
+  assert.equal(url,'https://api.openai.com/v1/images/edits');
+  assert.equal(headers['content-type'],undefined);
+  assert.match(body.get('prompt'),/Добавь закат/);
+  assert.equal(body.get('size'),'1280x720');
+  assert.equal(body.get('image[]').type,'image/png');
+  return Response.json({data:[{b64_json:png}]});
+ });
+ assert.equal(edited.status,200);
+ const exhausted=await chat(req({messages:[{role:'user',content:'Нарисуй кота'}]}),env,async()=>Response.json({error:{code:'insufficient_quota',message:'openai-secret'}},{status:429}));
+ assert.equal(exhausted.status,429);
+ const error=await exhausted.json();
+ assert.equal(error.code,'image_openai_quota');
+ assert.ok(!error.error.includes('openai-secret'));
+});

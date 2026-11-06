@@ -167,6 +167,7 @@ function localSkill(content){
 }
 
 
+const OPENAI_IMAGE_MODEL='gpt-image-2.5-sunburst';
 const CLOUDFLARE_IMAGE_MODEL='@cf/black-forest-labs/flux-2-dev';
 const CLOUDFLARE_FALLBACK_MODEL='@cf/black-forest-labs/flux-2-klein-9b';
 const IMAGE_SIZES=new Map([
@@ -176,15 +177,16 @@ const IMAGE_SIZES=new Map([
 ]);
 
 async function generateImage(prompt,request,env,fetcher,reference=null){
- const cloudflare=!!(env.CLOUDFLARE_ACCOUNT_ID||env.CLOUDFLARE_API_TOKEN);
+ const openAIKey=env.FOCUS_OPENAI_IMAGE_API_KEY?.trim();
+ const cloudflare=!openAIKey&&!!(env.CLOUDFLARE_ACCOUNT_ID||env.CLOUDFLARE_API_TOKEN);
  const account=env.CLOUDFLARE_ACCOUNT_ID?.trim();
- const token=cloudflare?env.CLOUDFLARE_API_TOKEN?.trim():env.OPENROUTER_API_KEY;
- let model=cloudflare?CLOUDFLARE_IMAGE_MODEL:env.OPENROUTER_IMAGE_MODEL;
+ const token=openAIKey||(cloudflare?env.CLOUDFLARE_API_TOKEN?.trim():env.OPENROUTER_API_KEY);
+ let model=openAIKey?OPENAI_IMAGE_MODEL:cloudflare?CLOUDFLARE_IMAGE_MODEL:env.OPENROUTER_IMAGE_MODEL;
  if(!token||!model||(cloudflare&&!/^[a-f0-9]{32}$/i.test(account||''))){
   return json({error:'Для генерации настройте CLOUDFLARE_ACCOUNT_ID и CLOUDFLARE_API_TOKEN на сервере.',code:'image_not_configured'},503);
  }
- if(reference&&!cloudflare)return json({error:'Редактирование изображений требует подключения Cloudflare Workers AI.',code:'image_edit_not_configured'},503);
- const ratio=cloudflare?/\s+--ar\s+(\S+)\s*$/.exec(prompt):null;
+ if(reference&&!cloudflare&&!openAIKey)return json({error:'Для правок подключите Cloudflare Workers AI или OpenAI Image API.',code:'image_edit_not_configured'},503);
+ const ratio=(cloudflare||openAIKey)?/\s+--ar\s+(\S+)\s*$/.exec(prompt):null;
  const size=ratio||!reference?IMAGE_SIZES.get(ratio?.[1]||'1:1'):[reference.width,reference.height];
  if(!size)return json({error:'Доступные форматы: --ar 1:1, --ar 16:9 и --ar 9:16.',code:'image_aspect_ratio'},400);
  if(ratio)prompt=prompt.slice(0,ratio.index).trim();
@@ -193,7 +195,21 @@ async function generateImage(prompt,request,env,fetcher,reference=null){
  const cloudflareURL='https://api.cloudflare.com/client/v4/accounts/'+account+'/ai/run/';
  const headers={authorization:'Bearer '+token};
  let body;
- if(cloudflare){
+ if(openAIKey){
+  // Image API sizes use multiples of 16, including for older saved images.
+  const dimensions=size.map(value=>Math.round(value/16)*16).join('x');
+  const params={model,prompt,size:dimensions,quality:'medium',output_format:'jpeg'};
+  if(reference){
+   body=new FormData();
+   params.prompt='Apply the requested edit to the supplied image. Preserve unmentioned details. Request: '+prompt;
+   for(const [name,value] of Object.entries(params))body.set(name,value);
+   const bytes=Uint8Array.from(atob(reference.data),c=>c.charCodeAt(0));
+   body.append('image[]',new Blob([bytes],{type:reference.mimeType}),'reference.png');
+  }else{
+   headers['content-type']='application/json';
+   body=JSON.stringify(params);
+  }
+ }else if(cloudflare){
   const [width,height]=size;
   body=new FormData();
   body.set('prompt',reference?'Edit image 0 according to this request. Preserve all unmentioned details, subjects and composition. Request: '+prompt:prompt);
@@ -209,8 +225,21 @@ async function generateImage(prompt,request,env,fetcher,reference=null){
   const signal=AbortSignal.any([AbortSignal.timeout(90000),request.signal]);
   let response;
   for(let attempt=0;attempt<3;attempt++){
-   const url=cloudflare?cloudflareURL+model:'https://openrouter.ai/api/v1/images';
+   const url=openAIKey?'https://api.openai.com/v1/images/'+(reference?'edits':'generations')
+    :cloudflare?cloudflareURL+model:'https://openrouter.ai/api/v1/images';
    response=await fetcher(url,{method:'POST',headers,body,signal});
+   if(openAIKey&&!response.ok){
+    const status=response.status;
+    const data=await response.json().catch(()=>null);
+    if(status===402||data?.error?.code==='insufficient_quota'){
+     return json({error:'Квота OpenAI API исчерпана. Проверьте баланс и лимиты проекта OpenAI.',code:'image_openai_quota'},429);
+    }
+    if(status===429)return json({error:'OpenAI временно ограничил генерацию. Повторите запрос позже.',code:'image_rate_limit'},429);
+    if(status===401||status===403||status===404){
+     return json({error:'OpenAI отклонил доступ. Проверьте API-ключ и доступ проекта к GPT Image.',code:'image_openai_access'},502);
+    }
+    return json({error:'OpenAI не смог обработать запрос на изображение.',code:'image_provider'},502);
+   }
    if(response.status!==429)break;
    const errorBody=await response.json().catch(()=>null);
    const errors=Array.isArray(errorBody?.errors)?errorBody.errors:[];
