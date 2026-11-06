@@ -67,10 +67,15 @@ test('invalid local input is rejected without running code or falling through to
  }
 });
 
+const imagePass='b'.repeat(64);
+const imagePassHash=Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(imagePass))).toString('hex');
+const imageSubscription={FOCUS_IMAGE_SUBSCRIPTIONS:imagePassHash+':2099-01-01'};
+const imagePassHeader={'x-focus-image-pass':imagePass};
+
 test('image generation uses server model and returns validated raster data',async()=>{
  const png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
  let seen;
- const r=await chat(req({messages:[{role:'user',content:'/image космос'}]}),{OPENROUTER_API_KEY:'secret',OPENROUTER_IMAGE_MODEL:'configured/model'},async(url,options)=>{
+ const r=await chat(req({messages:[{role:'user',content:'/image космос'}]},imagePassHeader),{...imageSubscription,OPENROUTER_API_KEY:'secret',OPENROUTER_IMAGE_MODEL:'configured/model'},async(url,options)=>{
   seen={url,options};return Response.json({data:[{b64_json:png,media_type:'image/png'}]});
  });
  assert.equal(r.status,200);
@@ -82,11 +87,11 @@ test('image configuration and provider errors are handled without exposing secre
  const input={messages:[{role:'user',content:'/image кот'}]};
  assert.equal((await chat(req(input),{},()=>assert.fail())).status,503);
  for(const status of [402,429,500]){
-  const r=await chat(req(input),{OPENROUTER_API_KEY:'secret',OPENROUTER_IMAGE_MODEL:'model'},async()=>Response.json({error:'secret'},{status}));
+  const r=await chat(req(input,imagePassHeader),{...imageSubscription,OPENROUTER_API_KEY:'secret',OPENROUTER_IMAGE_MODEL:'model'},async()=>Response.json({error:'secret'},{status}));
   assert.equal(r.status,status===429?429:502);
   assert.ok(!(await r.text()).includes('secret'));
  }
- const r=await chat(req(input),{OPENROUTER_API_KEY:'secret',OPENROUTER_IMAGE_MODEL:'model'},async()=>Response.json({data:[{b64_json:'PHN2Zz4='}]}));
+ const r=await chat(req(input,imagePassHeader),{...imageSubscription,OPENROUTER_API_KEY:'secret',OPENROUTER_IMAGE_MODEL:'model'},async()=>Response.json({data:[{b64_json:'PHN2Zz4='}]}));
  assert.equal(r.status,502);
 });
 
@@ -100,11 +105,11 @@ test('Cloudflare image generation uses its own token and returns the generated i
   return Response.json({success:true,result:{image:png}});
  });
  assert.equal(r.status,200);
- assert.equal(sent.url,'https://api.cloudflare.com/client/v4/accounts/'+account+'/ai/run/@cf/black-forest-labs/flux-2-dev');
+ assert.equal(sent.url,'https://api.cloudflare.com/client/v4/accounts/'+account+'/ai/run/@cf/black-forest-labs/flux-2-klein-4b');
  assert.equal(sent.options.headers.authorization,'Bearer cloudflare');
  assert.ok(sent.options.body instanceof FormData);
  assert.equal(sent.options.headers['content-type'],undefined);
- assert.deepEqual(Object.fromEntries(sent.options.body),{prompt:'космос',steps:'25',width:'1024',height:'1024'});
+ assert.deepEqual(Object.fromEntries(sent.options.body),{prompt:'космос',width:'1024',height:'1024'});
  assert.equal((await r.json()).image.data,png);
 });
 
@@ -129,7 +134,7 @@ test('Cloudflare image format is passed as dimensions and excluded from the prom
  const env={CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'cloudflare'};
  const messages=[{role:'user',content:'/image космос --ar 9:16'}];
  await chat(req({messages}),env,async(url,options)=>{
-  assert.deepEqual(Object.fromEntries(options.body),{prompt:'космос',steps:'25',width:'720',height:'1280'});
+  assert.deepEqual(Object.fromEntries(options.body),{prompt:'космос',width:'720',height:'1280'});
   return Response.json({result:{image:'iVBORw0KGgo='}});
  }).then(response=>assert.equal(response.status,200));
  messages[0].content='/image космос --ar 3:2';
@@ -140,7 +145,7 @@ test('Cloudflare image format is passed as dimensions and excluded from the prom
 
 test('natural image request uses the image provider without a chat model',async()=>{
  const r=await chat(req({messages:[{role:'user',content:'Нарисуй кота'}]}),{CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'cf'},async(url,options)=>{
-  assert.ok(url.endsWith('/flux-2-dev'));assert.equal(options.body.get('prompt'),'Нарисуй кота');assert.equal(options.body.get('input_image_0'),null);
+  assert.ok(url.endsWith('/flux-2-klein-4b'));assert.equal(options.body.get('prompt'),'Нарисуй кота');assert.equal(options.body.get('input_image_0'),null);
   return Response.json({result:{image:'iVBORw0KGgo='}});
  });assert.equal(r.status,200);
 });
@@ -157,7 +162,7 @@ test('edits send binary reference, retain output dimensions and reject invalid r
  });assert.equal(r.status,200);
  for(const ref of [{...imageReference,data:'https://evil.test/a.png'},{...imageReference,width:99999}])assert.equal((await chat(req({...request,imageReference:ref}),cf,()=>{throw Error('must not fetch')})).status,400);
  assert.equal((await chat(req({messages:[{role:'user',content:'Измени изображение'}]}),cf)).status,400);
- assert.equal((await chat(req(request),{OPENROUTER_API_KEY:'key',OPENROUTER_IMAGE_MODEL:'model'},()=>{throw Error('must not fetch')})).status,503);
+ assert.equal((await chat(req(request,imagePassHeader),{...imageSubscription,OPENROUTER_API_KEY:'key',OPENROUTER_IMAGE_MODEL:'model'},()=>{throw Error('must not fetch')})).status,503);
 });
 
 test('Cloudflare capacity rejection switches to Klein and preserves the edit',async()=>{
@@ -170,9 +175,9 @@ test('Cloudflare capacity rejection switches to Klein and preserves the edit',as
  });
  assert.equal(r.status,200);
  assert.equal(calls.length,2);
- assert.match(calls[0].url,/cloudflare.com.*flux-2-dev$/);
+ assert.match(calls[0].url,/cloudflare.com.*flux-2-klein-4b$/);
  assert.match(calls[1].url,/cloudflare.com.*flux-2-klein-9b$/);
- assert.equal(calls[0].steps,'25');
+ assert.equal(calls[0].steps,null);
  assert.equal(calls[1].steps,null);
  assert.equal(calls[1].width,'1280');
  assert.match(calls[1].prompt,/Добавь закат/);
@@ -191,9 +196,9 @@ test('persistent image overload has a bounded retry count',async()=>{
 });
 
 test('OpenAI image opt-in supports generation and edits with the dedicated server key',async()=>{
- const env={FOCUS_OPENAI_IMAGE_API_KEY:'openai-secret',CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'cf'};
+ const env={...imageSubscription,FOCUS_OPENAI_IMAGE_API_KEY:'openai-secret',CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'cf'};
  const png='iVBORw0KGgo=';
- const generated=await chat(req({messages:[{role:'user',content:'Нарисуй кота --ar 16:9'}]}),env,async(url,{body,headers})=>{
+ const generated=await chat(req({messages:[{role:'user',content:'Нарисуй кота --ar 16:9'}]},imagePassHeader),env,async(url,{body,headers})=>{
   assert.equal(url,'https://api.openai.com/v1/images/generations');
   assert.equal(headers.authorization,'Bearer openai-secret');
   assert.deepEqual(JSON.parse(body),{model:'gpt-image-2.5-sunburst',prompt:'Нарисуй кота',size:'1280x720',quality:'medium',output_format:'jpeg'});
@@ -202,7 +207,7 @@ test('OpenAI image opt-in supports generation and edits with the dedicated serve
  assert.equal(generated.status,200);
  assert.equal((await generated.json()).image.data,png);
  const imageReference={mimeType:'image/png',data:png,width:1280,height:720};
- const edited=await chat(req({messages:[{role:'user',content:'Добавь закат'}],imageReference}),env,async(url,{body,headers})=>{
+ const edited=await chat(req({messages:[{role:'user',content:'Добавь закат'}],imageReference},imagePassHeader),env,async(url,{body,headers})=>{
   assert.equal(url,'https://api.openai.com/v1/images/edits');
   assert.equal(headers['content-type'],undefined);
   assert.match(body.get('prompt'),/Добавь закат/);
@@ -211,9 +216,33 @@ test('OpenAI image opt-in supports generation and edits with the dedicated serve
   return Response.json({data:[{b64_json:png}]});
  });
  assert.equal(edited.status,200);
- const exhausted=await chat(req({messages:[{role:'user',content:'Нарисуй кота'}]}),env,async()=>Response.json({error:{code:'insufficient_quota',message:'openai-secret'}},{status:429}));
+ const exhausted=await chat(req({messages:[{role:'user',content:'Нарисуй кота'}]},imagePassHeader),env,async()=>Response.json({error:{code:'insufficient_quota',message:'openai-secret'}},{status:429}));
  assert.equal(exhausted.status,429);
  const error=await exhausted.json();
  assert.equal(error.code,'image_openai_quota');
  assert.ok(!error.error.includes('openai-secret'));
+});
+
+
+test('public callers and expired image passes cannot spend the OpenAI key',async()=>{
+ const env={...imageSubscription,FOCUS_OPENAI_IMAGE_API_KEY:'paid',CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'free'};
+ const input={messages:[{role:'user',content:'/image кот'}],subscription:true};
+ const guest=await chat(req(input),env,async(url,options)=>{
+  assert.match(url,/api.cloudflare.com.*flux-2-klein-4b$/);
+  assert.equal(options.headers.authorization,'Bearer free');
+  return Response.json({result:{image:'iVBORw0KGgo='}});
+ });
+ assert.equal(guest.status,200);
+ const expired={...env,FOCUS_IMAGE_SUBSCRIPTIONS:imagePassHash+':2000-01-01'};
+ const denied=await chat(req(input,imagePassHeader),expired,()=>assert.fail('expired pass cannot reach a provider'));
+ assert.equal(denied.status,403);
+ assert.equal((await denied.json()).code,'image_subscription_required');
+ const unlisted=await chat(req(input,{'x-focus-image-pass':'a'.repeat(64)}),env,()=>assert.fail('unlisted pass cannot reach a provider'));
+ assert.equal(unlisted.status,403);
+});
+
+test('unit conversion is exact and refuses incompatible dimensions',async()=>{
+ const run=content=>chat(req({messages:[{role:'user',content}]}),{},()=>assert.fail('conversion is local'));
+ assert.equal((await (await run('/convert 2,5 км в м')).json()).text,'**Результат** 2500 м');
+ assert.equal((await run('/convert 5 кг в л')).status,400);
 });

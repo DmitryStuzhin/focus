@@ -154,13 +154,34 @@ function summarizeNumbers(input){
   ...[['Сумма',sum],['Среднее',mean],['Медиана',median],['Минимум',values[0]],['Максимум',values.at(-1)]]
    .map(([label,value])=>'| '+label+' | '+formatFraction(value)+' |')].join('\n');
 }
+const unitFactors=new Map([
+ ['мм',['length','0.001']],['см',['length','0.01']],['м',['length','1']],['км',['length','1000']],
+ ['мг',['mass','0.001']],['г',['mass','1']],['кг',['mass','1000']],['т',['mass','1000000']],
+ ['с',['time','1']],['мин',['time','60']],['ч',['time','3600']],['д',['time','86400']],
+ ['мл',['volume','0.001']],['л',['volume','1']],
+]);
+function convertUnits(input){
+ const match=/^([+-]?(?:\d+(?:[.,]\d+)?|[.,]\d+))\s*([а-я]+)\s*(?:в|->|→)\s*([а-я]+)$/iu.exec(input);
+ const example='Пример: /convert 2,5 км в м.';
+ if(!match)throw new Error('Введите число и две единицы. '+example);
+ const [,value,from,to]=match;
+ const source=unitFactors.get(from.toLowerCase()),target=unitFactors.get(to.toLowerCase());
+ if(!source||!target||source[0]!==target[0])throw new Error('Выберите единицы одной величины: длина, масса, время или объём. '+example);
+ const base=calculatePair('*',decimal(value),decimal(source[1]));
+ return '**Результат** '+formatFraction(calculatePair('/',base,decimal(target[1])))+' '+to.toLowerCase();
+}
 function localSkill(content){
- const match=/^\/(calc|stats)(?=\s|$)\s*([\s\S]*)$/iu.exec(content.trim());
+ const match=/^\/(calc|stats|convert)(?=\s|$)\s*([\s\S]*)$/iu.exec(content.trim());
  if(!match)return null;
- const calculator=match[1].toLowerCase()==='calc';
+ const skill=match[1].toLowerCase();
+ const [solve,model]={
+  calc:[calculate,'local-calculator'],
+  stats:[summarizeNumbers,'local-statistics'],
+  convert:[convertUnits,'local-conversion'],
+ }[skill];
  try{
-  const text=(calculator?calculate:summarizeNumbers)(match[2].trim());
-  return json({text,model:calculator?'local-calculator':'local-statistics',provider:'local',search:null,usage:null,truncated:false});
+  const text=solve(match[2].trim());
+  return json({text,model,provider:'local',search:null,usage:null,truncated:false});
  }catch(error){
   return json({error:error.message,code:'skill_input'},400);
  }
@@ -168,7 +189,7 @@ function localSkill(content){
 
 
 const OPENAI_IMAGE_MODEL='gpt-image-2.5-sunburst';
-const CLOUDFLARE_IMAGE_MODEL='@cf/black-forest-labs/flux-2-dev';
+const CLOUDFLARE_IMAGE_MODEL='@cf/black-forest-labs/flux-2-klein-4b';
 const CLOUDFLARE_FALLBACK_MODEL='@cf/black-forest-labs/flux-2-klein-9b';
 const IMAGE_SIZES=new Map([
  ['1:1',[1024,1024]],
@@ -176,11 +197,27 @@ const IMAGE_SIZES=new Map([
  ['9:16',[720,1280]],
 ]);
 
+async function hasImageSubscription(code,env){
+ if(!/^[a-f0-9]{64}$/.test(code)||!env.FOCUS_IMAGE_SUBSCRIPTIONS)return false;
+ const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(code));
+ const hash=Array.from(new Uint8Array(digest),byte=>byte.toString(16).padStart(2,'0')).join('');
+ const now=Date.now();
+ return env.FOCUS_IMAGE_SUBSCRIPTIONS.split(',').some(entry=>{
+  const [stored,expires]=entry.trim().split(':');
+  return stored===hash&&/^\d{4}-\d{2}-\d{2}$/.test(expires||'')&&Date.parse(expires)>now;
+ });
+}
+
 async function generateImage(prompt,request,env,fetcher,reference=null){
- const openAIKey=env.FOCUS_OPENAI_IMAGE_API_KEY?.trim();
+ const code=request.headers.get('x-focus-image-pass');
+ const subscribed=code!==null&&await hasImageSubscription(code,env);
+ if(code!==null&&!subscribed){
+  return json({error:'Код подписки недействителен или истёк. Обновите его в меню модели или удалите для бесплатного режима.',code:'image_subscription_required'},403);
+ }
+ const openAIKey=subscribed?env.FOCUS_OPENAI_IMAGE_API_KEY?.trim():null;
  const cloudflare=!openAIKey&&!!(env.CLOUDFLARE_ACCOUNT_ID||env.CLOUDFLARE_API_TOKEN);
  const account=env.CLOUDFLARE_ACCOUNT_ID?.trim();
- const token=openAIKey||(cloudflare?env.CLOUDFLARE_API_TOKEN?.trim():env.OPENROUTER_API_KEY);
+ const token=openAIKey||(cloudflare?env.CLOUDFLARE_API_TOKEN?.trim():subscribed?env.OPENROUTER_API_KEY:null);
  let model=openAIKey?OPENAI_IMAGE_MODEL:cloudflare?CLOUDFLARE_IMAGE_MODEL:env.OPENROUTER_IMAGE_MODEL;
  if(!token||!model||(cloudflare&&!/^[a-f0-9]{32}$/i.test(account||''))){
   return json({error:'Для генерации настройте CLOUDFLARE_ACCOUNT_ID и CLOUDFLARE_API_TOKEN на сервере.',code:'image_not_configured'},503);
@@ -214,7 +251,6 @@ async function generateImage(prompt,request,env,fetcher,reference=null){
   body=new FormData();
   body.set('prompt',reference?'Edit image 0 according to this request. Preserve all unmentioned details, subjects and composition. Request: '+prompt:prompt);
   if(reference)body.set('input_image_0',new Blob([Uint8Array.from(atob(reference.data),c=>c.charCodeAt(0))],{type:reference.mimeType}),'reference.png');
-  body.set('steps','25');
   body.set('width',String(width));
   body.set('height',String(height));
  }else{
@@ -257,7 +293,6 @@ async function generateImage(prompt,request,env,fetcher,reference=null){
     (codes.includes(3040)||((!codes.length||codes.includes(4006))&&Number.isFinite(retryMs)&&retryMs<=10000));
    if(canSwitchModel){
     model=CLOUDFLARE_FALLBACK_MODEL;
-    body.delete('steps'); // Klein uses a fixed number of steps.
     continue;
    }
    if(attempt===2||!Number.isFinite(retryMs)||retryMs>10000){
