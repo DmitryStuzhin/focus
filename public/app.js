@@ -12,6 +12,7 @@ import {uid,readState,writeState,fresh,putBlob,getBlob,deleteBlob,validBackup,se
 const app=document.querySelector('#app');
 const MODEL_LABEL='Guzan 1.1';
 let state=fresh(), account=null, ready=false;
+const imagePassKey=()=>account?"focus-image-pass."+account.id:"focus-image-pass";
 let ui={view:'chat',archive:false,filesTab:'files',folder:null,collapsed:new Set(),sidebarClosed:false,mobileNav:false,mobileFiles:false,draft:'',attachments:[],menu:null,sort:'name'};
 let toastTimer,uploadAttach=false,objectURLs=[],generation=null,apiStatus={configured:false,model:'',label:MODEL_LABEL};
 const e=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -158,8 +159,8 @@ function imageSubscriptionDialog(){
  if(!isSecureContext){toast('Введите код подписки на защищённой странице HTTPS');return}
  modal('GPT Image по подписке',`<form><div class="form-field"><label for="image-pass">Код подписки</label><input id="image-pass" name="pass" type="password" autocomplete="off" maxlength="64" pattern="[a-f0-9]{64}" /></div><p class="settings-note">Вставьте код, полученный после оплаты. Пустое поле включает бесплатную генерацию.</p><div class="dialog-footer"><button class="btn primary" type="submit">Применить</button></div></form>`,{onSubmit:data=>{
   const pass=String(data.get('pass')||'').trim();
-  if(pass)sessionStorage.setItem('focus-image-pass',pass);
-  else sessionStorage.removeItem('focus-image-pass');
+  if(pass)sessionStorage.setItem(imagePassKey(),pass);
+  else sessionStorage.removeItem(imagePassKey());
   closeModal();
   toast(pass?'Код сохранён для этой вкладки':'Включена бесплатная генерация');
  }});
@@ -612,7 +613,7 @@ async function requestAnswer(c){
   const codeTargets=codeMode?await Promise.all((messages.at(-1)?.attachments||[])
    .filter(file=>lastUser.files?.includes(file.id)&&typeof file.text==='string')
    .map(async file=>({id:file.id,name:file.name,hash:file.truncated?null:await codeHash(file.text)}))):[];
-  const pass=imageRequest&&isSecureContext?sessionStorage.getItem('focus-image-pass'):null;
+  const pass=imageRequest&&isSecureContext?sessionStorage.getItem(imagePassKey()):null;
   const headers={'content-type':'application/json',...(pass?{'x-focus-image-pass':pass}:{})};
   const response=await fetch('/api/chat',{method:'POST',headers,body:JSON.stringify({messages,...(website?{sitePreview:true,previewKind}:{}),...(reference?{imageReference:reference}:{}),effort:state.settings.effort,...(searchId?{searchId}:{})}),signal:controller.signal});
   if(response.status===401&&account){location.replace('/login');return;}
