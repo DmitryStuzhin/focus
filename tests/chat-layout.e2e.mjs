@@ -133,7 +133,7 @@ try{
   return (await getBlob(id)).text();
  },fileId),'edited elsewhere');
  await codePage.getByRole('button',{name:'Отмена',exact:true}).click();
- await codeComposer.fill('Найди в проекте «edited elsewhere»');
+ await codeComposer.fill('Не помню, где это было. Найди в проекте «edited elsewhere»');
  await codePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
  await codePage.getByRole('button',{name:/main\.rs:1.*edited elsewhere/}).click();
  const matchDialog=codePage.getByRole('dialog',{name:'main.rs:1'});
@@ -184,11 +184,12 @@ try{
  const siteComposer=sitePage.getByRole('textbox',{name:'Сообщение',exact:true});
  await sitePage.getByRole('button',{name:'Создать сайт',exact:true}).click();
  assert.equal(await siteComposer.inputValue(),'Сделай сайт');
- await siteComposer.fill('Сделай сайт со счётчиком');
+ await siteComposer.fill('У меня есть идея для демо. Сделай сайт со счётчиком');
  await sitePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
  const frame=sitePage.frameLocator('#preview-root iframe');
  const heading=frame.getByRole('heading',{name:'Первый сайт'});
  await heading.waitFor();
+ assert.equal(siteRequests[0].sitePreview,true);
  assert.equal(await heading.evaluate(el=>getComputedStyle(el).color),'rgb(18, 52, 86)');
  const sandbox=sitePage.locator('#preview-root iframe');
  assert.equal(await sandbox.getAttribute('sandbox'),'allow-scripts');
@@ -199,7 +200,7 @@ try{
  assert.ok(bounds.x>=chatBounds.x+chatBounds.width-1,'preview must appear to the right of the chat');
  await frame.getByRole('button',{name:'0'}).click();
  await frame.getByRole('button',{name:'1'}).waitFor();
- await siteComposer.fill('Добавь новый заголовок');
+ await siteComposer.fill('Первая версия подходит. Теперь добавь новый заголовок');
  await frame.getByRole('button',{name:'1'}).waitFor();
  await sitePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
  await frame.getByRole('heading',{name:'Вторая версия'}).waitFor();

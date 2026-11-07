@@ -417,3 +417,32 @@ test('natural phrases route a poster, code review and file comparison to their s
  assert.equal(diff.status,200);
  assert.equal((await diff.json()).model,'local-diff');
 });
+
+test('embedded site requests reach the preview pipeline and retain their subject',async()=>{
+ const fail=()=>assert.fail('local site draft must not use a provider');
+ const post=content=>chat(req({messages:[{role:'user',content}]}),{},fail);
+ const bare=await post('Давай начнём с простого. Сделай сайт');
+ assert.equal((await bare.json()).model,'local-site-question');
+ const draft=await post('У меня свой бизнес. Хочу, чтобы ты сделал сайт для стоматологии');
+ const data=await draft.json();
+ assert.equal(data.model,'local-site-draft');
+ assert.match(data.text,/стоматолог/iu);
+});
+
+test('formats inline and attached JSON without changing numbers, keys or string escapes',async()=>{
+ const fail=()=>assert.fail('JSON skill must not use a provider');
+ const post=(content,attachments)=>chat(req({messages:[{role:'user',content,attachments}]}),env,fail);
+ const source=String.raw`{"id":9007199254740993,"id":1,"line":"a\nb","values":[{},[]]}`;
+ const inline=await post('Есть ответ API. Отформатируй JSON:\n```json\n'+source+'\n```');
+ assert.equal(inline.status,200);
+ const data=await inline.json();
+ assert.equal(data.model,'local-json');
+ assert.equal(data.provider,'local');
+ assert.match(data.text,/"id": 9007199254740993,\n  "id": 1,/u);
+ assert.ok(data.text.includes(String.raw`"line": "a\nb"`));
+ const attached=await post('Проверь JSON. Спасибо!',[{name:'input.json',text:source}]);
+ assert.equal((await attached.json()).text,data.text);
+ const invalid=await post('Отформатируй JSON: {"x":}');
+ assert.equal(invalid.status,400);
+ assert.match((await invalid.json()).error,/Синтаксическая ошибка/u);
+});

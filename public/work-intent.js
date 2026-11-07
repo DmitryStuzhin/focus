@@ -17,8 +17,10 @@ export function taskIntent(content){
 
 export function localIntent(content){
  const text=requestWords(content);
- const command=/^\/(calc|stats|convert|csv|diff)(?=\s|$)\s*([\s\S]*)$/iu.exec(text);
+ const command=/^\/(calc|stats|convert|csv|diff|json)(?=\s|$)\s*([\s\S]*)$/iu.exec(text);
  if(command)return {mode:command[1].toLowerCase(),details:command[2].trim()};
+ const json=/^(?:проверь|отформатируй|приведи в порядок)\s+(?:этот\s+|прикрепл[её]нный\s+)?json(?:[- ]файл)?(?=[\s:.!?]|$)\s*:?\s*([\s\S]*)$/iu.exec(text);
+ if(json)return {mode:'json',details:json[1].replace(/^\s*[.!?]\s*$/u,'').trim()};
  const calc=/^(?:посчитай|вычисли|рассчитай|сколько будет)\s*:?\s*([\d.,+−\-×÷*/^%() \t]+)\s*[?!.]?$/iu.exec(text);
  if(calc&&/\d/u.test(calc[1]))return {mode:'calc',details:calc[1].trim().replace(/\.$/u,'')};
  const convert=/^(?:переведи|конвертируй)\s+([+-]?(?:\d+(?:[.,]\d+)?|[.,]\d+)\s*[а-я]+\s+в\s+[а-я]+)\s*[?!.]?$/iu.exec(text);

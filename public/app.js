@@ -1,3 +1,4 @@
+import {resolveAction} from './action-phrases.js';
 import {projectSearchQuery,projectPath,searchProjectFiles,readMatchContext} from './project-search.js';
 import {localIntent,taskIntent} from './work-intent.js';
 import {isPreviewBlock,isSiteRevision,siteIntent} from './site-preview.js';
@@ -463,22 +464,25 @@ async function requestAnswer(c){
  if(generation)return;
  c.error=null;c.pendingSearch=null;
  const controller=new AbortController();const lastUser=c.messages.findLast(m=>m.role==='user');
- const projectQuery=projectSearchQuery(lastUser?.content);
- const localMode=localIntent(lastUser?.content)?.mode;
+ const action=resolveAction(lastUser?.content,{local:localIntent,task:taskIntent,site:siteIntent,image:imageIntent,project:projectSearchQuery});
+ const projectQuery=action.projectQuery??null;
+ const localMode=action.local?.mode;
  const localSkill=!!localMode||projectQuery!==null;
- const fileSkill=localMode==='csv'||localMode==='diff';
- const taskMode=taskIntent(lastUser?.content)?.mode;
+ const fileSkill=['csv','diff','json'].includes(localMode);
+ const taskMode=action.task?.mode;
+ const explicitSearch=action.web;
  const previousImage=latestImage(c.messages);
  const recentAnswer=c.messages.slice(0,c.messages.lastIndexOf(lastUser)).findLast(message=>message.role==='assistant');
  const priorWebsite=previewArtifact(c)||previewArtifact(c,findWebsite(recentAnswer));
- const revision=priorWebsite&&!localSkill&&(!taskMode||taskMode==='code')&&isSiteRevision(lastUser?.content)&&
-  (!/(?:изображени|картинк|фотографи|постер|обложк)/iu.test(lastUser.content)||/(?:сайт|страниц|секци|шапк|футер)/iu.test(lastUser.content));
- const explicitSearch=/^\s*(?:пожалуйста[ ,]+)?(?:найди|поищи|проверь)\s+(?:в интернете|в сети)(?=\s|[,:]|$)/iu.test(lastUser?.content||'');
+ const revisionPhrases=action.phrases||[{visible:action.input}];
+ const revision=priorWebsite&&!localSkill&&!explicitSearch&&!action.image&&(!taskMode||taskMode==='code')&&revisionPhrases.some(({visible})=>
+  isSiteRevision(visible)&&(!/(?:изображени|картинк|фотографи|постер|обложк)/iu.test(visible)||/(?:сайт|страниц|секци|шапк|футер)/iu.test(visible)));
+ const contextualImage=previousImage&&action.phrases?.find(({visible})=>imageIntent(visible,true));
  const siteDetails=recentAnswer?.model==='local-site-question'&&lastUser?.content?.trim()&&
-  !localSkill&&!taskMode&&!explicitSearch&&!/^\s*\//u.test(lastUser.content)&&!imageIntent(lastUser.content);
- const website=siteIntent(lastUser?.content)||!!revision||!!siteDetails;
+  !localSkill&&!taskMode&&!explicitSearch&&!/^\s*\//u.test(lastUser.content)&&!action.image&&!contextualImage;
+ const website=action.site||!!revision||!!siteDetails;
  const codeMode=taskMode==='code'||website;
- const imageRequest=website||taskMode||localSkill?null:imageIntent(lastUser?.content,!!previousImage);
+ const imageRequest=website||taskMode||localSkill||explicitSearch?null:action.image||(contextualImage&&imageIntent(contextualImage.input,true));
  const withSearch=(!!lastUser?.webSearch||explicitSearch)&&!localSkill&&!imageRequest&&!website;
  generation={chatId:c.id,controller,phase:imageRequest?'imaging':withSearch?'searching':'answering'};
  const refresh=()=>{if(ui.view==='chat'&&state.activeChat===c.id){render();const scroll=el('main-scroll');if(scroll)scroll.scrollTop=scroll.scrollHeight}};
@@ -497,7 +501,7 @@ async function requestAnswer(c){
   }
   let searchId;
   if(withSearch){
-   const query=searchQuery(c.messages);
+   const query=explicitSearch?searchQuery([{role:'user',content:action.input}]):searchQuery(c.messages);
    if(!query)throw new Error('Для поиска добавьте текст вопроса.');
    generation.query=query;
    const response=await fetch('/api/search',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({query}),signal:controller.signal});

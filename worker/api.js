@@ -1,3 +1,4 @@
+import {resolveAction} from '../public/action-phrases.js';
 import {localIntent,taskIntent} from '../public/work-intent.js';
 import {createSiteDraft} from './site-draft.js';
 import {siteIntent,isPreviewBlock} from '../public/site-preview.js';
@@ -300,8 +301,34 @@ function compareFiles(before,after){
   ...changes.map(({type,line,text})=>(type==='removed'?'Удалено':'Добавлено')+' | '+line+' | '+(text.length>240?text.slice(0,240)+'…':text||'∅')),
   ...(added+removed>changes.length?['','Показаны первые '+changes.length+' изменений.']:[])].join('\n');
 }
-function localSkill(content,attachments=[]){
- const intent=localIntent(content);
+function formatJSON(source){
+ const text=source.trim().replace(/^```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```\s*$/iu,'$1').trim();
+ if(!text||text.length>60000)throw new Error('Вставьте JSON или прикрепите один JSON-файл до 60 000 символов.');
+ try{JSON.parse(text)}catch(error){
+  const position=/\bposition (\d+)/iu.exec(error.message)?.[1];
+  const lines=position===undefined?null:text.slice(0,Number(position)).split(/\r\n?|\n/u);
+  const location=lines?' Строка '+lines.length+', столбец '+(lines.at(-1).length+1)+'.':'';
+  throw new Error('Синтаксическая ошибка в JSON.'+location);
+ }
+ // Change whitespace only. Parsing and serializing would round large numbers and remove duplicate keys.
+ const tokens=text.match(/"(?:\\.|[^"\\])*"|[{}\[\],:]|[^\s{}\[\],:"]+/gu);
+ let depth=0,formatted='';
+ const newline=()=>'\n'+'  '.repeat(Math.min(depth,40));
+ for(const [index,token] of tokens.entries()){
+  const next=tokens[index+1],previous=tokens[index-1];
+  if(token==='{'||token==='['){
+   depth++;
+   formatted+=token+(next==='}'||next===']'?'':newline());
+  }else if(token==='}'||token===']'){
+   depth--;
+   formatted+=(previous==='{'||previous==='['?'':newline())+token;
+  }else if(token===',')formatted+=token+newline();
+  else formatted+=token+(token===':'?' ':'');
+  if(formatted.length>100000)throw new Error('Форматированный JSON слишком большой. Разделите его на части.');
+ }
+ return 'JSON корректен.\n\n```json data.json\n'+formatted+'\n```';
+}
+function localSkill(intent,attachments=[]){
  if(!intent)return null;
  const skill=intent.mode;
  const files=attachments.filter(file=>typeof file?.text==='string');
@@ -313,6 +340,11 @@ function localSkill(content,attachments=[]){
    if(files.length!==1||attachments.length!==1)throw new Error('Прикрепите один CSV-файл к сообщению «Проанализируй CSV».');
    return analyzeCSV(files[0].text,option);
   },'local-csv'],
+  json:[source=>{
+   if(!attachments.length)return formatJSON(source);
+   if(source||attachments.length!==1||files.length!==1)throw new Error('Вставьте JSON в сообщение или прикрепите один текстовый JSON-файл.');
+   return formatJSON(files[0].text);
+  },'local-json'],
   diff:[()=>{
    if(files.length!==2||attachments.length!==2)throw new Error('Прикрепите два текстовых файла: сначала старую версию, затем новую.');
    return compareFiles(files[0].text,files[1].text);
@@ -470,7 +502,10 @@ export async function chat(request,env,fetcher=fetch){
  let input;try{const raw=await request.text();if(raw.length>12000000)return json({error:'Запрос слишком большой'},413);input=JSON.parse(raw)}catch{return json({error:'Не удалось прочитать запрос'},400)}
  if(!Array.isArray(input?.messages)||!input.messages.length||input.messages.length>60)return json({error:'Некорректная история диалога'},400);
  const latest=input.messages.at(-1);
- const taskRequest=latest?.role==='user'&&typeof latest.content==='string'?taskIntent(latest.content):null;
+ if(typeof latest?.content==='string'&&latest.content.length>150000)return json({error:'Диалог слишком длинный. Начните новый или сократите вложения.'},413);
+ const action=latest?.role==='user'&&typeof latest.content==='string'
+  ?resolveAction(latest.content,{local:localIntent,task:taskIntent,site:siteIntent,image:imageIntent}):{};
+ const taskRequest=action.task;
  const taskMode=taskRequest?.mode;
  let total=0;const contents=[];for(const m of input.messages){if(!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'||(m.attachments!=null&&!Array.isArray(m.attachments)))return json({error:'Некорректное сообщение'},400);total+=m.content.length;const parts=[];if(m.content)parts.push({text:m.content});for(const f of (m.attachments||[]).slice(0,8)){if(!f||typeof f!=='object')continue;if(f.text&&typeof f.text==='string'){total+=f.text.length;parts.push(sourcePart(f,m===latest&&taskMode==='review'))}else if(f.data&&['image/png','image/jpeg','image/webp','application/pdf'].includes(f.mimeType)&&typeof f.data==='string'&&/^[A-Za-z0-9+/=\r\n]+$/.test(f.data)&&f.data.length<8000000){parts.push({inlineData:{mimeType:f.mimeType,data:f.data}})}}if(parts.length)contents.push({role:m.role==='assistant'?'model':'user',parts})}
  if(total>150000)return json({error:'Диалог слишком длинный. Начните новый или сократите вложения.'},413);
@@ -478,13 +513,14 @@ export async function chat(request,env,fetcher=fetch){
  if(taskMode==='code'&&!taskRequest.details.trim())return json({error:'Опишите задачу после /code. Например: /code напиши тесты для приложенного файла на Python.',code:'code_input'},400);
  if(taskMode==='plan'&&!taskRequest.details.trim())return json({error:'Опишите цель после /plan.',code:'plan_input'},400);
  const siteMode=latest.role==='user'&&(!taskMode||taskMode==='code')&&
-  (siteIntent(latest.content)||input.sitePreview===true);
- if(siteMode&&/^\s*сделай\s+сайт[.!?]*\s*$/iu.test(latest.content)){
+  (action.site||input.sitePreview===true);
+ if(siteMode&&/^\s*сделай\s+сайт[.!?]*\s*$/iu.test(action.input)){
   return json({text:'Какой сайт сделать? Напишите, для кого или для чего он нужен.',model:'local-site-question',provider:'local'});
  }
- if(/^\s*\/site\s*$/iu.test(latest.content))return json({error:'Опишите сайт после /site.',code:'site_input'},400);
+ if(action.site&&/^\s*\/site\s*$/iu.test(action.input))return json({error:'Опишите сайт после /site.',code:'site_input'},400);
  const reference=input.imageReference;
- const imageRequest=siteMode||taskMode||localIntent(latest.content)?null:imageIntent(latest.content,!!reference);
+ const edit=reference&&action.phrases?.find(({visible})=>imageIntent(visible,true));
+ const imageRequest=siteMode||taskMode||action.local||action.web?null:action.image||(edit&&imageIntent(edit.input,true));
  if(latest.role==='user'&&imageRequest){
   if(imageRequest.mode==='edit'){
    if(!reference)return json({error:'Сначала создайте изображение в этом диалоге.',code:'image_reference_missing'},400);
@@ -493,14 +529,14 @@ export async function chat(request,env,fetcher=fetch){
   return generateImage(imageRequest.prompt,request,env,fetcher,imageRequest.mode==='edit'?reference:null,imageRequest.preset);
  }
  if(latest.role==='user'){
-  const result=localSkill(latest.content,latest.attachments||[]);
+  const result=localSkill(action.local,latest.attachments||[]);
   if(result)return result;
  }
  const configured=modelConfig(env).configured;
  const existingPreview=latest.attachments?.some(file=>typeof file?.text==='string'&&
   /^(?:Текущая версия предпросмотра — |.*\.html?$)/iu.test(String(file.name)));
  const siteDraft=()=>json({
-  text:'Сервис модели не подготовил сайт. Открыл стартовую страницу, собранную внутри Guzan. Проверьте тексты и заполните контакты перед публикацией.\n\n```html index.html\n'+createSiteDraft(siteIntent(latest.content)?latest.content:
+  text:'Сервис модели не подготовил сайт. Открыл стартовую страницу, собранную внутри Guzan. Проверьте тексты и заполните контакты перед публикацией.\n\n```html index.html\n'+createSiteDraft(action.site?action.input:
    'Сделай сайт '+(/^\s*(?:для|про|о)\s+/iu.test(latest.content)?'':'для ')+latest.content)+'\n```',
   model:'local-site-draft',provider:'local',truncated:false,
  });
