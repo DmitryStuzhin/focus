@@ -53,3 +53,14 @@ test('routes browser games and apps separately from native builds and illustrati
  assert.equal(resolve('Сделай обложку для игры').image.preset,'design');
  assert.ok(resolve('Объясни, как сделать игру на мобилку.').phrases);
 });
+
+test('recognizes a request lead, polite interruptions and document tasks',()=>{
+ assert.equal(resolve('Нужна помощь. Мне нужно сделать игру на телефон.').previewKind,'game');
+ assert.equal(resolve('Можешь ли ты собрать приложение для привычек?').previewKind,'app');
+ assert.equal(resolve('Вот свежая версия. Проверь, пожалуйста, код на ошибки.').task.mode,'review');
+ assert.equal(resolve('Найди, если можешь, в интернете первоисточник').web,true);
+ assert.equal(resolve('Нужно сверить документы. Проверь сроки оплаты.').task.mode,'evidence');
+ assert.deepEqual(resolve('Взял две выгрузки. Сравни, пожалуйста, CSV по столбцу «Код товара».').local,
+  {mode:'csvdiff',details:'«Код товара»'});
+ assert.ok(resolve('Бро, не создавай сайт, сделай это только после подтверждения.').phrases);
+});

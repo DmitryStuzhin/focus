@@ -270,6 +270,24 @@ try{
  await gamePage.close();
  console.log('Natural mobile game request opens a playable preview with score, restart and revision context');
 
+ const csvPage=await browser.newPage({viewport:{width:1440,height:900}});
+ await csvPage.goto('http://127.0.0.1:'+server.address().port);
+ await csvPage.waitForLoadState('networkidle');
+ const chooser=csvPage.waitForEvent('filechooser');
+ await csvPage.getByRole('button',{name:'Прикрепить файлы',exact:true}).click();
+ await (await chooser).setFiles([
+  {name:'old.csv',mimeType:'text/csv',buffer:Buffer.from('id,price\n001,12\n002,24')},
+  {name:'new.csv',mimeType:'text/csv',buffer:Buffer.from('id,price\n002,24\n001,15')},
+ ]);
+ await csvPage.locator('.attachment-chip').nth(1).waitFor();
+ await csvPage.getByRole('textbox',{name:'Сообщение',exact:true}).fill('Вот два отчёта. Сравни, пожалуйста, CSV по столбцу id');
+ await csvPage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ const report=csvPage.getByRole('table').filter({hasText:'Запись в первом файле'});
+ await report.getByRole('cell',{name:'price: «12» → «15»',exact:true}).waitFor();
+ assert.equal(await report.getByRole('row').count(),2);
+ await csvPage.close();
+ console.log('CSV comparison uses both chat attachments and shows the exact changed cell without a model');
+
 }finally{
  if(browser)await browser.close();
  await new Promise(resolve=>server.close(resolve));

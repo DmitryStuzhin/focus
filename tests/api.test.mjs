@@ -483,3 +483,54 @@ test('game fallback is playable HTML, and an unavailable app or edit returns an 
  assert.equal(edit.status,503);
  assert.match((await edit.json()).error,/Текущая версия сохранена/u);
 });
+
+test('CSV comparison joins by key and handles reordered rows, columns and quoted values',async()=>{
+ const response=await chat(req({messages:[{
+  role:'user',content:'Проверяем две выгрузки. Сравни CSV по столбцу «Код товара».',
+  attachments:[
+   {name:'old.csv',text:'Код товара;Название;Цена\n001;"A; тест";20\n002;B;42\n003;C;15\n004;D;8'},
+   {name:'new.csv',text:'Цена,Код товара,Название,Наличие\n42,002,B,да\n9,004,D,да\n20,001,A; тест,да\n80,005,E,нет'},
+  ],
+ }]}),env,()=>assert.fail('CSV comparison must not use the provider'));
+ assert.equal(response.status,200);
+ const {model,text}=await response.json();
+ assert.equal(model,'local-csv-diff');
+ assert.match(text,/Добавлено: 1 · Удалено: 1 · Изменено: 1 · Совпало по общим столбцам: 2/u);
+ assert.match(text,/Добавлены столбцы: Наличие/u);
+ assert.match(text,/\| Изменена \| 004 \| 4 \| 2 \| Цена: «8» → «9» \|/u);
+ assert.match(text,/\| Удалена \| 003/u);
+ assert.match(text,/\| Добавлена \| 005/u);
+});
+
+test('CSV comparison rejects ambiguous or incomplete input',async()=>{
+ const valid={name:'old.csv',text:'id,name\n001,Alpha'};
+ for(const [other,error] of [
+  [{name:'new.csv',text:'id,name\n001,Alpha\n001,Beta'},/повтор ключа/u],
+  [{name:'new.csv',text:'id,name\n,Alpha'},/пустой ключ/u],
+  [{name:'new.csv',text:'sku,name\n001,Alpha'},/нет столбца/u],
+  [{...valid,truncated:true},/целиком/u],
+ ]){
+  const response=await chat(req({messages:[{role:'user',content:'Сравни два CSV',attachments:[valid,other]}]}),
+   env,()=>assert.fail('invalid CSV must not use the provider'));
+  assert.equal(response.status,400);
+  assert.match((await response.json()).error,error);
+ }
+});
+
+test('document verification includes traceable locations and identifies excerpts',async()=>{
+ const response=await chat(req({messages:[
+  {role:'user',content:'Условия поставки',attachments:[{name:'terms.txt',text:'Договор\nСрок оплаты — 10 дней.'}]},
+  {role:'assistant',content:'Принял.'},
+  {role:'user',content:'Проверь, пожалуйста, по документу, какой срок оплаты.',attachments:[
+   {name:'annex.txt',text:'В доступном фрагменте срок не указан.',truncated:true},
+  ]},
+ ]}),env,async(_url,options)=>{
+  const body=JSON.parse(options.body);
+  assert.match(body.systemInstruction.parts[0].text,/Отдельно отмечай расхождения/u);
+  assert.match(body.contents[0].parts[1].text,/terms\.txt \(с номерами строк\)\n1 \| Договор\n2 \| Срок оплаты/u);
+  assert.match(body.contents.at(-1).parts[1].text,/annex\.txt \(фрагмент\)/u);
+  return Response.json({candidates:[{content:{parts:[{text:'10 дней. terms.txt, строка 2.'}]},finishReason:'STOP'}]});
+ });
+ assert.equal(response.status,200);
+ assert.equal((await response.json()).text,'10 дней. terms.txt, строка 2.');
+});

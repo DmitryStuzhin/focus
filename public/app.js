@@ -468,7 +468,7 @@ async function requestAnswer(c){
  const projectQuery=action.projectQuery??null;
  const localMode=action.local?.mode;
  const localSkill=!!localMode||projectQuery!==null;
- const fileSkill=['csv','diff','json'].includes(localMode);
+ const fileSkill=['csv','diff','json','csvdiff'].includes(localMode);
  const taskMode=action.task?.mode;
  const explicitSearch=action.web;
  const previousImage=latestImage(c.messages);
