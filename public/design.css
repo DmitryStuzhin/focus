@@ -1,0 +1,52 @@
+/* Shared Focus palette for the workspace, sign-in and administration. */
+:root {
+ --focus-font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+ --focus-mono: ui-monospace, "SFMono-Regular", Consolas, monospace;
+ --focus-ease: cubic-bezier(.22, 1, .36, 1);
+ --focus-canvas: #f7f6f4;
+ --focus-surface: #fff;
+ --focus-inset: #f0eeeb;
+ --focus-text: #252421;
+ --focus-secondary: #57554f;
+ --focus-muted: #6b6860;
+ --focus-line: #e4e0da;
+ --focus-accent: #80552e;
+ --focus-selection: #f2e9df;
+ --focus-action: #3b3128;
+ --focus-action-ink: #fffaf4;
+ --focus-danger: #a43c36;
+}
+
+[data-theme="dark"] {
+ --focus-canvas: #161615;
+ --focus-surface: #1d1d1b;
+ --focus-inset: #282725;
+ --focus-text: #f1eee8;
+ --focus-secondary: #c4bfb6;
+ --focus-muted: #a39d93;
+ --focus-line: #363430;
+ --focus-accent: #e1b383;
+ --focus-selection: #332b23;
+ --focus-action: #ead9c7;
+ --focus-action-ink: #282019;
+ --focus-danger: #f2a29a;
+ color-scheme: dark;
+}
+
+.focus-brand {
+ display: inline-flex;
+ align-items: center;
+ gap: 8px;
+ color: var(--focus-text);
+ font-size: 20px;
+ font-weight: 600;
+ line-height: 1;
+ text-decoration: none;
+}
+
+.focus-brand img {
+ display: block;
+ flex: 0 0 auto;
+ width: 24px;
+ height: 24px;
+}

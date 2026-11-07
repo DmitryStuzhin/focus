@@ -25,17 +25,13 @@ export const TOOL_STARTERS=[
  {title:'Проверить код',icon:'code',description:'Разбор ошибок и конкретные предложения по правкам.',prompt:'Проверь код: '},
 ];
 
-function hero(label,title,description,visual){
- return `<header class="studio-hero studio-hero--${visual}">
-  <div class="studio-eyebrow"><i></i>${label}</div>
-  <h1>${title}</h1><p>${description}</p>
-  <div class="studio-ornament" aria-hidden="true"><i></i><i></i><i></i></div>
- </header>`;
+function hero(title,description){
+ return `<header class="studio-hero"><h1>${title}</h1><p>${description}</p></header>`;
 }
 
 export function renderSites({e,brief,project,sites,busy}){
  return `<section class="studio">
-  ${hero('СТУДИЯ САЙТОВ','Сайты','Опиши страницу и открой рабочий предпросмотр в Focus. Правки можно продолжить в диалоге.','sites')}
+  ${hero('Сайты','Опиши страницу, открой предпросмотр и продолжи правки в диалоге.')}
   <form class="studio-panel studio-form" id="site-studio-form">
    <div class="studio-panel-head"><h2>Новый сайт</h2>${project?`<span class="studio-tag">${icon('folder')}${e(project)}</span>`:''}</div>
    <label for="site-brief">Что должно быть на сайте?</label>
@@ -46,8 +42,7 @@ export function renderSites({e,brief,project,sites,busy}){
   <section class="studio-section" aria-labelledby="studio-sites-title">
    <div class="studio-section-head"><h2 id="studio-sites-title">Мои сайты</h2><span>${sites.length}</span></div>
    ${sites.length?`<div class="studio-grid studio-grid--sites">${sites.map(({id,title,project,updated})=>`<article class="studio-card">
-    <div class="studio-site-art" aria-hidden="true"><span></span><span></span><span></span><div></div></div>
-    <div class="studio-card-body"><small>${e(project)} · ${e(updated)}</small><h3>${e(title)}</h3>
+    <div class="studio-card-body"><h3>${e(title)}</h3><small>${e(project)} · ${e(updated)}</small>
     <div class="studio-card-actions"><button type="button" data-action="studio-open-site" data-id="${e(id)}">Открыть ${icon('external')}</button><button type="button" data-action="studio-download-site" data-id="${e(id)}">${icon('download')} HTML</button></div></div>
    </article>`).join('')}</div>`:`<div class="studio-empty">${icon('globe')}<p>Здесь появятся сайты, созданные в Focus.</p></div>`}
   </section>
@@ -61,7 +56,7 @@ export function renderImages({e,form,files,source,access,hasPass,subscriptionUnt
  const blocked=paid?access?.paid===false||!hasPass||!canEdit:access?.free===false;
  const gallery=form.favorites?files.filter(file=>file.favorite):files;
  return `<section class="studio">
-  ${hero('ВИЗУАЛЬНАЯ СТУДИЯ','Изображения','Создавай изображения по описанию, меняй детали и сохраняй удачные варианты.','images')}
+  ${hero('Изображения','Создавай изображения по описанию, редактируй детали и собирай избранное.')}
   <form class="studio-panel studio-form" id="image-studio-form" aria-busy="${busy}">
    <div class="studio-panel-head"><h2>${source?'Редактирование':'Новое изображение'}</h2>${project?`<span class="studio-tag">${icon('folder')}${e(project)}</span>`:''}</div>
    <fieldset class="studio-models"><legend>Режим генерации</legend>
@@ -89,7 +84,7 @@ export function renderImages({e,form,files,source,access,hasPass,subscriptionUnt
   <section class="studio-section" aria-labelledby="studio-images-title">
    <div class="studio-section-head"><h2 id="studio-images-title">Мои изображения</h2><button class="studio-secondary" type="button" data-action="studio-favorites" aria-pressed="${form.favorites}">Избранное</button></div>
    ${gallery.length?`<div class="studio-grid studio-grid--images">${gallery.map(({id,name,prompt,favorite})=>`<article class="studio-card">
-    <div class="studio-image-art"><img loading="lazy" data-generated-file="${e(id)}" alt="${e(prompt||name)}"><button type="button" class="studio-star" data-action="studio-image-favorite" data-id="${e(id)}" aria-pressed="${!!favorite}" aria-label="Избранное: ${e(name)}">${favorite?'★':'☆'}</button></div>
+    <div class="studio-image-art"><img loading="lazy" data-generated-file="${e(id)}" alt="${e(prompt||name)}"><button type="button" class="studio-star" data-action="studio-image-favorite" data-id="${e(id)}" aria-pressed="${!!favorite}" aria-label="Избранное: ${e(name)}">${icon('star')}</button></div>
     <div class="studio-card-body"><h3 title="${e(prompt||name)}">${e(prompt||name)}</h3>
     <div class="studio-card-actions"><button type="button" data-action="studio-edit-image" data-id="${e(id)}">Редактировать</button><button type="button" data-action="download-file" data-id="${e(id)}">${icon('download')} Скачать</button></div></div>
    </article>`).join('')}</div>`:`<div class="studio-empty">${icon('image')}<p>${form.favorites?'Отметь изображение звёздочкой, чтобы добавить его сюда.':'Здесь появятся изображения из студии и диалогов.'}</p></div>`}
@@ -99,18 +94,18 @@ export function renderImages({e,form,files,source,access,hasPass,subscriptionUnt
 
 export function renderSkills(){
  return `<section class="studio">
-  ${hero('КАТАЛОГ','Скиллы','Скачай готовые инструкции для совместимого агента или начни задачу встроенным инструментом Focus.','skills')}
+  ${hero('Скиллы','Скачай инструкции для своего агента или открой инструмент Focus в диалоге.')}
   <section class="studio-section" aria-labelledby="studio-skills-title">
    <div class="studio-section-head"><h2 id="studio-skills-title">Скачать скилл</h2><span>ZIP</span></div>
-   <div class="studio-grid">${SKILLS.map(item=>`<article class="studio-card studio-tool-card">
-    <span class="studio-tool-icon">${icon(item.icon)}</span><h3>${item.title}</h3><p>${item.description}</p>
+   <div class="studio-list">${SKILLS.map(item=>`<article class="studio-card studio-tool-card">
+    <span class="studio-tool-icon">${icon(item.icon)}</span><div class="studio-tool-description"><h3>${item.title}</h3><p>${item.description}</p></div>
     <a class="studio-secondary" href="/skill-${item.archive}.zip" download="${item.archive}.zip">${icon('download')} Скачать ZIP</a>
    </article>`).join('')}</div>
   </section>
   <section class="studio-section" aria-labelledby="studio-tools-title">
    <div class="studio-section-head"><h2 id="studio-tools-title">Инструменты Focus</h2><span>В чате</span></div>
-   <div class="studio-grid">${TOOL_STARTERS.map((item,index)=>`<article class="studio-card studio-tool-card">
-    <span class="studio-tool-icon">${icon(item.icon)}</span><h3>${item.title}</h3><p>${item.description}</p>
+   <div class="studio-list">${TOOL_STARTERS.map((item,index)=>`<article class="studio-card studio-tool-card">
+    <span class="studio-tool-icon">${icon(item.icon)}</span><div class="studio-tool-description"><h3>${item.title}</h3><p>${item.description}</p></div>
     <button class="studio-secondary" type="button" data-action="studio-tool" data-id="${index}">Открыть в чате ${icon('chevron')}</button>
    </article>`).join('')}</div>
   </section>

@@ -6,8 +6,8 @@ const num=new Intl.NumberFormat('ru-RU');
 const stamp=value=>value==null?'—':time.format(value);
 const dayLabel=day=>date.format(day*86_400_000);
 const view={tab:'overview',days:30,page:1,query:'',userId:'',userLabel:'',requestId:0};
-const stats=[['registrations','Регистрации','#d6ebac'],['logins','Входы','#91c9e8']];
-const requests=[['chat','Чат','#c6e1a5'],['site','Сайты','#91c9e8'],['image','Изображения','#e6b17f'],['search','Поиск','#cbb0f0']];
+const stats=[['registrations','Регистрации','var(--focus-accent)'],['logins','Входы','#a6a29b']];
+const requests=[['chat','Чат','var(--focus-accent)'],['site','Сайты','#93b4ae'],['image','Изображения','#ad9ebb'],['search','Поиск','#a6a29b']];
 let selectedGrant=null;
 
 async function api(path,body){
@@ -45,16 +45,22 @@ function notice(message='',error=false){
 function chart(title,series,metrics,trackingDay){
  const visible=(point,key)=>key==='registrations'||point.day>=trackingDay;
  const ceiling=Math.max(1,...series.flatMap(point=>metrics.map(([key])=>point[key])));
- const left=36,right=586,top=12,bottom=145;
+ const left=4,right=436,top=4,bottom=156;
  const x=i=>left+(right-left)*i/Math.max(1,series.length-1);
  const y=value=>bottom-(bottom-top)*value/ceiling;
- const ticks=[...new Set([0,Math.round(ceiling/2),ceiling])];
+ const ticks=[...new Set([ceiling,Math.round(ceiling/2),0])];
  const labels=[...new Set([0,Math.floor((series.length-1)/2),series.length-1])];
- return `<article class="box"><h2>${title}</h2><svg class="chart" viewBox="0 0 600 175" role="img" aria-label="${title}">
-  ${ticks.map(tick=>`<line class="gridline" x1="${left}" y1="${y(tick)}" x2="${right}" y2="${y(tick)}"></line><text x="4" y="${y(tick)+4}">${num.format(tick)}</text>`).join('')}
-  ${metrics.map(([key,label,color])=>`<polyline stroke="${color}" points="${series.flatMap((point,i)=>visible(point,key)?[x(i)+','+y(point[key])]:[]).join(' ')}"></polyline>${series.map((point,i)=>visible(point,key)&&point[key]>0?`<circle cx="${x(i)}" cy="${y(point[key])}" r="3" fill="${color}"><title>${dayLabel(point.day)} · ${label} · ${point[key]}</title></circle>`:'').join('')}`).join('')}
-  ${labels.map(i=>`<text x="${x(i)}" y="165" text-anchor="${i===0?'start':i===series.length-1?'end':'middle'}">${dayLabel(series[i].day)}</text>`).join('')}
- </svg><div class="legend">${metrics.map(([key,label,color])=>`<span><b style="color:${color}">●</b>${label} · ${num.format(series.reduce((total,point)=>total+point[key],0))}</span>`).join('')}</div></article>`;
+ return `<article class="box chart-box"><h2>${title}</h2>
+  <div class="chart-layout">
+   <div class="chart-ticks" data-max="${num.format(ceiling)}" aria-hidden="true">${ticks.map(tick=>`<span style="top:${y(tick)/1.6}%">${num.format(tick)}</span>`).join('')}</div>
+   <svg class="chart" viewBox="0 0 440 160" preserveAspectRatio="none" role="img" aria-label="${title}">
+    ${ticks.map(tick=>`<line class="gridline" x1="${left}" y1="${y(tick)}" x2="${right}" y2="${y(tick)}"></line>`).join('')}
+    ${metrics.map(([key,label,color])=>`<polyline stroke="${color}" points="${series.flatMap((point,i)=>visible(point,key)?[x(i)+','+y(point[key])]:[]).join(' ')}"></polyline>${series.map((point,i)=>visible(point,key)&&point[key]>0?`<circle cx="${x(i)}" cy="${y(point[key])}" r="2.5" fill="${color}"><title>${dayLabel(point.day)} · ${label} · ${point[key]}</title></circle>`:'').join('')}`).join('')}
+   </svg>
+   <div class="chart-dates" aria-hidden="true">${labels.map(i=>`<span>${dayLabel(series[i].day)}</span>`).join('')}</div>
+  </div>
+  <div class="legend">${metrics.map(([key,label,color])=>`<span><i style="background:${color}" aria-hidden="true"></i>${label} <b>${num.format(series.reduce((total,point)=>total+point[key],0))}</b></span>`).join('')}</div>
+ </article>`;
 }
 function overview(data){
  const trackingDay=Math.floor((data.trackingSince+3*3_600_000)/86_400_000);
@@ -63,7 +69,7 @@ function overview(data){
  <dl class="kpis">${fields.map(([key,label])=>`<div class="kpi"><dt>${label}</dt><dd>${num.format(data.totals[key])}</dd></div>`).join('')}</dl>
  <div class="charts">${chart('Регистрации и входы',data.series,stats,trackingDay)}${chart('Успешные запросы',data.series,requests,trackingDay)}</div>
  <p class="tracking">Часовой пояс Москва. Учёт входов и запросов с ${stamp(data.trackingSince)}. Данные за последние 90 дней.</p>
- <details class="box"><summary>Статистика по дням</summary><div class="table-wrap"><table><thead><tr><th scope="col">Дата</th>${[...stats,...requests].map(([,label])=>`<th scope="col">${label}</th>`).join('')}<th scope="col">Ошибки запросов</th></tr></thead><tbody>
+ <details class="box"><summary>Статистика по дням</summary><div class="table-wrap" tabindex="0" role="region" aria-label="Статистика по дням"><table><thead><tr><th scope="col">Дата</th>${[...stats,...requests].map(([,label])=>`<th scope="col">${label}</th>`).join('')}<th scope="col">Ошибки запросов</th></tr></thead><tbody>
  ${data.series.slice().reverse().map(point=>`<tr><td>${dayLabel(point.day)}</td>${[...stats,...requests].map(([key])=>`<td>${key==='registrations'||point.day>=trackingDay?num.format(point[key]):'—'}</td>`).join('')}<td>${point.day>=trackingDay?num.format(point.errors):'—'}</td></tr>`).join('')}
  </tbody></table></div></details>`;
 }
@@ -74,24 +80,24 @@ function pagination(data){
 const action=(name,id,label)=>`<button type="button" data-action="${name}" data-id="${esc(id)}">${label}</button>`;
 function users(data){
  return `<section class="box"><div class="panel-head"><h2>Пользователи</h2><form class="filters" id="search-users"><input type="search" name="query" aria-label="Имя или email" placeholder="Имя или email" value="${esc(view.query)}" maxlength="120"><button type="submit">Найти</button></form></div>
- <div class="table-wrap"><table><thead><tr><th scope="col">Аккаунт</th><th scope="col">Подписка</th><th scope="col">Активность</th><th scope="col">Действия</th></tr></thead><tbody>
- ${data.items.map(user=>`<tr><td><strong>${esc(user.name||'Имя не указано')}</strong><small>${esc(user.email)}</small><small>Создан ${stamp(user.created)}</small></td>
-  <td><span class="badge ${user.subscriptionUntil?'active':''}">${user.subscriptionUntil?'До '+stamp(user.subscriptionUntil):'Базовый'}</span></td>
-  <td><span class="badge ${user.blocked?'blocked':'active'}">${user.blocked?'Заблокирован':user.activeSessions+' активных сессий'}</span><small>Последняя активность ${stamp(user.lastSeen)}</small></td>
-  <td><div class="actions"><button type="button" data-action="user-sessions" data-id="${esc(user.id)}" data-label="${esc(user.name||user.email)}">Сессии</button>
+ <div class="table-wrap"><table class="records" role="table"><thead role="rowgroup"><tr role="row"><th role="columnheader" scope="col">Аккаунт</th><th role="columnheader" scope="col">Подписка</th><th role="columnheader" scope="col">Активность</th><th role="columnheader" scope="col">Действия</th></tr></thead><tbody role="rowgroup">
+ ${data.items.map(user=>`<tr role="row"><td role="cell"><div><strong>${esc(user.name||'Имя не указано')}</strong><small>${esc(user.email)}</small><small>Создан ${stamp(user.created)}</small></div></td>
+  <td role="cell" data-label="Подписка"><div><span class="badge ${user.subscriptionUntil?'active':''}">${user.subscriptionUntil?'До '+stamp(user.subscriptionUntil):'Базовый'}</span></div></td>
+  <td role="cell" data-label="Активность"><div><span class="badge ${user.blocked?'blocked':'active'}">${user.blocked?'Заблокирован':user.activeSessions+' активных сессий'}</span><small>Последняя активность ${stamp(user.lastSeen)}</small></div></td>
+  <td role="cell"><div class="actions"><button type="button" data-action="user-sessions" data-id="${esc(user.id)}" data-label="${esc(user.name||user.email)}">Сессии</button>
    <button type="button" data-action="open-grant" data-id="${esc(user.id)}" data-label="${esc(user.name||user.email)}">${user.subscriptionUntil?'Продлить':'Выдать подписку'}</button>
    ${user.subscriptionUntil?action('revoke',user.id,'Отозвать'):''}${action(user.blocked?'unblock':'block',user.id,user.blocked?'Разблокировать':'Блокировать')}</div></td></tr>`).join('')}
- </tbody></table></div>${data.items.length?'':'<p class="empty">Ничего не найдено.</p>'}${pagination(data)}</section>`;
+ </tbody></table></div>${data.items.length?'':'<p class="empty">Ничего не найдено</p>'}${pagination(data)}</section>`;
 }
 function sessions(data){
  return `<section class="box"><div class="panel-head"><div><h2>Сессии</h2>${view.userId?`<p class="tracking">${esc(view.userLabel)}</p>`:''}</div><div class="actions">
  ${view.userId?`${action('end-user-sessions',view.userId,'Завершить все сессии')}<button type="button" data-action="all-sessions">Все пользователи</button>`:''}</div></div>
- <div class="table-wrap"><table><thead><tr><th scope="col">Аккаунт</th><th scope="col">Устройство</th><th scope="col">Вход</th><th scope="col">Активность</th><th scope="col">Срок</th><th scope="col">Статус</th><th scope="col">Действие</th></tr></thead><tbody>
- ${data.items.map(session=>`<tr><td><strong>${esc(session.name||session.email)}</strong>${session.name?`<small>${esc(session.email)}</small>`:''}</td>
- <td>${esc(session.device||'Не определено')}</td><td>${stamp(session.started)}</td><td>${stamp(session.lastSeen)}</td><td>${stamp(session.expires)}</td>
- <td><span class="badge ${session.ended==null?'active':''}">${session.ended==null?'Действует':'Завершена'}</span>${session.ended==null?'':`<small>${stamp(session.ended)}</small>`}</td>
- <td>${session.ended==null?action('end-session',session.id,'Завершить'):'—'}</td></tr>`).join('')}</tbody></table></div>
- ${data.items.length?'':'<p class="empty">Сессий пока нет.</p>'}${pagination(data)}</section>`;
+ <div class="table-wrap"><table class="records" role="table"><thead role="rowgroup"><tr role="row"><th role="columnheader" scope="col">Аккаунт</th><th role="columnheader" scope="col">Устройство</th><th role="columnheader" scope="col">Вход</th><th role="columnheader" scope="col">Активность</th><th role="columnheader" scope="col">Срок</th><th role="columnheader" scope="col">Статус</th><th role="columnheader" scope="col">Действие</th></tr></thead><tbody role="rowgroup">
+ ${data.items.map(session=>`<tr role="row"><td role="cell"><div><strong>${esc(session.name||session.email)}</strong>${session.name?`<small>${esc(session.email)}</small>`:''}</div></td>
+ <td role="cell" data-label="Устройство"><div>${esc(session.device||'Не определено')}</div></td><td role="cell" data-label="Вход"><div>${stamp(session.started)}</div></td><td role="cell" data-label="Активность"><div>${stamp(session.lastSeen)}</div></td><td role="cell" data-label="Срок"><div>${stamp(session.expires)}</div></td>
+ <td role="cell" data-label="Статус"><div><span class="badge ${session.ended==null?'active':''}">${session.ended==null?'Действует':'Завершена'}</span>${session.ended==null?'':`<small>${stamp(session.ended)}</small>`}</div></td>
+ <td role="cell"><div>${session.ended==null?action('end-session',session.id,'Завершить'):'—'}</div></td></tr>`).join('')}</tbody></table></div>
+ ${data.items.length?'':'<p class="empty">Сессий пока нет</p>'}${pagination(data)}</section>`;
 }
 async function loadPanel(){
  const id=++view.requestId;

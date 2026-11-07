@@ -60,7 +60,7 @@ async function sendCode(target){
   codeInput.value='';
   title.textContent='Проверь почту';
   intro.textContent='Введи шестизначный код из письма, отправленного на '+email+'.';
-  step.textContent='ШАГ 2 / 2';
+  step.textContent='Шаг 2 из 2';
   emailForm.hidden=true;
   codeForm.hidden=false;
   countdown(result.resendAfter);
@@ -80,7 +80,7 @@ changeEmail.addEventListener('click',()=>{
  challenge='';
  codeForm.hidden=true;
  emailForm.hidden=false;
- step.textContent='ШАГ 1 / 2';
+ step.textContent='Шаг 1 из 2';
  title.textContent='Войди в Focus';
  intro.textContent='Укажи почту. Мы отправим код для входа или регистрации.';
  emailInput.focus();
@@ -107,7 +107,7 @@ async function start(){
   if(!response.ok&&response.status!==404)throw new Error();
   if(session.user){location.replace('/');return;}
   if(session.enabled){emailForm.hidden=false;return;}
-  title.textContent='Добро пожаловать';
+  title.textContent='Открыть Focus';
   intro.textContent='Вход по почте пока недоступен. Можно открыть рабочее пространство.';
   step.hidden=true;
   document.querySelector('#guest').hidden=false;

@@ -4,9 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Предпросмотр</title>
+<style>
+ :root { color-scheme: light dark; }
+ body { margin: 0; background: Canvas; color: CanvasText; font: 14px/1.5 system-ui, sans-serif; }
+ p { margin: 0; padding: 16px; }
+</style>
 </head>
 <body>
-<p>Загружаем предпросмотр…</p>
+<p role="status">Загружаем предпросмотр…</p>
 <script>
  if (window.parent !== window) {
    const channel = new MessageChannel();

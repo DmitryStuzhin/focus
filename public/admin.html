@@ -1,19 +1,22 @@
 <!doctype html>
-<html lang="ru">
+<html lang="ru" data-theme="dark">
 <head>
  <meta charset="utf-8">
  <meta name="viewport" content="width=device-width, initial-scale=1">
+ <meta name="theme-color" content="#161615">
  <meta name="robots" content="noindex,nofollow">
  <title>Управление · Focus</title>
+ <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+ <link rel="stylesheet" href="/design.css">
  <link rel="stylesheet" href="/admin.css">
  <script type="module" src="/admin.js"></script>
 </head>
 <body>
- <header class="top"><a href="/" class="brand">Focus <span>Управление</span></a><div id="identity" hidden><span id="admin-name"></span><button type="button" id="sign-out">Выйти</button></div></header>
+ <header class="top"><div class="admin-brand"><a href="/" class="focus-brand"><img src="/favicon.svg" alt="" width="24" height="24">Focus</a><span>Управление</span></div><div id="identity" hidden><span id="admin-name"></span><button type="button" id="sign-out">Выйти</button></div></header>
  <main>
   <div id="loading" role="status">Загрузка…</div>
   <section id="sign-in" class="sign-in" hidden aria-labelledby="login-title">
-   <span class="eyebrow">ДОСТУП АДМИНИСТРАТОРА</span>
+   <p class="eyebrow">Доступ администратора</p>
    <h1 id="login-title">Вход в админку</h1>
    <p id="setup-note" hidden>Доступ ещё не настроен. Администратор задаёт логин и пароль на сервере.</p>
    <form id="login-form">
@@ -25,7 +28,7 @@
   </section>
   <section id="dashboard" hidden aria-labelledby="dashboard-title">
    <div class="intro">
-    <div><span class="eyebrow">ПАНЕЛЬ АДМИНИСТРАТОРА</span><h1 id="dashboard-title">Focus в цифрах</h1><p>Аккаунты, сессии и использование функций.</p></div>
+    <div><h1 id="dashboard-title">Focus в цифрах</h1><p>Аккаунты, сессии и использование функций</p></div>
     <button type="button" id="refresh">Обновить</button>
    </div>
    <nav class="tabs" aria-label="Разделы админки">
