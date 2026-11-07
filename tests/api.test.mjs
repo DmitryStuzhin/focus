@@ -623,3 +623,27 @@ test('a plain or incomplete website reply retries instead of being used as a pre
  assert.equal(calls,2);
  assert.equal((await response.json()).model,'local-site-draft');
 });
+
+
+test('a cut-off OpenRouter answer continues once and keeps the original if continuation fails',async()=>{
+ const messages={messages:[{role:'user',content:'Расскажи историю подробно'}]};
+ let calls=0;
+ const response=await chat(req(messages),{OPENROUTER_API_KEY:'secret'},async(_url,options)=>{
+  calls++;
+  if(calls===2){
+   const body=JSON.parse(options.body);
+   assert.equal(body.messages.at(-2).role,'assistant');
+   assert.match(body.messages.at(-1).content[0].text,/Продолжи ответ/u);
+  }
+  return Response.json({choices:[{message:{content:calls===1?'Первая часть, ':'вторая часть.'},finish_reason:calls===1?'length':'stop'}]});
+ });
+ assert.equal(calls,2);
+ assert.equal((await response.json()).text,'Первая часть, вторая часть.');
+ let failed=0;
+ const partial=await chat(req(messages),{OPENROUTER_API_KEY:'secret'},async()=>{
+  if(++failed===2)throw Error('temporary outage');
+  return Response.json({choices:[{message:{content:'Начало'},finish_reason:'length'}]});
+ });
+ assert.equal(partial.status,200);
+ assert.equal((await partial.json()).truncated,true);
+});

@@ -127,14 +127,36 @@ async function openRouterChat(contents,request,env,fetcher,research,taskMode,sit
   if(choice?.finish_reason==='content_filter'||choice?.message?.refusal){
    return json({error:'Модель не смогла ответить на этот запрос. Попробуйте переформулировать.',code:'content_filtered'},422);
   }
-  const truncated=choice?.finish_reason==='length';
+  let truncated=choice?.finish_reason==='length';
   if(siteMode&&!attempt&&!signal.aborted&&(!text.trim()||truncated||
    !previewHTML(text,siteMode)))continue;
   if(!text.trim()){
    const error=siteMode?'Бесплатные модели не вернули HTML. Повторите запрос или попросите более компактный сайт.':'Модель вернула пустой ответ. Повторите запрос.';
    return json({error,code:'empty_response'},422);
   }
-  return json({text,search,model:data.model||model,provider:'openrouter',usage:data.usage||null,truncated});
+  let answer=text;
+  if(truncated&&!siteMode&&!signal.aborted){
+   try{
+    const continuation=await fetcher('https://openrouter.ai/api/v1/chat/completions',{
+     method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${env.OPENROUTER_API_KEY}`},
+     body:JSON.stringify({model,messages:[...requestMessages,
+      {role:'assistant',content:[{type:'text',text:answer}]},
+      {role:'user',content:[{type:'text',text:'Продолжи ответ с места обрыва. Не повторяй уже написанное и закончи мысль.'}]}],
+     max_tokens:2048,stream:false}),signal,
+    });
+    if(continuation.ok){
+     const next=await continuation.json();
+     const part=next.choices?.[0]?.message?.content;
+     const extra=typeof part==='string'?part:Array.isArray(part)?
+      part.filter(item=>['text','output_text'].includes(item?.type)&&typeof item.text==='string').map(item=>item.text).join(''):'';
+     if(extra.trim()&&!next.choices?.[0]?.message?.refusal&&next.choices?.[0]?.finish_reason!=='content_filter'){
+      answer+=extra;
+      truncated=next.choices?.[0]?.finish_reason==='length';
+     }
+    }
+   }catch{/* Keep the first answer if the continuation is unavailable. */}
+  }
+  return json({text:answer,search,model:data.model||model,provider:'openrouter',usage:data.usage||null,truncated});
  }
  return json({error:'Модель вернула пустой ответ. Повторите запрос.',code:'empty_response'},422);
 }
@@ -733,4 +755,5 @@ async function googleChat(contents,request,env,fetcher,research,taskMode,siteMod
 }
 const PREVIEW_CSP="sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; form-action 'none'; base-uri 'none'; frame-ancestors 'self' https://chatgpt.com https://*.chatgpt.com";
 export default{async fetch(request,env,ctx){const url=new URL(request.url);if(['/login','/login.html'].includes(url.pathname)&&['GET','HEAD'].includes(request.method))return new Response(request.method==='HEAD'?null:ASSETS['/login.html'].body,{headers:{...headers,'content-type':'text/html; charset=utf-8','cache-control':'no-store','content-security-policy':"default-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"}});if(url.pathname==='/preview.html'&&['GET','HEAD'].includes(request.method))return new Response(request.method==='HEAD'?null:ASSETS['/preview.html'].body,{headers:{...headers,'content-type':'text/html; charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer','content-security-policy':PREVIEW_CSP}});if(url.pathname==='/api/status')return request.method==='GET'?json({...modelConfig(env),searchConfigured:!!env.TAVILY_API_KEY,images:imageAccess(env)}):json({error:'Метод не поддерживается'},405);if(url.pathname==='/api/search')return request.method==='POST'?searchWeb(request,env):json({error:'Метод не поддерживается'},405);if(url.pathname==='/api/chat')return request.method==='POST'?chat(request,env,fetch,ctx):json({error:'Метод не поддерживается'},405);if(!['GET','HEAD'].includes(request.method))return new Response('Method not allowed',{status:405,headers});const asset=ASSETS[url.pathname];if(!asset)return new Response('Not found',{status:404,headers});const adminPage=url.pathname==='/admin'||url.pathname==='/admin.html';const body=request.method==='HEAD'?null:asset.encoding==='base64'?Uint8Array.from(atob(asset.body),byte=>byte.charCodeAt(0)):asset.body;return new Response(body,{headers:{...headers,'content-type':asset.type,'cache-control':adminPage?'no-store':'no-cache','content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors "+(adminPage?"'none'; form-action 'self'":"'self' https://chatgpt.com https://*.chatgpt.com")}})}};
+
 
