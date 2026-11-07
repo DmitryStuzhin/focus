@@ -257,6 +257,37 @@ test('public callers and expired image passes cannot spend the OpenAI key',async
  assert.equal(unlisted.status,403);
 });
 
+test('studio paid mode requires a pass and never falls back to the basic provider',async()=>{
+ const env={...imageSubscription,CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'free'};
+ const input={messages:[{role:'user',content:'/image кот'}],imageMode:'paid'};
+ const never=()=>assert.fail('paid request must not reach the free provider');
+ assert.equal((await chat(req(input),env,never)).status,403);
+ assert.equal((await chat(req(input,imagePassHeader),env,never)).status,503);
+ const subscribed={...env,OPENROUTER_API_KEY:'router-key',OPENROUTER_IMAGE_MODEL:'test-image-model'};
+ const result=await chat(req(input,imagePassHeader),subscribed,async(url,{body,headers})=>{
+  assert.equal(url,'https://openrouter.ai/api/v1/images');
+  assert.equal(headers.authorization,'Bearer router-key');
+  assert.deepEqual(JSON.parse(body),{model:'test-image-model',prompt:'кот'});
+  return Response.json({data:[{b64_json:'iVBORw0KGgo='}]});
+ });
+ assert.equal(result.status,200);
+});
+
+test('a studio image edit sends the selected reference and preserves its format by default',async()=>{
+ const env={CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'free'};
+ const imageReference={mimeType:'image/png',data:'iVBORw0KGgo=',width:1280,height:720};
+ const input={messages:[{role:'user',content:'/image-edit серый фон'}],imageReference};
+ const result=await chat(req(input),env,async(url,{body})=>{
+  assert.match(url,/flux-2-klein-4b$/u);
+  assert.match(body.get('prompt'),/серый фон$/u);
+  assert.equal(body.get('input_image_0').type,'image/png');
+  assert.equal(body.get('width'),'1280');
+  assert.equal(body.get('height'),'720');
+  return Response.json({result:{image:'iVBORw0KGgo='}});
+ });
+ assert.equal(result.status,200);
+});
+
 test('unit conversion is exact and refuses incompatible dimensions',async()=>{
  const run=content=>chat(req({messages:[{role:'user',content}]}),{},()=>assert.fail('conversion is local'));
  assert.equal((await (await run('/convert 2,5 км в м')).json()).text,'**Результат** 2500 м');

@@ -1,8 +1,12 @@
 import {readFile,readdir,mkdir,writeFile,rm} from 'node:fs/promises';
 const root=new URL('../',import.meta.url);
-const types={html:'text/html; charset=utf-8',css:'text/css; charset=utf-8',js:'text/javascript; charset=utf-8',svg:'image/svg+xml'};
+const types={html:'text/html; charset=utf-8',css:'text/css; charset=utf-8',js:'text/javascript; charset=utf-8',svg:'image/svg+xml',zip:'application/zip'};
 const assets={};
-for(const name of await readdir(new URL('public/',root))){assets['/'+name]={type:types[name.split('.').pop()]||'application/octet-stream',body:await readFile(new URL('public/'+name,root),'utf8')}}
+for(const name of await readdir(new URL('public/',root))){
+ const extension=name.split('.').pop();
+ const binary=extension==='zip';
+ assets['/'+name]={type:types[extension]||'application/octet-stream',body:await readFile(new URL('public/'+name,root),binary?'base64':'utf8'),...(binary?{encoding:'base64'}:{})};
+}
 assets['/']=assets['/index.html'];
 assets['/login']=assets['/login.html'];
 let source=await readFile(new URL('worker/api.js',root),'utf8');

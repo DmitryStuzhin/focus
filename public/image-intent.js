@@ -5,6 +5,8 @@ export function imageIntent(content,hasImage=false){
  if(design)return {mode:'create',preset:'design',prompt:design[1].trim()};
  const command=/^\/image(?=\s|$)\s*([\s\S]*)$/iu.exec(text);
  if(command)return {mode:'create',prompt:command[1].trim()};
+ const editCommand=/^\/image-edit(?=\s|$)\s*([\s\S]*)$/iu.exec(text);
+ if(editCommand)return {mode:'edit',prompt:editCommand[1].trim()};
  const t=text.toLowerCase().replace(/ё/g,'е').replace(/^(?:бро[,! ]*|пожалуйста[, ]*|можешь\s+|можно\s+|давай\s+|теперь\s+|а\s+)+/u,'');
  // Data charts use the chat renderer, including colloquial "draw a chart".
  if(/^(?:нарисуй|нарисовать|изобрази|создай|создать|сделай|сгенерируй|draw|make|create)\s+(?:(?:мне|линейный|столбчатую|круговую)\s+)*(?:график|диаграмм[ауые]|chart|graph)(?![\p{L}\p{N}_])/iu.test(t))return null;

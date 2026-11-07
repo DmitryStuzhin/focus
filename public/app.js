@@ -8,6 +8,7 @@ import {buildChatContext,searchQuery,MAX_QUOTE_LENGTH} from './chat-context.js';
 import {bindQuoteSelection} from './quote-selection.js';
 import {sourcePills,sourcesDialog,linkCitations} from './search-ui.js';
 import {inlineMarkdown,answerTable,answerChart,prefersJsonCode} from './answer-format.js';
+import {STUDIO_LABELS,SITE_STARTERS,IMAGE_STARTERS,TOOL_STARTERS,renderSites,renderImages,renderSkills} from './studios.js';
 import {icon,mark} from './icons.js';
 import {uid,readState,writeState,fresh,putBlob,getBlob,deleteBlob,validBackup,selectStorageScope,AUTH_EVENT_KEY} from './store.js';
 const app=document.querySelector('#app');
@@ -15,6 +16,8 @@ const MODEL_LABEL='Guzan 1.1';
 let state=fresh(), account=null, ready=false;
 const imagePassKey=()=>account?"focus-image-pass."+account.id:"focus-image-pass";
 let ui={view:'chat',archive:false,filesTab:'files',folder:null,collapsed:new Set(),sidebarClosed:false,mobileNav:false,mobileFiles:false,draft:'',quote:null,attachments:[],menu:null,sort:'name'};
+const studio={siteBrief:'',image:{brief:'',mode:'free',ratio:'1:1',style:'',reference:null,favorites:false},imageError:'',imageController:null};
+const studioRoute=()=>{const view=location.hash.slice(1);return Object.hasOwn(STUDIO_LABELS,view)?view:null};
 let toastTimer,uploadAttach=false,objectURLs=[],generation=null,apiStatus={configured:false,model:'',label:MODEL_LABEL};
 const e=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const el=id=>document.getElementById(id);
@@ -43,6 +46,7 @@ function toast(text){clearTimeout(toastTimer);const t=el('toast');t.textContent=
 let generatedURLs=[];
 function render(){
  hideSelectionAction();
+ if(!Object.hasOwn(STUDIO_LABELS,ui.view)&&studioRoute())history.replaceState(null,'',location.pathname+location.search);
  if(ui.quote&&ui.quote.chatId!==activeChat()?.id)ui.quote=null;
  generatedURLs.forEach(url=>URL.revokeObjectURL(url));generatedURLs=[];
  applyTheme();
@@ -51,7 +55,7 @@ function render(){
  const showFiles=!artifact&&state.settings.showFiles&&ui.view==='chat';
  app.innerHTML=`<div class="shell ${showFiles?'':'no-files'} ${ui.sidebarClosed?'sidebar-collapsed':''} ${artifact?'has-site-preview':''}">
  ${sidebar()}<button class="sidebar-shade" aria-label="Закрыть навигацию" data-action="close-nav"></button>
- <main class="main" ${ui.mobileNav||ui.mobileFiles?'inert':''}>${header()}<div class="main-scroll" id="main-scroll">${ui.view==='chat'?chatView():ui.view==='workspace'?workspaceView():collectionView()}</div>${ui.view==='chat'?composer():''}</main>
+ <main class="main" ${ui.mobileNav||ui.mobileFiles?'inert':''}>${header()}<div class="main-scroll" id="main-scroll">${mainView()}</div>${ui.view==='chat'?composer():''}</main>
  ${artifact?'<div class="preview-space" aria-hidden="true"></div>':ui.view==='chat'?filesPanel(showFiles):''}</div>`;
  syncPreviewPanel(artifact);
  for(const img of app.querySelectorAll('[data-generated-file]')){
@@ -64,13 +68,144 @@ function render(){
 }
 function sidebar(){
  return `<aside class="sidebar ${ui.mobileNav?'mobile-open':''}" aria-label="Навигация" ${(innerWidth<640&&!ui.mobileNav)||(innerWidth>=640&&ui.sidebarClosed)?'inert':''}><div class="brand-row"><button class="brand" data-action="workspace" aria-label="Focus — рабочее пространство">Focus</button>${ib('toggle-sidebar','panel','Свернуть навигацию')}</div>
- <nav class="nav-group"><button class="nav-row new-chat" data-action="new-chat">${icon('compose')}<span>Новый диалог</span><kbd class="keycap">⌘ N</kbd></button><button class="nav-row" data-action="search">${icon('search')}<span>Поиск</span><kbd class="keycap">⌘ K</kbd></button><button class="nav-row ${ui.view==='workspace'?'active':''}" data-action="workspace">${icon('grid')}<span>Рабочее пространство</span></button></nav>
+ <nav class="nav-group"><button class="nav-row new-chat" data-action="new-chat">${icon('compose')}<span>Новый диалог</span><kbd class="keycap">⌘ N</kbd></button><button class="nav-row" data-action="search">${icon('search')}<span>Поиск</span><kbd class="keycap">⌘ K</kbd></button><button class="nav-row ${ui.view==='workspace'?'active':''}" data-action="workspace">${icon('grid')}<span>Рабочее пространство</span></button>${Object.entries(STUDIO_LABELS).map(([view,label])=>`<a class="nav-row studio-nav ${ui.view===view?'active':''}" href="#${view}" data-action="studio-view" data-id="${view}" ${ui.view===view?'aria-current="page"':''}>${icon({sites:'globe',images:'image',skills:'command'}[view])}<span>${label}</span></a>`).join('')}</nav>
  <div class="projects-heading"><span>Проекты</span>${ib('create-project','plus','Создать проект')}</div>
  <div class="sidebar-tabs" role="tablist" aria-label="Состояние диалогов"><button class="tab ${!ui.archive?'active':''}" role="tab" aria-selected="${!ui.archive}" data-action="tab-dialogs">Диалоги</button><button class="tab ${ui.archive?'active':''}" role="tab" aria-selected="${ui.archive}" data-action="tab-archive">Архив</button></div>
  <nav class="project-tree" aria-label="Проекты и диалоги">${liveProjects().map(p=>{const chats=state.chats.filter(c=>c.project===p.id&&!c.deleted&&!!c.archived===ui.archive).sort((a,b)=>b.updated-a.updated);return `<div class="project-row ${p.id===state.activeProject?'active':''}"><button class="project-link" data-action="select-project" data-id="${p.id}">${icon('chevron',`caret ${ui.collapsed.has(p.id)?'':'open'}`)}${icon('folder')}<span class="truncate">${e(p.name)}</span></button><button class="icon-btn row-more" data-action="project-menu" data-id="${p.id}" aria-label="Действия с проектом ${e(p.name)}">${icon('more')}</button></div>${ui.collapsed.has(p.id)?'':`<div class="chat-list">${chats.map(c=>`<div class="chat-row ${c.id===state.activeChat&&ui.view==='chat'?'active':''}"><button class="chat-link truncate" data-action="select-chat" data-id="${c.id}">${e(c.title)}</button><button class="icon-btn row-more" data-action="chat-menu" data-id="${c.id}" aria-label="Действия с диалогом ${e(c.title)}">${icon('more')}</button></div>`).join('')}</div>`}`}).join('')}${liveProjects().length?'':`<p class="empty-nav">Создайте проект, чтобы начать</p>`}</nav>
  <div class="sidebar-footer"><button class="nav-row ${ui.view==='trash'?'active':''}" data-action="trash">${icon('trash')}<span>Корзина</span>${trashCount()?`<span style="margin-left:auto;font-size:11px">${trashCount()}</span>`:''}</button><button class="profile" data-action="settings"><span class="avatar">${e((state.settings.name||'М')[0].toUpperCase())}</span><span class="profile-label"><strong class="truncate">${e(state.settings.name)}</strong><small>Личное пространство</small></span>${icon('settings')}</button></div></aside>`;
 }
-function header(){let title=ui.view==='workspace'?'Рабочее пространство':ui.view==='trash'?'Корзина':ui.view==='archive'?'Архив':activeProject()?.name||'Новый диалог';return `<header class="topbar"><div class="topbar-title">${ib('toggle-sidebar','menu','Открыть навигацию',ui.sidebarClosed?'':`class="mobile-only"`)}<span class="truncate">${e(title)}</span>${ui.view==='chat'&&activeChat()?`<span class="top-divider desktop-only"></span><span class="truncate desktop-only" style="color:var(--muted);font-size:12px;font-weight:400">${e(activeChat().title)}</span>`:''}</div><div class="topbar-actions">${themeButton()}${ui.view==='chat'?`<button class="status" data-action="model-info" title="Статус подключения"><span class="status-dot"></span>${apiStatus.configured?e(MODEL_LABEL):'Не подключено'}</button><span class="top-divider"></span>${activeChat()?ib('current-chat-menu','more','Действия с диалогом'):''}${ib('toggle-files','panel','Показать или скрыть файлы',`aria-pressed="${state.settings.showFiles}"`)}`:button('new-chat',`${icon('plus')} Новый диалог`,'ghost')}</div></header>`}
+function studioSites(){
+ const projects=new Set(liveProjects().map(project=>project.id));
+ return state.chats.filter(chat=>!chat.deleted&&projects.has(chat.project)).flatMap(chat=>{
+  const message=chat.messages.findLast(message=>message.role==='assistant'&&(!message.previewKind||message.previewKind==='site')&&findWebsite(message));
+  const selection=findWebsite(message);
+  return selection?[{id:chat.id,title:chat.title.replace(/^\/site\s+/iu,''),project:projectName(chat.project),updated:date(chat.updated),at:chat.updated,selection}]:[];
+ }).sort((a,b)=>b.at-a.at);
+}
+
+function studioImages(){
+ const projects=new Set(liveProjects().map(project=>project.id));
+ const prompts=new Map();
+ for(const chat of state.chats){
+  if(chat.deleted||!projects.has(chat.project))continue;
+  let prompt='';
+  for(const message of chat.messages){
+   if(message.role==='user')prompt=message.content;
+   if(message.imageFile)prompts.set(message.imageFile,prompt);
+  }
+ }
+ return state.files.filter(file=>!file.deleted&&projects.has(file.project)&&file.type?.startsWith('image/')&&
+  (typeof file.imagePrompt==='string'||prompts.has(file.id)))
+  .sort((a,b)=>b.created-a.created)
+  .map(file=>({...file,prompt:file.imagePrompt||prompts.get(file.id)}));
+}
+
+function mainView(){
+ const project=activeProject()?.name;
+ switch(ui.view){
+  case 'chat':return chatView();
+  case 'workspace':return workspaceView();
+  case 'sites':return renderSites({e,project,brief:studio.siteBrief,sites:studioSites(),busy:!!generation});
+  case 'images':{
+   const files=studioImages();
+   const source=files.find(file=>file.id===studio.image.reference);
+   if(!source&&studio.image.reference){studio.image.reference=null;studio.image.ratio='1:1';}
+   return renderImages({e,project,files,form:studio.image,source,
+    access:apiStatus.images,hasPass:!!(isSecureContext&&sessionStorage.getItem(imagePassKey())),busy:!!studio.imageController,error:studio.imageError});
+  }
+  case 'skills':return renderSkills();
+  default:return collectionView();
+ }
+}
+
+function refreshImageStudio(){
+ if(ui.view!=='images')return;
+ const scroll=el('main-scroll')?.scrollTop||0;
+ render();
+ el('main-scroll').scrollTop=scroll;
+}
+
+function openStudioSite(id,downloadOnly=false){
+ const entry=studioSites().find(site=>site.id===id);
+ const chat=entry&&state.chats.find(chat=>chat.id===entry.id);
+ const artifact=chat&&previewArtifact(chat,entry.selection);
+ if(!artifact)return;
+ if(downloadOnly){download(new Blob([artifact.code],{type:'text/html;charset=utf-8'}),artifact.filename);return;}
+ selectChat(id);
+ setPreview(entry.selection);
+}
+
+function startStudioSite(){
+ if(generation){toast('Дождитесь ответа или остановите запрос');return;}
+ const brief=studio.siteBrief.trim();
+ if(!brief)return;
+ newChat();
+ if(ui.view!=='chat')return;
+ studio.siteBrief='';
+ ui.draft='/site '+brief;
+ send();
+}
+
+async function saveGeneratedImage(image,project,prompt){
+ const extension={'image/png':'png','image/jpeg':'jpg','image/webp':'webp'}[image.mimeType];
+ if(!extension||typeof image.data!=='string')throw new Error('Получен неподдерживаемый формат изображения.');
+ const bytes=Uint8Array.from(atob(image.data),char=>char.charCodeAt(0));
+ if(!bytes.length)throw new Error('Получено пустое изображение.');
+ const blob=new Blob([bytes],{type:image.mimeType});
+ const id=uid(),now=Date.now();
+ await putBlob(id,blob);
+ state.files.push({id,project,parent:null,name:'Guzan-'+id.slice(0,8)+'.'+extension,kind:'file',type:blob.type,size:blob.size,
+  created:now,updated:now,deleted:false,...(prompt?{imagePrompt:prompt}:{})});
+ return id;
+}
+
+async function generateStudioImage(){
+ if(studio.imageController)return;
+ const project=activeProject();
+ if(!project){projectDialog();return;}
+ const {brief,mode,ratio,style,reference}=studio.image;
+ const prompt=brief.trim();
+ if(!prompt)return;
+ const paid=mode==='paid';
+ const pass=paid&&isSecureContext?sessionStorage.getItem(imagePassKey()):null;
+ if(paid&&!pass){imageSubscriptionDialog();return;}
+ const controller=new AbortController();
+ studio.imageController=controller;
+ studio.imageError='';
+ refreshImageStudio();
+ let generated=false;
+ try{
+  let imageReferenceData;
+  if(reference){
+   const file=studioImages().find(file=>file.id===reference);
+   const blob=file&&await getBlob(file.id);
+   if(!blob)throw new Error('Исходное изображение недоступно. Выберите другое или уберите его.');
+   imageReferenceData=await imageReference(blob);
+  }
+  const command=reference?'/image-edit':style==='poster'?'/design':'/image';
+  const format=ratio&&(!paid||apiStatus.images?.paidFormats!==false)?' --ar '+ratio:'';
+  const response=await fetch('/api/chat',{method:'POST',signal:controller.signal,
+   headers:{'content-type':'application/json',...(pass?{'x-focus-image-pass':pass}:{})},
+   body:JSON.stringify({messages:[{role:'user',content:command+' '+prompt+format}],...(paid?{imageMode:'paid'}:{}),
+    ...(imageReferenceData?{imageReference:imageReferenceData}:{})})});
+  if(response.status===401&&account){location.replace('/login');return;}
+  const data=await response.json().catch(()=>null);
+  if(!response.ok||!data?.image)throw new Error(data?.error||'Сервис не вернул изображение. Попробуйте ещё раз.');
+  const id=await saveGeneratedImage(data.image,project.id,prompt);
+  if(reference&&studio.image.reference===reference)studio.image.reference=id;
+  studio.image.favorites=false;
+  persist();
+  generated=true;
+ }catch(error){
+  studio.imageError=error.name==='AbortError'?'Ожидание остановлено.':error.message;
+ }finally{
+  studio.imageController=null;
+  refreshImageStudio();
+  if(generated&&ui.view==='images')el('studio-images-title')?.scrollIntoView({block:'start'});
+ }
+}
+
+function header(){let title=STUDIO_LABELS[ui.view]||(ui.view==='workspace'?'Рабочее пространство':ui.view==='trash'?'Корзина':ui.view==='archive'?'Архив':activeProject()?.name||'Новый диалог');return `<header class="topbar"><div class="topbar-title">${ib('toggle-sidebar','menu','Открыть навигацию',ui.sidebarClosed?'':`class="mobile-only"`)}<span class="truncate">${e(title)}</span>${ui.view==='chat'&&activeChat()?`<span class="top-divider desktop-only"></span><span class="truncate desktop-only" style="color:var(--muted);font-size:12px;font-weight:400">${e(activeChat().title)}</span>`:''}</div><div class="topbar-actions">${themeButton()}${ui.view==='chat'?`<button class="status" data-action="model-info" title="Статус подключения"><span class="status-dot"></span>${apiStatus.configured?e(MODEL_LABEL):'Не подключено'}</button><span class="top-divider"></span>${activeChat()?ib('current-chat-menu','more','Действия с диалогом'):''}${ib('toggle-files','panel','Показать или скрыть файлы',`aria-pressed="${state.settings.showFiles}"`)}`:button('new-chat',`${icon('plus')} Новый диалог`,'ghost')}</div></header>`}
 function chatView(){const c=activeChat();if(!c||!c.messages.length)return `<section class="welcome"><div class="welcome-inner">${mark}<h1>Над чем поработаем?</h1><p class="welcome-sub">От первой мысли до готового результата</p><div class="suggestions"><button class="suggestion" data-action="prompt" data-prompt="Нарисуй ">${icon('image')}Создать изображение</button><button class="suggestion" data-action="prompt" data-prompt="Сделай постер ">${icon('poster')}Постер или обложка</button><button class="suggestion" data-action="prompt" data-prompt="Напиши код для ">${icon('code')}Написать код</button><button class="suggestion" data-action="prompt" data-prompt="Сделай сайт">${icon('code')}Создать сайт</button><button class="suggestion" data-action="prompt" data-prompt="Проверь код: ">${icon('search')}Проверить код</button><button class="suggestion" data-action="prompt" data-prompt="Найди в проекте ">${icon('search')}Найти в проекте</button><button class="suggestion" data-action="prompt" data-prompt="Подготовь документ на тему: ">${icon('file')}Создать документ</button><button class="suggestion" data-action="prompt" data-prompt="Собери презентацию на 8 слайдов о ">${icon('slides')}Собрать презентацию</button><button class="suggestion" data-action="prompt" data-prompt="Создай таблицу для ">${icon('table')}Сделать таблицу</button><button class="suggestion" data-action="prompt" data-prompt="Составь план для ">${icon('plan')}Продумать план</button></div></div></section>`;
  let lastUserContent='';
  return `<section class="messages" aria-label="Сообщения диалога">${c.messages.map(m=>{
@@ -109,10 +244,13 @@ function applyTheme(){
  }
 }
 function setView(view){ui.view=view;ui.mobileNav=false;ui.mobileFiles=false;closeMenu();render()}
+window.addEventListener('hashchange',()=>{
+ if(ready&&(studioRoute()||Object.hasOwn(STUDIO_LABELS,ui.view)))setView(studioRoute()||'chat');
+});
 function selectProject(id,toggle=false){const p=state.projects.find(p=>p.id===id&&!p.deleted);if(!p)return;const same=id===state.activeProject;if(same&&toggle){ui.collapsed.has(id)?ui.collapsed.delete(id):ui.collapsed.add(id)}else{state.activeProject=id;state.activeChat=null;ui.folder=null;ui.draft='';ui.quote=null;ui.attachments=[];ui.collapsed.delete(id)}ui.view='chat';ui.mobileNav=false;persist();render()}
 function newChat(){if(!activeProject()){projectDialog();return}state.activeChat=null;ui.draft='';ui.quote=null;ui.attachments=[];ui.archive=false;ui.view='chat';ui.mobileNav=false;persist();render();el('composer-input')?.focus()}
 function selectChat(id){const c=state.chats.find(c=>c.id===id&&!c.deleted);if(!c)return;state.activeChat=id;state.activeProject=c.project;ui.archive=!!c.archived;ui.folder=null;ui.draft='';ui.quote=null;ui.attachments=[];ui.view='chat';ui.mobileNav=false;persist();render();el('main-scroll').scrollTop=el('main-scroll').scrollHeight}
-function send(){if(generation){toast('Дождитесь ответа или остановите запрос');return}const content=ui.draft.trim();if(!content&&!ui.attachments.length)return;if(!activeProject()){projectDialog();return}let c=activeChat();if(!c){c={id:uid(),title:(content||'Диалог с файлами').replace(/\s+/g,' ').slice(0,48),project:activeProject().id,created:Date.now(),updated:Date.now(),messages:[],archived:false,deleted:false};state.chats.unshift(c);state.activeChat=c.id;log(`Создан диалог «${c.title}»`)}c.messages.push({id:uid(),content,files:[...ui.attachments],at:Date.now(),role:'user',...(ui.quote?{quote:ui.quote.text}:{}),webSearch:!!state.settings.webSearch});c.updated=Date.now();ui.draft='';ui.quote=null;ui.attachments=[];persist();render();el('main-scroll').scrollTop=el('main-scroll').scrollHeight;el('composer-input')?.focus();requestAnswer(c)}
+function send(){if(generation){toast('Дождитесь ответа или остановите запрос');return}const content=ui.draft.trim();if(!content&&!ui.attachments.length)return;if(!activeProject()){projectDialog();return}let c=activeChat();if(!c){c={id:uid(),title:(content.replace(/^\/site\s+/iu,'')||'Диалог с файлами').replace(/\s+/g,' ').slice(0,48),project:activeProject().id,created:Date.now(),updated:Date.now(),messages:[],archived:false,deleted:false};state.chats.unshift(c);state.activeChat=c.id;log(`Создан диалог «${c.title}»`)}c.messages.push({id:uid(),content,files:[...ui.attachments],at:Date.now(),role:'user',...(ui.quote?{quote:ui.quote.text}:{}),webSearch:!!state.settings.webSearch});c.updated=Date.now();ui.draft='';ui.quote=null;ui.attachments=[];persist();render();el('main-scroll').scrollTop=el('main-scroll').scrollHeight;el('composer-input')?.focus();requestAnswer(c)}
 function closeMenu(){document.querySelector('.menu-popup')?.remove();ui.menu=null}
 function menu(anchor,options){closeMenu();const div=document.createElement('div');div.className='menu-popup';div.role='menu';div.innerHTML=options.map(o=>o.separator?'<div class="menu-separator"></div>':o.label?`<div class="menu-label">${e(o.label)}</div>`:`<button class="menu-option ${o.danger?'danger':''}" role="menuitem" data-action="${o.action}" ${o.id?`data-id="${e(o.id)}"`:''} ${o.type?`data-type="${e(o.type)}"`:''} ${o.value?`data-value="${e(o.value)}"`:''}>${o.icon?icon(o.icon):''}<span>${e(o.text)}</span>${o.checked?icon('check','check'):''}</button>`).join('');document.body.append(div);const r=anchor.getBoundingClientRect(),d=div.getBoundingClientRect();div.style.left=Math.max(8,Math.min(r.left,innerWidth-d.width-8))+'px';div.style.top=(r.bottom+d.height+8>innerHeight?Math.max(8,r.top-d.height-8):r.bottom+8)+'px';ui.menu=div;div.querySelector('button')?.focus()}
 function closeModal(){const d=document.querySelector('dialog');if(d){d.close();d.remove()}for(const u of objectURLs)URL.revokeObjectURL(u);objectURLs=[]}
@@ -179,9 +317,11 @@ function imageSubscriptionDialog(){
  modal('GPT Image по подписке',`<form><div class="form-field"><label for="image-pass">Код подписки</label><input id="image-pass" name="pass" type="password" autocomplete="off" maxlength="64" pattern="[a-f0-9]{64}" /></div><p class="settings-note">Вставьте код, полученный после оплаты. Пустое поле включает бесплатную генерацию.</p><div class="dialog-footer"><button class="btn primary" type="submit">Применить</button></div></form>`,{onSubmit:data=>{
   const pass=String(data.get('pass')||'').trim();
   if(pass)sessionStorage.setItem(imagePassKey(),pass);
-  else sessionStorage.removeItem(imagePassKey());
+  else{sessionStorage.removeItem(imagePassKey());studio.image.mode='free';}
   closeModal();
-  toast(pass?'Код сохранён для этой вкладки':'Включена бесплатная генерация');
+  studio.imageError='';
+  refreshImageStudio();
+  toast(pass?'Код сохранён для этой вкладки':'Выбран базовый режим');
  }});
 }
 async function exportBackup(){toast('Подготавливаю резервную копию');try{const blobs={};for(const f of state.files.filter(f=>f.kind!=='folder')){const b=await getBlob(f.id);if(b)blobs[f.id]=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(b)})}download(new Blob([JSON.stringify({...state,blobs},null,2)],{type:'application/json'}),`focus-backup-${new Date().toISOString().slice(0,10)}.json`);toast('Резервная копия скачана')}catch{toast('Не удалось создать копию')}}
@@ -191,6 +331,44 @@ async function copy(text){try{await navigator.clipboard.writeText(text);toast('�
 async function handleAction(a,t){const id=t.dataset.id;switch(a){
 case 'new-chat':newChat();break;
 case 'workspace':setView('workspace');break;
+case 'studio-view':if(Object.hasOwn(STUDIO_LABELS,id)){if(studioRoute()===id)setView(id);else location.hash=id;}break;
+case 'site-starter':{
+ const item=SITE_STARTERS[Number(id)];
+ if(item){studio.siteBrief=item.prompt;el('site-brief').value=item.prompt;el('site-brief').focus();}
+ break;
+}
+case 'studio-open-site':openStudioSite(id);break;
+case 'studio-download-site':openStudioSite(id,true);break;
+case 'studio-tool':{
+ const item=TOOL_STARTERS[Number(id)];
+ if(!item)break;
+ newChat();
+ const composer=el('composer-input');
+ if(composer){composer.value=item.prompt;composer.dispatchEvent(new Event('input',{bubbles:true}));composer.focus();}
+ break;
+}
+case 'image-starter':{
+ const item=IMAGE_STARTERS[Number(id)];
+ if(item){studio.image.brief=item.prompt;studio.image.style=item.style;refreshImageStudio();el('image-brief')?.focus();}
+ break;
+}
+case 'studio-stop-image':studio.imageController?.abort();break;
+case 'studio-favorites':studio.image.favorites=!studio.image.favorites;refreshImageStudio();break;
+case 'studio-image-favorite':{
+ const file=state.files.find(file=>file.id===id&&!file.deleted);
+ if(file){file.favorite=!file.favorite;persist();refreshImageStudio();}
+ break;
+}
+case 'studio-edit-image':{
+ if(!studioImages().some(file=>file.id===id))break;
+ Object.assign(studio.image,{reference:id,brief:'',ratio:'',style:''});
+ studio.imageError='';
+ refreshImageStudio();
+ el('main-scroll').scrollTop=0;
+ el('image-brief')?.focus();
+ break;
+}
+case 'studio-clear-reference':studio.image.reference=null;studio.image.ratio='1:1';studio.imageError='';refreshImageStudio();break;
 case 'trash':setView('trash');break;
 case 'close-nav':ui.mobileNav=false;render();break;
 case 'toggle-sidebar':if(innerWidth<640){ui.mobileNav=!ui.mobileNav}else ui.sidebarClosed=!ui.sidebarClosed;render();break;
@@ -220,7 +398,7 @@ case 'permanent-delete':confirm('Удалить навсегда?','Элемен
 case 'empty-trash':confirm('Очистить корзину?','Все элементы корзины будут удалены навсегда.',async()=>{for(const p of state.projects.filter(p=>p.deleted))await permanentDelete('project',p.id);for(const c of state.chats.filter(c=>c.deleted))await permanentDelete('chat',c.id);for(const f of state.files.filter(f=>f.deleted))await permanentDelete('file',f.id)},'Очистить',true);break;
 case 'prompt':ui.draft=t.dataset.prompt;render();el('composer-input').focus();el('composer-input').setSelectionRange(ui.draft.length,ui.draft.length);break;
 case 'remove-quote':ui.quote=null;updateComposerQuote();break;
-case 'model-menu':menu(t,[{label:'Подключённая модель'},{text:MODEL_LABEL,action:'set-model',value:apiStatus.provider||'default',checked:true},{separator:true},{text:'GPT Image по подписке',action:'image-subscription'},{text:'О подключении',action:'model-info',icon:'info'}]);break;
+case 'model-menu':menu(t,[{label:'Подключённая модель'},{text:MODEL_LABEL,action:'set-model',value:apiStatus.provider||'default',checked:true},{separator:true},{text:'О подключении',action:'model-info',icon:'info'}]);break;
 case 'image-subscription':imageSubscriptionDialog();break;
 case 'set-model':state.settings.model=t.dataset.value;persist();render();break;
 case 'effort-menu':if(apiStatus.provider==='openrouter'){toast('В бесплатном режиме параметры ответа выбирает провайдер');break;}menu(t,[{text:'Быстро',action:'set-effort',value:'fast',checked:state.settings.effort==='fast'},{text:'Вдумчиво',action:'set-effort',value:'balanced',checked:state.settings.effort==='balanced'},{text:'Подробно',action:'set-effort',value:'deep',checked:state.settings.effort==='deep'}]);break;
@@ -295,9 +473,23 @@ document.addEventListener('click',ev=>{const t=ev.target.closest('[data-action]'
 document.addEventListener('change',event=>{
  const input=event.target;
  if(input.matches('input[data-plan-id]'))updatePlanStep(input);
+ if(input.matches('#image-studio-form input[name=image-mode]')&&input.checked){
+  studio.image.mode=input.value;studio.imageError='';refreshImageStudio();
+  document.querySelector('#image-studio-form input[name=image-mode]:checked')?.focus();
+ }
+ if(input.id==='image-format')studio.image.ratio=input.value;
 });
-document.addEventListener('submit',ev=>{if(ev.target.id==='composer-form'){ev.preventDefault();send()}});
-document.addEventListener('input',ev=>{if(ev.target.id==='composer-input'){ui.draft=ev.target.value;el('send-button').disabled=!generation&&!ui.draft.trim()&&!ui.attachments.length;resizeComposer()}});
+document.addEventListener('submit',event=>{
+ if(event.target.id==='composer-form'){event.preventDefault();send();}
+ if(event.target.id==='site-studio-form'){event.preventDefault();startStudioSite();}
+ if(event.target.id==='image-studio-form'){event.preventDefault();void generateStudioImage();}
+});
+document.addEventListener('input',event=>{
+ const input=event.target;
+ if(input.id==='composer-input'){ui.draft=input.value;el('send-button').disabled=!generation&&!ui.draft.trim()&&!ui.attachments.length;resizeComposer();}
+ if(input.id==='site-brief')studio.siteBrief=input.value;
+ if(input.id==='image-brief')studio.image.brief=input.value;
+});
 document.addEventListener('keydown',ev=>{if(!ready)return;if(ev.key==='Escape'){if(hideSelectionAction()){ev.preventDefault();return}closeMenu();if(activeChat()?.preview&&ui.view==='chat'){setPreview(null);return}if(ui.mobileNav||ui.mobileFiles){ui.mobileNav=false;ui.mobileFiles=false;render()}}if((ev.metaKey||ev.ctrlKey)&&ev.key.toLowerCase()==='k'){ev.preventDefault();searchDialog()}if((ev.metaKey||ev.ctrlKey)&&ev.key.toLowerCase()==='n'){ev.preventDefault();closeModal();newChat()}if(ev.target.id==='composer-input'&&ev.key==='Enter'&&!ev.isComposing){if((state.settings.sendOnEnter&&!ev.shiftKey&&!ev.altKey)||(ev.ctrlKey||ev.metaKey)){ev.preventDefault();send()}}if(ui.menu&&(ev.key==='ArrowDown'||ev.key==='ArrowUp')){ev.preventDefault();const buttons=[...ui.menu.querySelectorAll('button')];const i=buttons.indexOf(document.activeElement);buttons[(i+(ev.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length]?.focus()}});
 el('file-input').addEventListener('change',ev=>uploadFiles([...ev.target.files],uploadAttach));
 el('import-input').addEventListener('change',ev=>importBackup(ev.target.files[0]));
@@ -641,28 +833,24 @@ async function requestAnswer(c){
   const codeTargets=codeMode?await Promise.all((messages.at(-1)?.attachments||[])
    .filter(file=>lastUser.files?.includes(file.id)&&typeof file.text==='string')
    .map(async file=>({id:file.id,name:file.name,hash:file.truncated?null:await codeHash(file.text)}))):[];
-  const pass=imageRequest&&isSecureContext?sessionStorage.getItem(imagePassKey()):null;
-  const headers={'content-type':'application/json',...(pass?{'x-focus-image-pass':pass}:{})};
+  const headers={'content-type':'application/json'};
   const response=await fetch('/api/chat',{method:'POST',headers,body:JSON.stringify({messages,...(website?{sitePreview:true,previewKind}:{}),...(reference?{imageReference:reference}:{}),effort:state.settings.effort,...(searchId?{searchId}:{})}),signal:controller.signal});
   if(response.status===401&&account){location.replace('/login');return;}
   let data;try{data=await response.json()}catch{throw new Error('Сервер вернул некорректный ответ. Попробуйте ещё раз.')}
   if(!response.ok)throw new Error(data.error||'Не удалось получить ответ');
   if(!data.text)throw new Error('Получен пустой ответ');
-  let imageFile;
-  if(data.image){
-   const binary=atob(data.image.data),blob=new Blob([Uint8Array.from(binary,ch=>ch.charCodeAt(0))],{type:data.image.mimeType});
-   imageFile=uid();
-   await putBlob(imageFile,blob);
-   const extension={'image/png':'png','image/jpeg':'jpg','image/webp':'webp'}[blob.type];
-   state.files.push({id:imageFile,project:c.project,parent:null,name:'Guzan-'+imageFile.slice(0,8)+'.'+extension,kind:'file',type:blob.type,size:blob.size,created:Date.now(),updated:Date.now(),deleted:false});
-  }
+  const imageFile=data.image?await saveGeneratedImage(data.image,c.project):null;
   const answer={id:uid(),role:'assistant',...(website?{siteMode:true,previewKind}:{}),...(taskMode?{taskMode}:{}),...(codeMode?{codeMode,codeTargets}:{}),...(imageFile?{imageFile}:{}),content:data.text,at:Date.now(),model:data.model||apiStatus.model||'Модель',usage:data.usage,truncated:!!data.truncated,...(data.search?{search:data.search}:{})};
   c.messages.push(answer);
   const nextPreview=findWebsite(answer);
   if(nextPreview&&(innerWidth>=960||c.preview))c.preview=nextPreview;
   c.pendingSearch=null;c.updated=Date.now();if(data.provider!=='local'&&data.provider!=='image')apiStatus.configured=true;
  }catch(err){c.error=err.name==='AbortError'?'Запрос остановлен. Его можно повторить.':err.message||'Не удалось получить ответ';}
- finally{generation=null;persist();refresh()}
+ finally{
+  generation=null;persist();refresh();
+  if(ui.view==='sites')render();
+  if(ui.view==='images')refreshImageStudio();
+ }
 }
 async function boot(){
  try{
@@ -676,6 +864,7 @@ async function boot(){
   selectStorageScope(account?.id);
   state=readState();
   ready=true;
+  ui.view=studioRoute()||'chat';
   render();
   fetch('/api/status').then(r=>r.json()).then(d=>{apiStatus=d;render()}).catch(()=>{});
  }catch{

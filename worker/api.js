@@ -459,19 +459,27 @@ async function hasImageSubscription(code,env){
  });
 }
 
-async function generateImage(prompt,request,env,fetcher,reference=null,preset=null){
+function imageAccess(env){
+ const free=/^[a-f0-9]{32}$/i.test(env.CLOUDFLARE_ACCOUNT_ID?.trim()||'')&&!!env.CLOUDFLARE_API_TOKEN?.trim();
+ const openAI=!!env.FOCUS_OPENAI_IMAGE_API_KEY?.trim();
+ const paid=!!env.FOCUS_IMAGE_SUBSCRIPTIONS&&(openAI||!!(env.OPENROUTER_API_KEY&&env.OPENROUTER_IMAGE_MODEL));
+ return {free,paid,paidLabel:openAI?'GPT Image':'Улучшенный',paidEdits:openAI,paidFormats:openAI};
+}
+
+async function generateImage(prompt,request,env,fetcher,reference=null,preset=null,paidOnly=false){
  const code=request.headers.get('x-focus-image-pass');
  const subscribed=code!==null&&await hasImageSubscription(code,env);
- if(code!==null&&!subscribed){
-  return json({error:'Код подписки недействителен или истёк. Обновите его в меню модели или удалите для бесплатного режима.',code:'image_subscription_required'},403);
+ if((paidOnly||code!==null)&&!subscribed){
+  return json({error:'Нужен действующий код подписки. Введите его в разделе «Изображения» или выберите базовый режим.',code:'image_subscription_required'},403);
  }
  const openAIKey=subscribed?env.FOCUS_OPENAI_IMAGE_API_KEY?.trim():null;
- const cloudflare=!openAIKey&&!!(env.CLOUDFLARE_ACCOUNT_ID||env.CLOUDFLARE_API_TOKEN);
+ const cloudflare=!paidOnly&&!openAIKey&&!!(env.CLOUDFLARE_ACCOUNT_ID||env.CLOUDFLARE_API_TOKEN);
  const account=env.CLOUDFLARE_ACCOUNT_ID?.trim();
  const token=openAIKey||(cloudflare?env.CLOUDFLARE_API_TOKEN?.trim():subscribed?env.OPENROUTER_API_KEY:null);
  const design=preset==='design'&&cloudflare;
  let model=openAIKey?OPENAI_IMAGE_MODEL:design?DESIGN_IMAGE_MODEL:cloudflare?CLOUDFLARE_IMAGE_MODEL:env.OPENROUTER_IMAGE_MODEL;
  if(!token||!model||(cloudflare&&!/^[a-f0-9]{32}$/i.test(account||''))){
+  if(paidOnly)return json({error:'Генерация по подписке ещё не подключена на сервере.',code:'image_not_configured'},503);
   return json({error:'Для генерации настройте CLOUDFLARE_ACCOUNT_ID и CLOUDFLARE_API_TOKEN на сервере.',code:'image_not_configured'},503);
  }
  if(reference&&!cloudflare&&!openAIKey)return json({error:'Для правок подключите Cloudflare Workers AI или OpenAI Image API.',code:'image_edit_not_configured'},503);
@@ -647,7 +655,7 @@ export async function chat(request,env,fetcher=fetch){
    if(!reference)return json({error:'Сначала создайте изображение в этом диалоге.',code:'image_reference_missing'},400);
    if(reference.mimeType!=='image/png'||typeof reference.data!=='string'||reference.data.length>2000000||!/^iVBORw0KGgo[A-Za-z0-9+/]*={0,2}$/.test(reference.data)||reference.data.length%4||![reference.width,reference.height].every(n=>Number.isInteger(n)&&n>=256&&n<=1920))return json({error:'Некорректное изображение для редактирования.',code:'image_reference_invalid'},400);
   }
-  return generateImage(imageRequest.prompt,request,env,fetcher,imageRequest.mode==='edit'?reference:null,imageRequest.preset);
+  return generateImage(imageRequest.prompt,request,env,fetcher,imageRequest.mode==='edit'?reference:null,imageRequest.preset,input.imageMode==='paid');
  }
  if(latest.role==='user'){
   const result=localSkill(action.local,latest.attachments||[]);
@@ -721,5 +729,5 @@ async function googleChat(contents,request,env,fetcher,research,taskMode,siteMod
  return json({text,search:research?{query:research.query,sources:publicSources(research),searchedAt:research.searchedAt}:null,model:MODEL,usage:data.usageMetadata||null,truncated:candidate.finishReason==='MAX_TOKENS'});
 }
 const PREVIEW_CSP="sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; form-action 'none'; base-uri 'none'; frame-ancestors 'self' https://chatgpt.com https://*.chatgpt.com";
-export default{async fetch(request,env,ctx){const url=new URL(request.url);if(['/login','/login.html'].includes(url.pathname)&&['GET','HEAD'].includes(request.method))return new Response(request.method==='HEAD'?null:ASSETS['/login.html'].body,{headers:{...headers,'content-type':'text/html; charset=utf-8','cache-control':'no-store','content-security-policy':"default-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"}});if(url.pathname==='/preview.html'&&['GET','HEAD'].includes(request.method))return new Response(request.method==='HEAD'?null:ASSETS['/preview.html'].body,{headers:{...headers,'content-type':'text/html; charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer','content-security-policy':PREVIEW_CSP}});if(url.pathname==='/api/status')return request.method==='GET'?json({...modelConfig(env),searchConfigured:!!env.TAVILY_API_KEY}):json({error:'Метод не поддерживается'},405);if(url.pathname==='/api/search')return request.method==='POST'?searchWeb(request,env):json({error:'Метод не поддерживается'},405);if(url.pathname==='/api/chat')return request.method==='POST'?chat(request,env):json({error:'Метод не поддерживается'},405);if(!['GET','HEAD'].includes(request.method))return new Response('Method not allowed',{status:405,headers});const asset=ASSETS[url.pathname];if(!asset)return new Response('Not found',{status:404,headers});return new Response(request.method==='HEAD'?null:asset.body,{headers:{...headers,'content-type':asset.type,'cache-control':'no-cache','content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self' https://chatgpt.com https://*.chatgpt.com"}})}};
+export default{async fetch(request,env,ctx){const url=new URL(request.url);if(['/login','/login.html'].includes(url.pathname)&&['GET','HEAD'].includes(request.method))return new Response(request.method==='HEAD'?null:ASSETS['/login.html'].body,{headers:{...headers,'content-type':'text/html; charset=utf-8','cache-control':'no-store','content-security-policy':"default-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"}});if(url.pathname==='/preview.html'&&['GET','HEAD'].includes(request.method))return new Response(request.method==='HEAD'?null:ASSETS['/preview.html'].body,{headers:{...headers,'content-type':'text/html; charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer','content-security-policy':PREVIEW_CSP}});if(url.pathname==='/api/status')return request.method==='GET'?json({...modelConfig(env),searchConfigured:!!env.TAVILY_API_KEY,images:imageAccess(env)}):json({error:'Метод не поддерживается'},405);if(url.pathname==='/api/search')return request.method==='POST'?searchWeb(request,env):json({error:'Метод не поддерживается'},405);if(url.pathname==='/api/chat')return request.method==='POST'?chat(request,env):json({error:'Метод не поддерживается'},405);if(!['GET','HEAD'].includes(request.method))return new Response('Method not allowed',{status:405,headers});const asset=ASSETS[url.pathname];if(!asset)return new Response('Not found',{status:404,headers});const body=request.method==='HEAD'?null:asset.encoding==='base64'?Uint8Array.from(atob(asset.body),byte=>byte.charCodeAt(0)):asset.body;return new Response(body,{headers:{...headers,'content-type':asset.type,'cache-control':'no-cache','content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self' https://chatgpt.com https://*.chatgpt.com"}})}};
 
