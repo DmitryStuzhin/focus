@@ -16,10 +16,25 @@ export function taskIntent(content){
  return null;
 }
 
+
+function percentageIntent(text){
+ const number=String.raw`(\d+(?:[.,]\d+)?)`;
+ const ending=String.raw`\s*[.!?]?$`;
+ const part=new RegExp(String.raw`^(?:посчитай|вычисли|рассчитай|сколько будет)\s+${number}\s*(?:%|процент(?:а|ов)?)\s+от\s+${number}${ending}`,'iu').exec(text);
+ if(part)return {mode:'calc',details:part[1]+'% * '+part[2]};
+ const change=new RegExp(String.raw`^(увеличь|уменьши)\s+${number}\s+на\s+${number}\s*(?:%|процент(?:а|ов)?)${ending}`,'iu').exec(text);
+ if(change)return {mode:'calc',details:change[2]+' * (1 '+(change[1].toLowerCase()==='увеличь'?'+':'-')+' '+change[3]+'%)'};
+ const discount=new RegExp(String.raw`^(?:посчитай|рассчитай)\s+цену\s+${number}\s+(?:со скидкой|после скидки)\s+${number}\s*(?:%|процент(?:а|ов)?)${ending}`,'iu').exec(text);
+ if(discount)return {mode:'calc',details:discount[1]+' * (1 - '+discount[2]+'%)'};
+ return null;
+}
+
 export function localIntent(content){
  const text=requestWords(content);
  const command=/^\/(calc|stats|convert|csv|diff|json|csvdiff)(?=\s|$)\s*([\s\S]*)$/iu.exec(text);
  if(command)return {mode:command[1].toLowerCase(),details:command[2].trim()};
+ const percentage=percentageIntent(text);
+ if(percentage)return percentage;
  const csvdiff=/^(?:сравни|сверь|сопоставь)\s+(?:(?:эти|прикрепл[её]нные|два)\s+)*(?:csv(?:[- ]файлы?)?|файла\s+csv)(?=[\s:.!?]|$)(?:\s+(?:по\s+(?:столбцу|колонке|ключу)|по)\s+([\s\S]+?))?\s*[.!?]?$/iu.exec(text);
  if(csvdiff)return {mode:'csvdiff',details:(csvdiff[1]||'id').trim()};
  const json=/^(?:проверь|отформатируй|приведи в порядок)\s+(?:этот\s+|прикрепл[её]нный\s+)?json(?:[- ]файл)?(?=[\s:.!?]|$)\s*:?\s*([\s\S]*)$/iu.exec(text);
@@ -34,3 +49,4 @@ export function localIntent(content){
  if(/^(?:сравни|сопоставь)\s+(?:(?:эти|прикрепл[её]нные|два|текстовые)\s+)*(?:файлы|файла|версии)(?:\s+построчно)?\s*[.!?]?$/iu.test(text))return {mode:'diff',details:''};
  return null;
 }
+
