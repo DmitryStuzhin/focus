@@ -1,4 +1,4 @@
-import {resolveAction} from './action-phrases.js';
+import {resolveAction,SPLIT_ACTIONS} from './action-phrases.js';
 import {projectSearchQuery,projectPath,searchProjectFiles,readMatchContext} from './project-search.js';
 import {localIntent,taskIntent} from './work-intent.js';
 import {isPreviewBlock,isSiteRevision,buildIntent,nativeBuildIntent,updatesBuild} from './site-preview.js';
@@ -6,6 +6,7 @@ import {compareText} from './text-diff.js';
 import {imageIntent,latestImage,imageReference} from './image-intent.js';
 import {buildChatContext,searchQuery} from './chat-context.js';
 import {sourcePills,sourcesDialog,linkCitations} from './search-ui.js';
+import {inlineMarkdown,answerTable,answerChart} from './answer-format.js';
 import {icon,mark} from './icons.js';
 import {uid,readState,writeState,fresh,putBlob,getBlob,deleteBlob,validBackup} from './store.js';
 const app=document.querySelector('#app');
@@ -235,7 +236,7 @@ case 'stop-generation':if(generation){generation.controller.abort()}break;
 case 'retry-answer':{const c=activeChat();if(c&&!generation){const lastUser=c.messages.findLastIndex(m=>m.role==='user');if(lastUser>=0){c.messages=c.messages.slice(0,lastUser+1);persist();requestAnswer(c)}}break;}
 case 'save-answer':{const m=activeChat()?.messages.find(x=>x.id===id);if(m){const fId=uid(),blob=new Blob([answerMarkdown(m)],{type:'text/markdown;charset=utf-8'});await putBlob(fId,blob);let name=(activeChat().title.slice(0,40).replace(/[\\/:*?"<>|]/g,'')||'Ответ')+'.md',n=1;while(fileExists(name))name='Ответ ('+(n++)+').md';state.files.push({id:fId,project:state.activeProject,parent:ui.folder,name,kind:'file',type:'text/markdown',size:blob.size,created:Date.now(),updated:Date.now(),deleted:false});log(`Сохранён ответ «${name}»`);persist();render();toast('Ответ сохранён в файлы проекта')}break;}
 case 'copy-code':{const block=codeBlockAction(t);if(block)await copy(block.code);break;}
-case 'download-code':{const block=codeBlockAction(t);if(block)download(new Blob([block.code],{type:'text/plain;charset=utf-8'}),block.filename||'code.txt');break;}
+case 'download-code':{const block=codeBlockAction(t);if(block)download(new Blob([block.code],{type:'text/plain;charset=utf-8'}),block.filename||(/^(?:html|htm)$/i.test(block.language)?'index.html':'code.txt'));break;}
 case 'review-code':await reviewCodeFile(codeBlockAction(t));break;
 case 'open-preview':{
  const selection={messageId:id,block:Number(t.dataset.block)};
@@ -243,6 +244,13 @@ case 'open-preview':{
  break;
 }
 case 'close-preview':setPreview(null);break;
+case 'resize-preview':{
+ const root=el('preview-root');
+ const expanded=root.classList.toggle('preview-full');
+ t.textContent=expanded?'Свернуть':'На весь экран';
+ t.setAttribute('aria-pressed',String(expanded));
+ break;
+}
 case 'reload-preview':syncPreviewPanel(previewArtifact(activeChat()),true);break;
 case 'download-answer':{const m=activeChat()?.messages.find(x=>x.id===id);if(m)download(new Blob([answerMarkdown(m)],{type:'text/markdown;charset=utf-8'}),'Ответ.md');break;}
 case 'copy-message':{const m=activeChat()?.messages.find(x=>x.id===id);if(m)await copy(m.content);break;}
@@ -256,7 +264,7 @@ document.addEventListener('change',event=>{
 });
 document.addEventListener('submit',ev=>{if(ev.target.id==='composer-form'){ev.preventDefault();send()}});
 document.addEventListener('input',ev=>{if(ev.target.id==='composer-input'){ui.draft=ev.target.value;el('send-button').disabled=!generation&&!ui.draft.trim()&&!ui.attachments.length;resizeComposer()}});
-document.addEventListener('keydown',ev=>{if(ev.key==='Escape'){closeMenu();if(ui.mobileNav||ui.mobileFiles){ui.mobileNav=false;ui.mobileFiles=false;render()}}if((ev.metaKey||ev.ctrlKey)&&ev.key.toLowerCase()==='k'){ev.preventDefault();searchDialog()}if((ev.metaKey||ev.ctrlKey)&&ev.key.toLowerCase()==='n'){ev.preventDefault();closeModal();newChat()}if(ev.target.id==='composer-input'&&ev.key==='Enter'&&!ev.isComposing){if((state.settings.sendOnEnter&&!ev.shiftKey&&!ev.altKey)||(ev.ctrlKey||ev.metaKey)){ev.preventDefault();send()}}if(ui.menu&&(ev.key==='ArrowDown'||ev.key==='ArrowUp')){ev.preventDefault();const buttons=[...ui.menu.querySelectorAll('button')];const i=buttons.indexOf(document.activeElement);buttons[(i+(ev.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length]?.focus()}});
+document.addEventListener('keydown',ev=>{if(ev.key==='Escape'){closeMenu();if(activeChat()?.preview&&ui.view==='chat'){setPreview(null);return}if(ui.mobileNav||ui.mobileFiles){ui.mobileNav=false;ui.mobileFiles=false;render()}}if((ev.metaKey||ev.ctrlKey)&&ev.key.toLowerCase()==='k'){ev.preventDefault();searchDialog()}if((ev.metaKey||ev.ctrlKey)&&ev.key.toLowerCase()==='n'){ev.preventDefault();closeModal();newChat()}if(ev.target.id==='composer-input'&&ev.key==='Enter'&&!ev.isComposing){if((state.settings.sendOnEnter&&!ev.shiftKey&&!ev.altKey)||(ev.ctrlKey||ev.metaKey)){ev.preventDefault();send()}}if(ui.menu&&(ev.key==='ArrowDown'||ev.key==='ArrowUp')){ev.preventDefault();const buttons=[...ui.menu.querySelectorAll('button')];const i=buttons.indexOf(document.activeElement);buttons[(i+(ev.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length]?.focus()}});
 el('file-input').addEventListener('change',ev=>uploadFiles([...ev.target.files],uploadAttach));
 el('import-input').addEventListener('change',ev=>importBackup(ev.target.files[0]));
 let dragDepth=0;
@@ -308,15 +316,19 @@ function syncPreviewPanel(artifact,reload=false){
  const root=el('preview-root');
  if(!artifact){
   if(mountedPreview){root.replaceChildren();mountedPreview=null;}
+  root.classList.remove('preview-full');
   root.hidden=true;
   return;
  }
  if(!reload&&mountedPreview?.artifact.chatId===artifact.chatId&&mountedPreview.artifact.messageId===artifact.messageId&&mountedPreview.artifact.block===artifact.block&&mountedPreview.artifact.code===artifact.code)return;
  root.hidden=false;
+ if(mountedPreview?.artifact.chatId!==artifact.chatId)root.classList.remove('preview-full');
+ const expanded=root.classList.contains('preview-full');
  root.innerHTML=`<aside class="site-preview" aria-label="Предпросмотр">
   <header class="site-preview-header">
    <div class="site-preview-title"><strong>Предпросмотр</strong><span class="truncate">${e(artifact.filename)}</span></div>
    <div class="site-preview-actions">
+    ${button('resize-preview',expanded?'Свернуть':'На весь экран','ghost',`aria-pressed="${expanded}"`)}
     ${ib('reload-preview','refresh','Перезапустить предпросмотр')}
     ${ib('close-preview','close','Закрыть предпросмотр')}
    </div>
@@ -345,6 +357,7 @@ function setPreview(selection){
  persist();
  render();
  if(el('main-scroll'))el('main-scroll').scrollTop=scroll;
+ if(selection)el('preview-root').querySelector('[data-action=close-preview]')?.focus();
 }
 async function codeHash(text){
  if(!globalThis.crypto?.subtle)return null;
@@ -443,21 +456,69 @@ function codeChanges(before,after){
  }
 }
 function markdown(text,message){
- const blocks=splitCodeBlocks(text);let out='',planIndex=0;
- const inline=str=>e(str).replace(/`([^`\n]+)`/g,'<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g,'<strong>$1</strong>').replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g,'<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
- for(let i=0;i<blocks.length;i+=3){const lines=blocks[i].split('\n');let list=false;for(let j=0;j<lines.length;j++){const line=lines[j];
- const step=message?.taskMode==='plan'?planStep.exec(line):null;
- if(step){
-  if(list){out+='</ul>';list=false;}
-  out+=`<label class="plan-step"><input type="checkbox" data-plan-id="${e(message.id)}" data-plan-step="${planIndex++}" ${step[2]!==' '?'checked':''}><span>${inline(step[4])}</span></label>`;
-  continue;
+ const blocks=splitCodeBlocks(text);
+ const website=findWebsite(message);
+ let out='',planIndex=0;
+ for(let i=0;i<blocks.length;i+=3){
+  const lines=blocks[i].split('\n');
+  let list='', paragraph=[];
+  const closeList=()=>{if(list){out+='</'+list+'>';list='';}};
+  const closeParagraph=()=>{if(paragraph.length){out+='<p>'+paragraph.map(inlineMarkdown).join(' ')+'</p>';paragraph=[];}};
+  for(let j=0;j<lines.length;j++){
+   const line=lines[j];
+   const step=message?.taskMode==='plan'?planStep.exec(line):null;
+   if(step){
+    closeParagraph();closeList();
+    out+=`<label class="plan-step"><input type="checkbox" data-plan-id="${e(message.id)}" data-plan-step="${planIndex++}" ${step[2]!==' '?'checked':''}><span>${inlineMarkdown(step[4])}</span></label>`;
+    continue;
+   }
+   const table=answerTable(lines,j);
+   if(table){
+    closeParagraph();closeList();
+    out+=table.html;j=table.end-1;
+    continue;
+   }
+   const item=line.match(/^\s*(?:([-*+])|(\d+)\.)\s+(.+)/u);
+   if(item){
+    closeParagraph();
+    const type=item[2]?'ol':'ul';
+    if(list!==type){
+     closeList();list=type;
+     out+='<'+list+(list==='ol'&&Number(item[2])>1?' start="'+e(item[2])+'"':'')+'>';
+    }
+    out+='<li>'+inlineMarkdown(item[3])+'</li>';
+    continue;
+   }
+   closeList();
+   const heading=line.match(/^(#{1,4})\s+(.+)/u);
+   const quote=line.match(/^\s*>\s?(.+)/u);
+   if(!line.trim()){closeParagraph();continue;}
+   if(heading||quote||/^\s*---+\s*$/u.test(line)){
+    closeParagraph();
+    if(heading){const level=heading[1].length+1;out+=`<h${level}>${inlineMarkdown(heading[2])}</h${level}>`;}
+    else if(quote)out+='<blockquote>'+inlineMarkdown(quote[1])+'</blockquote>';
+    else out+='<hr>';
+   }else paragraph.push(line.trim());
+  }
+  closeParagraph();closeList();
+  if(i+2>=blocks.length)continue;
+  const info=codeBlockInfo(blocks[i+1]);
+  const code=blocks[i+2];
+  if(message&&info.language==='focus-chart'&&!info.filename){
+   const chart=answerChart(code);
+   if(chart){out+=chart;continue;}
+  }
+  const attrs=message?`data-id="${e(message.id)}" data-block="${i/3}" type="button"`:'';
+  const previewable=isPreviewBlock(blocks[i+1],code)&&!message?.truncated;
+  const artifact=website?.block===i/3;
+  const actions=message?`<span class="code-actions">${button('copy-code','Копировать','ghost',attrs)}${artifact?'':button('download-code','Скачать','ghost',attrs)}${previewable&&!artifact?button('open-preview','Предпросмотр','ghost',attrs):''}${message.codeMode&&info.filename&&!message.truncated?button('review-code','Сохранить в проект','ghost',attrs):''}</span>`:'';
+  const codeBlock=`<div class="code-block"><div class="code-toolbar"><small>${e(info.filename||info.language||'Код')}</small>${actions}</div><pre><code>${e(code)}</code></pre></div>`;
+  if(artifact){
+   const label=message.previewKind==='game'?'Игра':message.previewKind==='app'?'Приложение':'Сайт';
+   out+=`<section class="answer-artifact"><div class="artifact-summary"><div><strong>${label}</strong><small>${e(info.filename||'index.html')}</small></div><div class="artifact-actions">${button('open-preview','Открыть','primary',attrs+' aria-label="Предпросмотр"')}${button('download-code','Скачать HTML','ghost',attrs)}</div></div><details><summary>Посмотреть код</summary>${codeBlock}</details></section>`;
+  }else out+=codeBlock;
  }
- if(/^\s*\|/.test(line)&&j+1<lines.length&&/^\s*\|?[\s:|-]+\|/.test(lines[j+1])){if(list){out+='</ul>';list=false}const cells=line.trim().replace(/^\||\|$/g,'').split('|');out+='<div class="table-wrap"><table><thead><tr>'+cells.map(c=>'<th>'+inline(c.trim())+'</th>').join('')+'</tr></thead><tbody>';j++;while(j+1<lines.length&&/^\s*\|/.test(lines[j+1])){j++;out+='<tr>'+lines[j].trim().replace(/^\||\|$/g,'').split('|').map(c=>'<td>'+inline(c.trim())+'</td>').join('')+'</tr>'}out+='</tbody></table></div>';continue}const li=line.match(/^\s*(?:[-*]|\d+\.)\s+(.+)/);if(li){if(!list){out+='<ul>';list=true}out+='<li>'+inline(li[1])+'</li>';continue}if(list){out+='</ul>';list=false}const h=line.match(/^(#{1,4})\s+(.+)/);if(h)out+=`<h${h[1].length+1}>${inline(h[2])}</h${h[1].length+1}>`;else if(/^\s*---+\s*$/.test(line))out+='<hr>';else if(line.trim())out+='<p>'+inline(line)+'</p>'}if(list)out+='</ul>';if(i+2<blocks.length){
- const info=codeBlockInfo(blocks[i+1]);
- const attrs=message?`data-id="${e(message.id)}" data-block="${i/3}" type="button"`:'';
- const actions=message?`<span class="code-actions">${button('copy-code','Копировать','ghost',attrs)}${button('download-code','Скачать','ghost',attrs)}${isPreviewBlock(blocks[i+1],blocks[i+2])?button('open-preview','Предпросмотр','ghost',attrs):''}${message.codeMode&&info.filename&&!message.truncated?button('review-code','Сохранить в проект','ghost',attrs):''}</span>`:'';
- out+=`<div class="code-block"><div class="code-toolbar"><small>${e(info.filename||info.language||'Код')}</small>${actions}</div><pre><code>${e(blocks[i+2])}</code></pre></div>`;
-}}return out;
+ return out;
 }
 async function attachmentPayload(ids){const result=[];let bytes=0;for(const id of [...new Set(ids)]){const f=state.files.find(f=>f.id===id&&!f.deleted&&f.kind!=='folder');if(!f)continue;const blob=await getBlob(id);if(!blob)continue;if(isText(f)&&blob.size<500000){result.push({id,name:f.name,text:await blob.text()})}else if(['image/png','image/jpeg','image/webp','application/pdf'].includes(f.type)&&blob.size<5*1048576&&bytes+blob.size<6*1048576){bytes+=blob.size;const data=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result.split(',')[1]);r.onerror=reject;r.readAsDataURL(blob)});result.push({name:f.name,mimeType:f.type,data})}else if(ids.includes(id)){toast(`«${f.name}» сохранён, но не передан модели: используйте текст, PDF или изображение до 5 МБ`)}}return result}
 async function requestAnswer(c){
@@ -467,30 +528,36 @@ async function requestAnswer(c){
  const action=resolveAction(lastUser?.content,{local:localIntent,task:taskIntent,site:buildIntent,image:imageIntent,native:nativeBuildIntent,project:projectSearchQuery});
  const projectQuery=action.projectQuery??null;
  const localMode=action.local?.mode;
- const localSkill=!!localMode||projectQuery!==null;
- const fileSkill=['csv','diff','json','csvdiff'].includes(localMode);
+ const localSkill=!!localMode||!!(action.locals&&!action.task)||projectQuery!==null;
+ const fileModes=['csv','diff','json','csvdiff'];
+ const fileSkill=fileModes.includes(localMode)||action.locals?.some(skill=>fileModes.includes(skill.mode));
  const taskMode=action.task?.mode;
  const explicitSearch=action.web;
  const previousImage=latestImage(c.messages);
  const recentAnswer=c.messages.slice(0,c.messages.lastIndexOf(lastUser)).findLast(message=>message.role==='assistant');
  const priorWebsite=previewArtifact(c)||previewArtifact(c,findWebsite(recentAnswer));
  const revisionPhrases=action.phrases||[{visible:action.input}];
- const revision=priorWebsite&&!action.nativeProject&&!localSkill&&!explicitSearch&&!action.image&&(!taskMode||taskMode==='code')&&revisionPhrases.some(({visible})=>
+ const revision=priorWebsite&&!action.nativeProject&&!action.locals&&!action.splitActions&&!localSkill&&!explicitSearch&&!action.image&&(!taskMode||taskMode==='code')&&revisionPhrases.some(({visible})=>
   isSiteRevision(visible)&&(!/(?:изображени|картинк|фотографи|постер|обложк)/iu.test(visible)||/(?:сайт|страниц|секци|шапк|футер)/iu.test(visible)));
- const contextualImage=previousImage&&action.phrases?.find(({visible})=>imageIntent(visible,true));
+ const contextualImage=!action.splitActions&&previousImage&&action.phrases?.find(({visible})=>imageIntent(visible,true));
  const siteDetails=recentAnswer?.model==='local-site-question'&&lastUser?.content?.trim()&&
-  !localSkill&&!taskMode&&!explicitSearch&&!/^\s*\//u.test(lastUser.content)&&!action.image&&!contextualImage;
- const updating=revision&&(!action.previewKind||action.previewKind==='site'||
-  (priorWebsite.kind===action.previewKind&&updatesBuild(action.input)));
+  !action.splitActions&&!localSkill&&!taskMode&&!explicitSearch&&!/^\s*(?:\/|кто\b|почему\b|как\b|объясни\s|расскажи\s|сделай\s+кратк)/iu.test(lastUser.content)&&!action.image&&!contextualImage;
+ const updating=revision&&(!action.previewKind||
+  ((priorWebsite.kind||'site')===action.previewKind&&updatesBuild(action.input)));
  const previewKind=action.previewKind||(updating?(priorWebsite.kind||'site'):siteDetails&&!action.nativeProject?'site':null);
  const website=!!previewKind;
  const codeMode=taskMode==='code'||website;
  const imageRequest=website||taskMode||localSkill||explicitSearch?null:action.image||(contextualImage&&imageIntent(contextualImage.input,true));
- const withSearch=(!!lastUser?.webSearch||explicitSearch)&&!localSkill&&!imageRequest&&!website;
+ const withSearch=!action.splitActions&&!action.locals&&(!!lastUser?.webSearch||explicitSearch)&&!localSkill&&!imageRequest&&!website;
  generation={chatId:c.id,controller,phase:imageRequest?'imaging':withSearch?'searching':'answering'};
  const refresh=()=>{if(ui.view==='chat'&&state.activeChat===c.id){render();const scroll=el('main-scroll');if(scroll)scroll.scrollTop=scroll.scrollHeight}};
  refresh();
  try{
+  if(action.splitActions){
+   c.messages.push({id:uid(),role:'assistant',content:SPLIT_ACTIONS,model:'local-focus-info',at:Date.now()});
+   c.updated=Date.now();
+   return;
+  }
   if(projectQuery!==null){
    const files=projectTextFiles(c.project).sort((a,b)=>a.path.localeCompare(b.path,'ru'));
    const {results,scanned,limited}=await searchProjectFiles(files,projectQuery,readProjectText,controller.signal);
@@ -514,7 +581,7 @@ async function requestAnswer(c){
    c.pendingSearch={query:research.query,sources:research.sources,searchedAt:research.searchedAt};
    generation.sources=research.sources;generation.phase='answering';persist();refresh();
   }
-  const projectFiles=localSkill||imageRequest?[]:projectTextFiles(c.project).filter(file=>file.size<100000);
+  const projectFiles=localSkill||action.locals||imageRequest?[]:projectTextFiles(c.project).filter(file=>file.size<100000);
   let reference;
   if(imageRequest?.mode==='edit'){
    const file=state.files.find(f=>f.id===previousImage?.imageFile&&!f.deleted);

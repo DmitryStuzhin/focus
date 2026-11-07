@@ -6,6 +6,8 @@ export function imageIntent(content,hasImage=false){
  const command=/^\/image(?=\s|$)\s*([\s\S]*)$/iu.exec(text);
  if(command)return {mode:'create',prompt:command[1].trim()};
  const t=text.toLowerCase().replace(/ё/g,'е').replace(/^(?:бро[,! ]*|пожалуйста[, ]*|можешь\s+|можно\s+|давай\s+|теперь\s+|а\s+)+/u,'');
+ // Data charts use the chat renderer, including colloquial "draw a chart".
+ if(/^(?:нарисуй|нарисовать|изобрази|создай|создать|сделай|сгенерируй|draw|make|create)\s+(?:(?:мне|линейный|столбчатую|круговую)\s+)*(?:график|диаграмм[ауые]|chart|graph)(?![\p{L}\p{N}_])/iu.test(t))return null;
  // Requests for advice, text, or prompts must remain ordinary conversation.
  if(/^(?:как |почему |объясни|расскажи|напиши|придумай промпт|не |don't |how |explain|write )/u.test(t)||/^(?:измени|сделай|добавь|убери|замени|перепиши).*?(?:ответ|абзац|код|текст ответа|список|таблиц)/u.test(t))return null;
  if(hasImage&&/^(?:сделай|make)\s/u.test(t)&&/(?:ярче|темнее|светлее|реалистичнее|лучше|краснее|brighter|darker|realistic)/u.test(t))return {mode:'edit',prompt:text};

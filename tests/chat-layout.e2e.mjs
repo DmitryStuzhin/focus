@@ -176,7 +176,11 @@ try{
  </script></body></html>`;
  await sitePage.route('**/api/chat',async route=>{
   siteRequests.push(route.request().postDataJSON());
-  const heading=siteRequests.length===1?'Первый сайт':'Вторая версия';
+   if(!siteRequests.at(-1).sitePreview){
+   await route.fulfill({json:{text:'Краткое резюме разговора.',model:'test'}});
+   return;
+  }
+  const heading=siteRequests.filter(request=>request.sitePreview).length===1?'Первый сайт':'Вторая версия';
   await route.fulfill({json:{text:'```html index.html\n'+siteHTML(heading)+'\n```',model:'test'}});
  });
  await sitePage.goto('http://127.0.0.1:'+server.address().port);
@@ -200,12 +204,20 @@ try{
  assert.ok(bounds.x>=chatBounds.x+chatBounds.width-1,'preview must appear to the right of the chat');
  await frame.getByRole('button',{name:'0'}).click();
  await frame.getByRole('button',{name:'1'}).waitFor();
- await siteComposer.fill('Первая версия подходит. Теперь добавь новый заголовок');
+ await sitePage.getByRole('button',{name:'На весь экран',exact:true}).click();
+ assert.equal((await sitePage.locator('#preview-root').boundingBox()).width,1440);
+ await sitePage.getByRole('button',{name:'Свернуть',exact:true}).click();
+ await siteComposer.fill('Сделай краткое резюме разговора');
+ await sitePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ await sitePage.getByText('Краткое резюме разговора.',{exact:true}).waitFor();
+ assert.equal(siteRequests[1].sitePreview,undefined);
+ assert.equal(siteRequests[1].messages.at(-1).attachments.length,0);
+ await siteComposer.fill('Первая версия подходит. Теперь добавь на сайт новый заголовок');
  await frame.getByRole('button',{name:'1'}).waitFor();
  await sitePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
  await frame.getByRole('heading',{name:'Вторая версия'}).waitFor();
- assert.equal(siteRequests[1].sitePreview,true);
- assert.match(siteRequests[1].messages.at(-1).attachments[0].text,/<h1>Первый сайт<\/h1>/);
+ assert.equal(siteRequests[2].sitePreview,true);
+ assert.match(siteRequests[2].messages.at(-1).attachments[0].text,/<h1>Первый сайт<\/h1>/);
  await sitePage.reload();
  await frame.getByRole('heading',{name:'Вторая версия'}).waitFor();
  await sitePage.getByRole('button',{name:'Закрыть предпросмотр',exact:true}).click();
@@ -220,6 +232,7 @@ try{
  await draftPage.getByRole('button',{name:'Создать сайт',exact:true}).click();
  const draftComposer=draftPage.getByRole('textbox',{name:'Сообщение',exact:true});
  assert.equal(await draftComposer.inputValue(),'Сделай сайт');
+ await draftComposer.fill('ты можешь сделать сайт?');
  await draftPage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
  await draftPage.getByText(/Какой сайт сделать/).waitFor();
  await draftComposer.fill('Для стоматологической клиники');
@@ -287,6 +300,36 @@ try{
  assert.equal(await report.getByRole('row').count(),2);
  await csvPage.close();
  console.log('CSV comparison uses both chat attachments and shows the exact changed cell without a model');
+
+ const chartPage=await browser.newPage({viewport:{width:390,height:844}});
+ const chartReply=[
+  '## 📊 Результаты',
+  '',
+  'Период | Значение',
+  '--- | ---:',
+  'Пн | 12',
+  'Вт | 19',
+  '',
+  '```focus-chart',
+  JSON.stringify({type:'line',title:'Посещения',unit:'визитов',labels:['Пн','Вт'],values:[12,19]}),
+  '```',
+  '',
+  '> Визитов стало больше.',
+ ].join('\n');
+ await chartPage.route('**/api/chat',route=>route.fulfill({json:{text:chartReply,model:'test'}}));
+ await chartPage.goto('http://127.0.0.1:'+server.address().port);
+ await chartPage.waitForLoadState('networkidle');
+ await chartPage.getByRole('textbox',{name:'Сообщение',exact:true}).fill('Оформи статистику');
+ await chartPage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ const graphic=chartPage.getByRole('img',{name:'Посещения'});
+ await graphic.waitFor();
+ const graphBox=await graphic.boundingBox();
+ assert.ok(graphBox.x>=0&&graphBox.x+graphBox.width<=390);
+ await chartPage.getByRole('cell',{name:'19',exact:true}).waitFor();
+ await chartPage.getByText('Данные графика',{exact:true}).click();
+ await chartPage.locator('.answer-chart table').getByRole('cell',{name:'19',exact:true}).waitFor();
+ await chartPage.close();
+ console.log('A phone renders an SVG chart with inspectable values, a Markdown table and a callout');
 
 }finally{
  if(browser)await browser.close();

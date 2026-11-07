@@ -39,6 +39,7 @@ export function rankProjectFiles(files, question) {
 
 async function readRelevantProjectFiles(files,question,readAttachments){
   const query=terms(question);
+  if(!query.size)return [];
   const candidates=[];
   let total=0;
   for(const file of rankProjectFiles(files,question).slice(0,60)){
@@ -49,8 +50,8 @@ async function readRelevantProjectFiles(files,question,readAttachments){
     const nameScore=[...terms(file.name.replace(/\.[^.]+$/, ''))].filter(word=>query.has(word)).length;
     const words=terms(attachment.text);
     const bodyScore=[...query].filter(word=>words.has(word)).length;
-    candidates.push({file,attachment,score:nameScore*8+Math.min(7,bodyScore)});
-    if(!query.size&&candidates.length===5)break;
+    const score=nameScore*8+Math.min(7,bodyScore);
+    if(score>0)candidates.push({file,attachment,score});
   }
   return candidates.sort((a,b)=>b.score-a.score).slice(0,5);
 }

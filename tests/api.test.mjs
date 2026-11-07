@@ -334,7 +334,7 @@ test('natural site requests use the HTML preview prompt without intercepting ima
   const body=JSON.parse(options.body);
   assert.match(body.messages[0].content,/html index\.html/);
   assert.equal(body.max_tokens,8192);
-  return Response.json({choices:[{message:{content:'Готовый HTML'},finish_reason:'stop'}]});
+  return Response.json({choices:[{message:{content:'<!doctype html><html><body>Галерея</body></html>'},finish_reason:'stop'}]});
  });
  assert.equal(response.status,200);
  const env={CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'token'};
@@ -533,4 +533,46 @@ test('document verification includes traceable locations and identifies excerpts
  });
  assert.equal(response.status,200);
  assert.equal((await response.json()).text,'10 дней. terms.txt, строка 2.');
+});
+
+test('Focus answers identity and bare site questions even when the model cannot answer',async()=>{
+ const noFetch=()=>assert.fail('A product capability question does not need a provider');
+ const ask=(content,config={})=>chat(req({messages:[{role:'user',content}]}),config,noFetch);
+ const response=await ask('ты можешь сделать сайт?',{OPENROUTER_API_KEY:'fixture'});
+ const site=await response.json();
+ assert.equal(site.model,'local-site-question');
+ assert.match(site.text,/HTML, CSS и JavaScript.*прямо в чате/u);
+ assert.match(site.text,/Какой сайт сделать/u);
+ const who=await (await ask('Ты дипсик?')).json();
+ assert.match(who.text,/Я — Guzan 1\.1/u);
+ const skills=await (await ask('Что ты умеешь?',{TAVILY_API_KEY:'fixture'})).json();
+ assert.match(skills.text,/Веб-поиск/u);
+ assert.doesNotMatch(skills.text,/изображения|fixture/iu);
+});
+
+test('a combined request keeps the exact calculation and completes the plan',async()=>{
+ const r=await chat(req({messages:[{role:'user',content:'Посчитай 2+2. Составь план релиза.'}]}),
+  {OPENROUTER_API_KEY:'fixture'},async(_url,options)=>{
+   const {messages}=JSON.parse(options.body);
+   assert.match(messages[0].content,/focus-chart/u);
+   assert.match(messages[0].content,/Возможности приложения Focus/u);
+   assert.match(messages[0].content,/Режим \/plan/u);
+   assert.match(messages.at(-1).content.at(-1).text,/Составь план релиза/u);
+   return Response.json({choices:[{message:{content:'- [ ] Собрать релиз'},finish_reason:'stop'}]});
+  });
+ assert.equal(r.status,200);
+ const {text}=await r.json();
+ assert.match(text,/Результат.*4/u);
+ assert.match(text,/- \[ \] Собрать релиз/u);
+});
+
+test('a plain or incomplete website reply retries instead of being used as a preview',async()=>{
+ let calls=0;
+ const response=await chat(req({messages:[{role:'user',content:'Сделай сайт для фотостудии'}]}),
+  {OPENROUTER_API_KEY:'fixture'},async()=>{
+   const content=++calls===1?'Опишите, какой сайт нужен':'```html index.html\n<html><h1>Оборванный ответ\n```';
+   return Response.json({choices:[{message:{content},finish_reason:'stop'}]});
+  });
+ assert.equal(calls,2);
+ assert.equal((await response.json()).model,'local-site-draft');
 });

@@ -64,3 +64,9 @@ test('recognizes a request lead, polite interruptions and document tasks',()=>{
   {mode:'csvdiff',details:'«Код товара»'});
  assert.ok(resolve('Бро, не создавай сайт, сделай это только после подтверждения.').phrases);
 });
+
+test('draw a data chart stays in chat instead of starting image generation',()=>{
+ assert.equal(resolve('Нарисуй график продаж за неделю').image,undefined);
+ assert.equal(resolve('Нарисуй диаграмму по этим данным').image,undefined);
+ assert.equal(resolve('Нарисуй картинку для презентации с графиком').image.mode,'create');
+});

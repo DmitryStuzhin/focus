@@ -20,11 +20,13 @@ export function nativeBuildIntent(content){
 }
 
 export function updatesBuild(content){
- return /(?<!\p{L})(?:эту\s+(?:игру|версию)|это\s+приложение|текущ\p{L}*\s+(?:игру|приложение|версию)|сложнее|проще|быстрее|медленнее|ярче|темнее)(?!\p{L})/iu.test(content);
+ return /(?<!\p{L})(?:эту\s+(?:игру|версию|страницу)|это\s+приложение|этот\s+(?:сайт|лендинг)|текущ\p{L}*\s+(?:игру|приложение|версию|сайт|страницу)|сложнее|проще|быстрее|медленнее|ярче|темнее)(?!\p{L})/iu.test(content);
 }
 
 export function isSiteRevision(content){
- return /^(?:(?:теперь|а теперь|пожалуйста)\s*[, ]\s*)?(?:добавь|убери|удали|поменяй|замени|измени|сделай|переделай|перенеси|улучши|обнови|исправь|add|remove|change|update|fix)\s/iu.test(String(content||'').trim());
+ const text=String(content||'').trim();
+ const target=/(?<![\p{L}\p{N}_])(?:сайт[ауыем]?|лендинг[аеу]?|страниц[уаые]|игр[ауые]|приложени[еяю]|в\s+предпросмотре|шапк[ауе]|футер[ае]?|website|landing page|web page|game|app|preview|html)(?![\p{L}\p{N}_])/iu;
+ return target.test(text)&&/^(?:(?:теперь|а теперь|пожалуйста)\s*[, ]\s*)?(?:добавь|убери|удали|поменяй|замени|измени|сделай|переделай|перенеси|улучши|обнови|исправь|add|remove|change|update|fix)\s/iu.test(text);
 }
 
 export function isPreviewBlock(header,code){

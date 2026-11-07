@@ -24,7 +24,7 @@ export function linkCitations(html,search){
  const sources=cleanSources(search);if(!sources.length)return html;
  const template=document.createElement('template');template.innerHTML=html;
  const walker=document.createTreeWalker(template.content,NodeFilter.SHOW_TEXT);const nodes=[];
- while(walker.nextNode()){const n=walker.currentNode;if(!n.parentElement?.closest('a,code,pre')&&/\[\d{1,2}\]/.test(n.textContent))nodes.push(n)}
+ while(walker.nextNode()){const n=walker.currentNode;if(!n.parentElement?.closest('a,code,pre,.answer-chart')&&/\[\d{1,2}\]/.test(n.textContent))nodes.push(n)}
  for(const node of nodes){const text=node.textContent,fragment=document.createDocumentFragment();let last=0;
   for(const match of text.matchAll(/\[(\d{1,2})\]/g)){fragment.append(document.createTextNode(text.slice(last,match.index)));const source=sources.find(s=>s.id===Number(match[1]));if(source){const a=document.createElement('a');a.className='source-citation';a.href=source.url;a.target='_blank';a.rel='noopener noreferrer';a.title=source.domain+' — '+source.title;a.textContent=match[1];a.setAttribute('aria-label',`Источник ${match[1]}: ${source.title}`);fragment.append(a)}else fragment.append(document.createTextNode(match[0]));last=match.index+match[0].length}
   fragment.append(document.createTextNode(text.slice(last)));node.replaceWith(fragment);

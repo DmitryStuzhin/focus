@@ -69,3 +69,9 @@ test('a symbol in an older file outranks unrelated recent source files',async()=
  assert.equal(result.at(-1).attachments[0].id,'7');
  assert.ok(result.at(-1).attachments.length<=5);
 });
+
+test('ordinary questions never auto-attach zero-score project files',async()=>{
+ const file={id:'notes',name:'notes.txt'};
+ const result=await buildChatContext([user('Объясни фотосинтез')],[file],async ids=>ids.map(()=>({name:file.name,text:'Private project notes'})));
+ assert.deepEqual(result.at(-1).attachments,[]);
+});

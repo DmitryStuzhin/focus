@@ -54,3 +54,30 @@
 .project-match{display:grid;gap:4px;text-align:left;width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
 .project-match:hover{background:var(--hover)}.project-match strong,.project-match code{overflow-wrap:anywhere}
 .project-match strong{font-size:12px;color:var(--accent)}.project-match code{white-space:pre-wrap;background:none;padding:0;color:var(--secondary)}
+
+.markdown ol{padding-left:24px;margin:12px 0 20px}
+.markdown blockquote{border-left:3px solid var(--accent);background:var(--hover);color:var(--secondary);margin:12px 0;padding:10px 14px;border-radius:0 8px 8px 0}
+.markdown th{font-weight:600;color:var(--text)}
+.markdown tbody tr:nth-child(even){background:var(--hover)}
+.markdown .cell-right{text-align:right;font-variant-numeric:tabular-nums}
+.markdown .cell-center{text-align:center}
+.answer-chart,.answer-artifact{border:1px solid var(--line);border-radius:12px;margin:16px 0;padding:14px 16px;background:var(--surface)}
+.answer-chart figcaption,.artifact-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.answer-chart figcaption small,.artifact-summary small{color:var(--muted);font-size:12px}
+.answer-chart svg{display:block;width:100%;height:auto;margin:10px 0 0;overflow:visible}
+.answer-chart svg text{fill:var(--secondary);font-size:13px;font-variant-numeric:tabular-nums}
+.chart-grid line{stroke:var(--line);stroke-width:1}
+.chart-marks rect,.chart-marks circle{fill:var(--accent)}
+.chart-marks polyline{stroke:var(--accent);stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+.answer-chart summary,.answer-artifact summary{cursor:pointer;color:var(--muted);font-size:12px;margin-top:8px}
+.answer-chart .table-wrap{margin-bottom:0}
+.artifact-summary strong,.artifact-summary small{display:block}
+.artifact-actions{display:flex;gap:4px;flex-wrap:wrap}
+.answer-artifact .code-block{margin-bottom:0}
+#preview-root.preview-full{width:100%;z-index:45}
+@media(max-width:639px){
+ #preview-root{width:100%}
+ #preview-root .site-preview-header{padding:0 8px 0 12px}
+ #preview-root [data-action=resize-preview]{display:none}
+ .answer-chart,.answer-artifact{padding:10px 12px}
+}

@@ -1,7 +1,7 @@
 // Classify the action clause, while retaining the user's wording and payload.
 const quotedOrCode=/```[\s\S]*?(?:```|$)|`[^`\r\n]*`|«[^»\r\n]*»|“[^”\r\n]*”|„[^“\r\n]*“|"(?:\\.|[^"\\\r\n])*"|'[^'\r\n]*'/gu;
 const actionBoundary=/(?:[.!?](?=\s|$)|\r?\n+|[,;:](?=\s|$)|—(?=\s)|(?<!\S)(?:и|а затем|а потом)\s+(?=(?:сделай|создай|собери|нарисуй|сгенерируй|напиши|проверь|найди|поищи|составь|посчитай|отформатируй|сравни)\s))\s*/giu;
-const actionIntro=/^(?:(?:и\s+)?(?:можешь\s+ли\s+ты|мог\s+бы\s+ты|а\s+теперь|а\s+ещ[её]|а|но|теперь|сначала|затем|потом|заодно|дальше|пожалуйста|можешь|можно|давай|короче|слушай|гузан|бро)\s*[,!]?\s+)+/iu;
+const actionIntro=/^(?:(?:и\s+)?(?:ты\s+можешь|можешь\s+ли\s+ты|мог\s+бы\s+ты|а\s+теперь|а\s+ещ[её]|а|но|теперь|сначала|затем|потом|заодно|дальше|пожалуйста|можешь|можно|давай|короче|слушай|гузан|бро)\s*[,!]?\s+)+/iu;
 const requestLead=/^(?:(?:мне\s+)?нужно|(?:я\s+)?хочу|прошу|хотелось бы)$/iu;
 const requestForms=new Map(Object.entries({
  сделал:'сделай', создал:'создай', разработал:'разработай', собрал:'собери', нарисовал:'нарисуй',
@@ -70,9 +70,27 @@ export function actionPhrases(content){
  return phrases;
 }
 
-export function resolveAction(content,{local,task,site,image,project,native}){
+export const SPLIT_ACTIONS = 'Вижу несколько задач. Отправь каждую отдельным сообщением, чтобы я мог выполнить их по очереди.';
+
+export function resolveAction(content,handlers){
  const original=String(content||'').trim();
  const phrases=actionPhrases(original);
+ if(!original.startsWith('/')&&phrases.length>1){
+  const actions=phrases.map(phrase=>resolveSingle(phrase.short,[{...phrase,input:phrase.short}],handlers))
+   .filter(action=>!action.phrases);
+  if(actions.length>1){
+   const tasks=actions.filter(action=>action.task&&!action.nativeProject&&!action.site);
+   const locals=actions.flatMap(action=>action.local?[action.local]:[]);
+   if(locals.length===actions.length||locals.length+1===actions.length&&tasks.length===1){
+    return {input:original,locals,task:tasks[0]?.task};
+   }
+   return {input:original,splitActions:true};
+  }
+ }
+ return resolveSingle(original,phrases,handlers);
+}
+
+function resolveSingle(original,phrases,{local,task,site,image,project,native}){
  for(const {input,short,visible} of phrases){
   const shortLocal=local(short);
   const endsSentence=/^[.!?](?:\s|$)/u.test(input.slice(short.length));
