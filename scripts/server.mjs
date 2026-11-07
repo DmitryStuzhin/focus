@@ -25,10 +25,15 @@ export function createServer(env=process.env, app, authOptions) {
         method:req.method,headers,signal:controller.signal,
         ...(['GET','HEAD'].includes(req.method)?{}:{body:Readable.toWeb(req),duplex:'half'})
       });
-      let response=await auth.handle(request,url.pathname,headers.get('cf-connecting-ip'));
+      const context={};
+      let response=await auth.handle(request,url.pathname,headers.get('cf-connecting-ip'),context);
       if(!response){
         const handler=app || (await import('../dist/server/index.js')).default;
-        response=await handler.fetch(request,env,{});
+        if(request.method==='POST')context.activity={'/api/chat':'chat','/api/search':'search'}[url.pathname];
+        response=await handler.fetch(request,env,context);
+        if(context.userId&&['chat','site','image','search'].includes(context.activity)){
+          try{auth.record(context.userId,context.activity,response.ok);}catch{console.error('Focus could not record activity.');}
+        }
       }
       res.writeHead(response.status,Object.fromEntries(response.headers));
       if(response.body && req.method!=='HEAD') Readable.fromWeb(response.body).pipe(res);

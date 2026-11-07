@@ -15,6 +15,8 @@ const app=document.querySelector('#app');
 const MODEL_LABEL='Guzan 1.1';
 let state=fresh(), account=null, ready=false;
 const imagePassKey=()=>account?"focus-image-pass."+account.id:"focus-image-pass";
+const savedImagePass=()=>isSecureContext?sessionStorage.getItem(imagePassKey()):null;
+const hasImageAccess=()=>account?account.subscriptionUntil>Date.now()||!!savedImagePass():!!savedImagePass();
 let ui={view:'chat',archive:false,filesTab:'files',folder:null,collapsed:new Set(),sidebarClosed:false,mobileNav:false,mobileFiles:false,draft:'',quote:null,attachments:[],menu:null,sort:'name'};
 const studio={siteBrief:'',image:{brief:'',mode:'free',ratio:'1:1',style:'',reference:null,favorites:false},imageError:'',imageController:null};
 const studioRoute=()=>{const view=location.hash.slice(1);return Object.hasOwn(STUDIO_LABELS,view)?view:null};
@@ -111,7 +113,7 @@ function mainView(){
    const source=files.find(file=>file.id===studio.image.reference);
    if(!source&&studio.image.reference){studio.image.reference=null;studio.image.ratio='1:1';}
    return renderImages({e,project,files,form:studio.image,source,
-    access:apiStatus.images,hasPass:!!(isSecureContext&&sessionStorage.getItem(imagePassKey())),busy:!!studio.imageController,error:studio.imageError});
+    access:apiStatus.images,hasPass:hasImageAccess(),subscriptionUntil:account?.subscriptionUntil,busy:!!studio.imageController,error:studio.imageError});
   }
   case 'skills':return renderSkills();
   default:return collectionView();
@@ -167,8 +169,8 @@ async function generateStudioImage(){
  const prompt=brief.trim();
  if(!prompt)return;
  const paid=mode==='paid';
- const pass=paid&&isSecureContext?sessionStorage.getItem(imagePassKey()):null;
- if(paid&&!pass){imageSubscriptionDialog();return;}
+ const pass=paid&&!(account?.subscriptionUntil>Date.now())?savedImagePass():null;
+ if(paid&&!hasImageAccess()){imageSubscriptionDialog();return;}
  const controller=new AbortController();
  studio.imageController=controller;
  studio.imageError='';
@@ -190,6 +192,10 @@ async function generateStudioImage(){
     ...(imageReferenceData?{imageReference:imageReferenceData}:{})})});
   if(response.status===401&&account){location.replace('/login');return;}
   const data=await response.json().catch(()=>null);
+  if(data?.code==='image_subscription_required'&&account){
+   if(pass)sessionStorage.removeItem(imagePassKey());
+   await refreshAccount();
+  }
   if(!response.ok||!data?.image)throw new Error(data?.error||'Сервис не вернул изображение. Попробуйте ещё раз.');
   const id=await saveGeneratedImage(data.image,project.id,prompt);
   if(reference&&studio.image.reference===reference)studio.image.reference=id;
@@ -246,6 +252,7 @@ function applyTheme(){
 function setView(view){ui.view=view;ui.mobileNav=false;ui.mobileFiles=false;closeMenu();render()}
 window.addEventListener('hashchange',()=>{
  if(ready&&(studioRoute()||Object.hasOwn(STUDIO_LABELS,ui.view)))setView(studioRoute()||'chat');
+ if(ready&&account&&ui.view==='images')void refreshAccount().then(refreshImageStudio);
 });
 function selectProject(id,toggle=false){const p=state.projects.find(p=>p.id===id&&!p.deleted);if(!p)return;const same=id===state.activeProject;if(same&&toggle){ui.collapsed.has(id)?ui.collapsed.delete(id):ui.collapsed.add(id)}else{state.activeProject=id;state.activeChat=null;ui.folder=null;ui.draft='';ui.quote=null;ui.attachments=[];ui.collapsed.delete(id)}ui.view='chat';ui.mobileNav=false;persist();render()}
 function newChat(){if(!activeProject()){projectDialog();return}state.activeChat=null;ui.draft='';ui.quote=null;ui.attachments=[];ui.archive=false;ui.view='chat';ui.mobileNav=false;persist();render();el('composer-input')?.focus()}
@@ -311,17 +318,54 @@ async function previewFile(id){const f=state.files.find(x=>x.id===id&&!x.deleted
 async function editFile(id){const f=state.files.find(x=>x.id===id),blob=await getBlob(id);if(!f||!blob)return;const text=await blob.text();modal(f.name,`<form><div class="form-field"><label for="editor-text">Содержимое файла</label><textarea id="editor-text" class="file-editor" name="content" maxlength="2000000" spellcheck="false">${e(text)}</textarea></div><p class="error-text" id="form-error" hidden></p><div class="dialog-footer">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">Сохранить изменения</button></div></form>`,{wide:true,onSubmit:async(data,form)=>{form.querySelector('[type=submit]').disabled=true;try{const b=new Blob([data.get('content')],{type:f.type||'text/plain'});await putBlob(id,b);f.size=b.size;f.updated=Date.now();log(`Изменён файл «${f.name}»`,f.project);persist();closeModal();render();toast('Изменения сохранены')}catch{form.querySelector('[type=submit]').disabled=false;el('form-error').textContent='Не удалось сохранить файл';el('form-error').hidden=false}}})}
 function searchDialog(){modal('Поиск по пространству',`<div class="search-input-wrap">${icon('search')}<input id="search-input" aria-label="Поиск диалогов и проектов" placeholder="Название проекта или текст диалога" autocomplete="off" autofocus /></div><div class="search-results" id="search-results"></div>`);searchResults('');el('search-input').oninput=ev=>searchResults(ev.target.value)}
 function searchResults(q){q=q.toLocaleLowerCase('ru').trim();const projects=liveProjects().filter(p=>!q||p.name.toLocaleLowerCase('ru').includes(q));const chats=state.chats.filter(c=>!c.deleted&&!state.projects.find(p=>p.id===c.project)?.deleted&&(!q||[c.title,...c.messages.map(m=>m.content)].join(' ').toLocaleLowerCase('ru').includes(q)));const rows=[...projects.map(p=>({id:p.id,action:'search-project',title:p.name,sub:'Проект',ico:'folder'})),...chats.map(c=>({id:c.id,action:'search-chat',title:c.title,sub:`${projectName(c.project)}${c.archived?' · Архив':''}`,ico:'chat'}))].slice(0,30);el('search-results').innerHTML=rows.map(r=>`<button class="search-result" data-action="${r.action}" data-id="${r.id}">${icon(r.ico)}<span><strong class="truncate">${e(r.title)}</strong><small class="truncate">${e(r.sub)}</small></span></button>`).join('')||'<div class="search-empty">Ничего не найдено. Попробуйте другое слово.</div>'}
-function settingsDialog(){modal('Настройки',`<form id="settings-form">${account?`<div class="settings-section"><h3>Аккаунт Focus</h3><p class="settings-note">${e(account.email)}</p>${button('logout','Выйти из аккаунта','ghost','type="button"')}</div>`:''}<div class="settings-section"><h3>Ваше пространство</h3><div class="form-field"><label for="settings-name">Название</label><input id="settings-name" name="name" value="${e(state.settings.name)}" maxlength="60" required /></div><div class="form-field" style="margin-bottom:0"><label for="settings-theme">Оформление</label><select name="theme" id="settings-theme">${[['light','Светлое'],['dark','Тёмное'],['system','Как на устройстве']].map(([v,l])=>`<option value="${v}" ${state.settings.theme===v?'selected':''}>${l}</option>`).join('')}</select></div><div class="setting-row"><div>Отправлять по Enter<p>Shift + Enter добавляет новую строку</p></div><button class="switch" type="button" role="switch" aria-label="Отправлять по Enter" aria-checked="${state.settings.sendOnEnter}" data-action="toggle-enter"></button></div></div><div class="settings-section"><h3>Данные</h3><p class="settings-note" style="margin-bottom:16px">История и файлы сохраняются только в этом браузере. Для переноса на другое устройство скачайте резервную копию.</p><div class="settings-buttons">${button('export-backup',`${icon('download')} Скачать копию`,'','type="button"')}${button('import-backup',`${icon('upload')} Восстановить`,'','type="button"')}</div></div><div class="settings-section"><h3>Подключение модели</h3><p class="settings-note">${e(MODEL_LABEL)} · ${apiStatus.configured?'подключена':'не настроена'}. Запросы проходят через сервер приложения. Ключ API не хранится в браузере. Текст диалога и поддерживаемые вложения передаются провайдеру модели для ответа. В бесплатном режиме режимы глубины ответа не применяются.</p></div><p class="settings-note">Focus · первая версия<br>Дизайн по референсам и <a href="https://github.com/heydamir/unslop" target="_blank" rel="noopener noreferrer">Unslop</a> — Damir Sokolovsky, CC BY 4.0</p><div class="dialog-footer" style="margin-top:24px">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">Сохранить</button></div></form>`,{onSubmit:(data)=>{state.settings.name=data.get('name').trim()||'Моё пространство';state.settings.theme=data.get('theme');state.settings.sendOnEnter=document.querySelector('[data-action=toggle-enter]')?.getAttribute('aria-checked')==='true';persist();closeModal();render();toast('Настройки сохранены')}})}
+function settingsDialog(){modal('Настройки',`<form id="settings-form">${account?`<div class="settings-section"><h3>Аккаунт Focus</h3><p class="settings-note">${e(account.email)}</p><div class="form-field"><label for="account-name">Имя в аккаунте</label><input id="account-name" name="accountName" value="${e(account.name||'')}" maxlength="80" autocomplete="name" /></div>${button('logout','Выйти из аккаунта','ghost','type="button"')}</div>`:''}<div class="settings-section"><h3>Ваше пространство</h3><div class="form-field"><label for="settings-name">Название</label><input id="settings-name" name="name" value="${e(state.settings.name)}" maxlength="60" required /></div><div class="form-field" style="margin-bottom:0"><label for="settings-theme">Оформление</label><select name="theme" id="settings-theme">${[['light','Светлое'],['dark','Тёмное'],['system','Как на устройстве']].map(([v,l])=>`<option value="${v}" ${state.settings.theme===v?'selected':''}>${l}</option>`).join('')}</select></div><div class="setting-row"><div>Отправлять по Enter<p>Shift + Enter добавляет новую строку</p></div><button class="switch" type="button" role="switch" aria-label="Отправлять по Enter" aria-checked="${state.settings.sendOnEnter}" data-action="toggle-enter"></button></div></div><div class="settings-section"><h3>Данные</h3><p class="settings-note" style="margin-bottom:16px">История и файлы сохраняются только в этом браузере. Для переноса на другое устройство скачайте резервную копию.</p><div class="settings-buttons">${button('export-backup',`${icon('download')} Скачать копию`,'','type="button"')}${button('import-backup',`${icon('upload')} Восстановить`,'','type="button"')}</div></div><div class="settings-section"><h3>Подключение модели</h3><p class="settings-note">${e(MODEL_LABEL)} · ${apiStatus.configured?'подключена':'не настроена'}. Запросы проходят через сервер приложения. Ключ API не хранится в браузере. Текст диалога и поддерживаемые вложения передаются провайдеру модели для ответа. В бесплатном режиме режимы глубины ответа не применяются.</p></div><p class="settings-note">Focus · первая версия<br>Дизайн по референсам и <a href="https://github.com/heydamir/unslop" target="_blank" rel="noopener noreferrer">Unslop</a> — Damir Sokolovsky, CC BY 4.0</p><div class="dialog-footer" style="margin-top:24px">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">Сохранить</button></div></form>`,{onSubmit:saveSettings})}
+async function updateAccount(path,body){
+ const response=await fetch('/api/auth/'+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+ const result=await response.json();
+ if(response.status===401){location.replace('/login');throw new Error('Сессия завершена.');}
+ if(!response.ok)throw new Error(result.error||'Не удалось обновить аккаунт.');
+ account=result.user;
+}
+async function refreshAccount(){
+ try{
+  const response=await fetch('/api/auth/session',{cache:'no-store'});
+  if(!response.ok)return;
+  const {user}=await response.json();
+  if(user)account=user;
+ }catch{}
+}
+async function saveSettings(data,form){
+ const submit=form.querySelector('[type=submit]');
+ submit.disabled=true;
+ const sendOnEnter=form.querySelector('[data-action=toggle-enter]')?.getAttribute('aria-checked')==='true';
+ try{
+  const name=data.get('accountName');
+  if(account&&typeof name==='string'&&name.trim()!==(account.name||''))await updateAccount('profile',{name});
+  state.settings.name=data.get('name').trim()||'Моё пространство';
+  state.settings.theme=data.get('theme');
+  state.settings.sendOnEnter=sendOnEnter;
+  persist();if(form.isConnected)closeModal();render();toast('Настройки сохранены');
+ }catch(error){toast(error.message);}
+ finally{submit.disabled=false;}
+}
 function imageSubscriptionDialog(){
  if(!isSecureContext){toast('Введите код подписки на защищённой странице HTTPS');return}
- modal('GPT Image по подписке',`<form><div class="form-field"><label for="image-pass">Код подписки</label><input id="image-pass" name="pass" type="password" autocomplete="off" maxlength="64" pattern="[a-f0-9]{64}" /></div><p class="settings-note">Вставьте код, полученный после оплаты. Пустое поле включает бесплатную генерацию.</p><div class="dialog-footer"><button class="btn primary" type="submit">Применить</button></div></form>`,{onSubmit:data=>{
+ modal('Подписка на изображения',`<form><div class="form-field"><label for="image-pass">Код подписки</label><input id="image-pass" name="pass" type="password" autocomplete="off" maxlength="64" pattern="[a-f0-9]{64}" ${account?'required':''} /></div><p class="settings-note">${account?'Код привязывает подписку к аккаунту.':'Вставьте код, полученный после оплаты. Пустое поле включает базовый режим.'}</p><p class="settings-note" role="alert" data-subscription-error hidden></p><div class="dialog-footer"><button class="btn primary" type="submit">Применить</button></div></form>`,{onSubmit:async(data,form)=>{
   const pass=String(data.get('pass')||'').trim();
-  if(pass)sessionStorage.setItem(imagePassKey(),pass);
-  else{sessionStorage.removeItem(imagePassKey());studio.image.mode='free';}
-  closeModal();
-  studio.imageError='';
-  refreshImageStudio();
-  toast(pass?'Код сохранён для этой вкладки':'Выбран базовый режим');
+  const submit=form.querySelector('[type=submit]');
+  submit.disabled=true;
+  try{
+   if(account){await updateAccount('subscription',{code:pass});sessionStorage.removeItem(imagePassKey());}
+   else if(pass)sessionStorage.setItem(imagePassKey(),pass);
+   else{sessionStorage.removeItem(imagePassKey());studio.image.mode='free';}
+   if(form.isConnected)closeModal();
+   studio.imageError='';
+   refreshImageStudio();
+   toast(account?'Подписка активирована':pass?'Код сохранён для этой вкладки':'Выбран базовый режим');
+  }catch(error){
+   const message=form.querySelector('[data-subscription-error]');
+   message.textContent=error.message;message.hidden=false;
+  }finally{submit.disabled=false;}
  }});
 }
 async function exportBackup(){toast('Подготавливаю резервную копию');try{const blobs={};for(const f of state.files.filter(f=>f.kind!=='folder')){const b=await getBlob(f.id);if(b)blobs[f.id]=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(b)})}download(new Blob([JSON.stringify({...state,blobs},null,2)],{type:'application/json'}),`focus-backup-${new Date().toISOString().slice(0,10)}.json`);toast('Резервная копия скачана')}catch{toast('Не удалось создать копию')}}
@@ -867,6 +911,11 @@ async function boot(){
   ui.view=studioRoute()||'chat';
   render();
   fetch('/api/status').then(r=>r.json()).then(d=>{apiStatus=d;render()}).catch(()=>{});
+  const oldImageCode=account?savedImagePass():null;
+  if(oldImageCode)void updateAccount('subscription',{code:oldImageCode}).then(()=>{
+   sessionStorage.removeItem(imagePassKey());
+   refreshImageStudio();
+  }).catch(()=>{});
  }catch{
   app.innerHTML='<section class="welcome"><div class="welcome-inner"><h1>Не удалось открыть Focus</h1><p class="welcome-sub">Проверь подключение и обнови страницу.</p></div></section>';
  }

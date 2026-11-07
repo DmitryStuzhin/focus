@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ru">
+<head>
+ <meta charset="utf-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1">
+ <meta name="robots" content="noindex,nofollow">
+ <title>Управление · Focus</title>
+ <link rel="stylesheet" href="/admin.css">
+ <script type="module" src="/admin.js"></script>
+</head>
+<body>
+ <header class="top"><a href="/" class="brand">Focus <span>Управление</span></a><div id="identity" hidden><span id="admin-name"></span><button type="button" id="sign-out">Выйти</button></div></header>
+ <main>
+  <div id="loading" role="status">Загрузка…</div>
+  <section id="sign-in" class="sign-in" hidden aria-labelledby="login-title">
+   <span class="eyebrow">ДОСТУП АДМИНИСТРАТОРА</span>
+   <h1 id="login-title">Вход в админку</h1>
+   <p id="setup-note" hidden>Доступ ещё не настроен. Администратор задаёт логин и пароль на сервере.</p>
+   <form id="login-form">
+    <label>Логин<input name="login" autocomplete="username" maxlength="64" required></label>
+    <label>Пароль<input name="password" type="password" autocomplete="current-password" maxlength="200" required></label>
+    <button type="submit" class="primary">Войти</button>
+   </form>
+   <p id="login-error" class="error" role="alert" hidden></p>
+  </section>
+  <section id="dashboard" hidden aria-labelledby="dashboard-title">
+   <div class="intro">
+    <div><span class="eyebrow">ПАНЕЛЬ АДМИНИСТРАТОРА</span><h1 id="dashboard-title">Focus в цифрах</h1><p>Аккаунты, сессии и использование функций.</p></div>
+    <button type="button" id="refresh">Обновить</button>
+   </div>
+   <nav class="tabs" aria-label="Разделы админки">
+    <button type="button" data-tab="overview">Обзор</button>
+    <button type="button" data-tab="users">Пользователи</button>
+    <button type="button" data-tab="sessions">Сессии</button>
+   </nav>
+   <p id="dashboard-message" role="status" hidden></p>
+   <div id="panel" aria-live="polite"></div>
+  </section>
+ </main>
+ <dialog id="grant-dialog" aria-labelledby="grant-title">
+  <form id="grant-form">
+   <h2 id="grant-title">Выдать подписку</h2>
+   <p id="grant-account"></p>
+   <label>Количество дней<input name="days" type="number" min="1" max="365" step="1" value="30" required></label>
+   <div class="actions"><button type="button" id="grant-cancel">Отмена</button><button type="submit" class="primary">Подтвердить</button></div>
+  </form>
+ </dialog>
+</body>
+</html>

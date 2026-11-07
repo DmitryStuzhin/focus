@@ -9,6 +9,7 @@ for(const name of await readdir(new URL('public/',root))){
 }
 assets['/']=assets['/index.html'];
 assets['/login']=assets['/login.html'];
+assets['/admin']=assets['/admin.html'];
 let source=await readFile(new URL('worker/api.js',root),'utf8');
 for(const [name,file] of [['resolveAction,SPLIT_ACTIONS','action-phrases.js'],['localIntent,taskIntent','work-intent.js'],['imageIntent','image-intent.js'],['compareText','text-diff.js'],['buildIntent,isPreviewBlock,nativeBuildIntent','site-preview.js']]){
  const shared=assets['/'+file].body.replace(/^export /gm,'');

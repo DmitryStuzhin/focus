@@ -54,7 +54,7 @@ export function renderSites({e,brief,project,sites,busy}){
  </section>`;
 }
 
-export function renderImages({e,form,files,source,access,hasPass,project,busy,error}){
+export function renderImages({e,form,files,source,access,hasPass,subscriptionUntil,project,busy,error}){
  const paid=form.mode==='paid';
  const canEdit=!source||!paid||access?.paidEdits!==false;
  const canResize=!paid||access?.paidFormats!==false;
@@ -68,7 +68,7 @@ export function renderImages({e,form,files,source,access,hasPass,project,busy,er
     <label class="studio-model"><input type="radio" name="image-mode" value="free" ${paid?'':'checked'}><span><strong>Базовый</strong><small>${access?.free===false?'Не подключён':'Бесплатная квота'}</small></span></label>
     <label class="studio-model"><input type="radio" name="image-mode" value="paid" ${paid?'checked':''}><span><strong>${e(access?.paidLabel||'Улучшенный')}</strong><small>${access?.paid===false?'Не подключён':'По подписке'}</small></span></label>
    </fieldset>
-   ${paid?`<div class="studio-access"><span>${hasPass?'Код подписки сохранён для этой вкладки':'Для этого режима нужен код подписки.'}</span><button class="studio-text-button" type="button" data-action="image-subscription">${hasPass?'Управлять кодом':'Ввести код'}</button></div>`:''}
+   ${paid?`<div class="studio-access"><span>${subscriptionUntil>Date.now()?'Подписка до '+new Date(subscriptionUntil).toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'}):hasPass?'Код подписки сохранён для этой вкладки':'Для этого режима нужен код подписки.'}</span><button class="studio-text-button" type="button" data-action="image-subscription">${subscriptionUntil>Date.now()?'Активировать другой код':hasPass?'Управлять кодом':'Ввести код'}</button></div>`:''}
    ${source?`<div class="studio-reference">${icon('image')}<span>Исходное изображение · ${e(source.name)}</span><button class="studio-text-button" type="button" data-action="studio-clear-reference">Убрать</button></div>`:''}
    ${!canEdit?`<p class="studio-status">Для редактирования выбери базовый режим.</p>`:''}
    <label for="image-brief">${source?'Что изменить?':'Что создать?'}</label>

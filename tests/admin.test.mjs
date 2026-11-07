@@ -1,0 +1,140 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {DatabaseSync} from 'node:sqlite';
+import {createServer} from '../scripts/server.mjs';
+import {digest,DAY} from '../scripts/accounts.mjs';
+import {hashAdminPassword} from '../scripts/admin.mjs';
+import {chat} from '../worker/api.js';
+
+const origin='https://focus.example';
+const password='example-admin-password-for-tests';
+const code='c'.repeat(64);
+const env={
+ PUBLIC_ORIGIN:origin,FOCUS_AUTH_ENABLED:'1',FOCUS_AUTH_DB:':memory:',
+ FOCUS_AUTH_SECRET:'focus-auth-fixture-secret-for-tests',FOCUS_SMTP_USER:'auth@example.com',FOCUS_SMTP_PASSWORD:'fixture',
+ FOCUS_ADMIN_LOGIN:'focus-admin',FOCUS_ADMIN_PASSWORD_HASH:await hashAdminPassword(password),
+ FOCUS_IMAGE_SUBSCRIPTIONS:digest(code)+':2099-01-01',FOCUS_OPENAI_IMAGE_API_KEY:'fixture-paid',
+ CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'fixture-basic',
+};
+async function start(override={}){
+ const sent=[];
+ const app={
+  fetch(request,config,context){
+   if(new URL(request.url).pathname==='/api/chat')return chat(request,config,async(url)=>{
+    assert.match(url,/api.openai.com|api.cloudflare.com/);
+    return Response.json({result:{image:'iVBORw0KGgo='},data:[{b64_json:'iVBORw0KGgo='}]});
+   },context);
+   return Response.json({ok:true});
+  },
+ };
+ const now=Date.parse('2026-11-07T08:00:00Z');
+ let clock=now;
+ const server=createServer({...env,...override},app,{clock:()=>clock,mailer:async message=>sent.push(message)});
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ const base='http://127.0.0.1:'+server.address().port;
+ const call=(path,{body,cookie,headers={}}={})=>fetch(base+path,{
+  redirect:'manual',method:body===undefined?'GET':'POST',
+  headers:{...(body===undefined?{}:{'content-type':'application/json',origin}),...(cookie?{cookie}:{}),...headers},
+  ...(body===undefined?{}:{body:JSON.stringify(body)}),
+ });
+ return {
+  call,now,sent,advance:milliseconds=>{clock+=milliseconds;},close:()=>new Promise(resolve=>server.close(resolve)),
+  async signIn(email){
+   const response=await call('/api/auth/request',{body:{email}});
+   assert.equal(response.status,200);
+   const {challenge}=await response.json();
+   const verified=await call('/api/auth/verify',{body:{challenge,code:sent.at(-1).code},headers:{'user-agent':'Mozilla/5.0 (Linux; Android 16) Chrome/140'}});
+   assert.equal(verified.status,200);
+   return {cookie:verified.headers.get('set-cookie').split(';')[0],...(await verified.json())};
+  },
+ };
+}
+
+test('admin credentials are separate and control user sessions, subscriptions and aggregate counts',async()=>{
+ const server=await start();
+ const {call,now,sent}=server;
+ try{
+  const first=await server.signIn('alice@example.net');
+  const second=await server.signIn('bob@example.net');
+  assert.equal((await call('/api/admin/users',{cookie:first.cookie})).status,401);
+  const credentials={login:'focus-admin',password};
+  assert.equal((await call('/api/admin/login',{body:credentials,headers:{origin:'https://other.example'}})).status,403);
+  assert.equal((await call('/api/admin/login',{body:{...credentials,password:'wrong password used here'}})).status,401);
+  const login=await call('/api/admin/login',{body:credentials});
+  assert.equal(login.status,200);
+  const cookie=login.headers.get('set-cookie').split(';')[0];
+  assert.match(cookie,/^__Host-focus_admin=/);
+  assert.match(login.headers.get('set-cookie'),/HttpOnly; SameSite=Strict.*Secure/);
+  assert.equal((await call('/api/chat',{cookie})).status,401);
+  assert.equal((await call('/api/auth/profile',{body:{name:'Алёна'},cookie:first.cookie})).status,200);
+  const get=path=>call('/api/admin/'+path,{cookie});
+  const manage=(action,id,options)=>call('/api/admin/manage',{cookie,body:{action,id,...options}});
+  const filtered=await (await get('users?q='+encodeURIComponent('АЛЁНА'))).json();
+  assert.equal(filtered.total,1);
+  assert.equal(filtered.items[0].name,'Алёна');
+  assert.equal(filtered.items[0].email,'alice@example.net');
+  assert.equal(filtered.items[0].subscriptionUntil,null);
+
+  const payload={imageMode:'paid',messages:[{role:'user',content:'/image PRIVATE_PROMPT'}]};
+  assert.equal((await call('/api/chat',{cookie:first.cookie,body:payload,headers:{'x-focus-paid':'1'}})).status,403);
+  assert.equal((await call('/api/auth/subscription',{body:{code},cookie:first.cookie})).status,200);
+  assert.equal((await call('/api/auth/subscription',{body:{code},cookie:second.cookie})).status,400);
+  assert.equal((await call('/api/chat',{cookie:first.cookie,body:payload})).status,200);
+  assert.equal((await manage('revoke',first.user.id)).status,200);
+  assert.equal((await call('/api/chat',{cookie:first.cookie,body:payload,headers:{'x-focus-image-pass':code}})).status,403);
+  assert.equal((await manage('grant',first.user.id,{days:30})).status,200);
+  assert.equal((await manage('grant',first.user.id,{days:7})).status,200);
+  const named=await (await get('users?q=alice')).json();
+  assert.equal(named.items[0].subscriptionUntil,now+37*DAY);
+  assert.equal((await call('/api/chat',{cookie:first.cookie,body:payload})).status,200);
+  const overview=await (await get('overview?days=7')).text();
+  assert.ok(!overview.includes('PRIVATE_PROMPT'));
+  const metrics=JSON.parse(overview);
+  assert.equal(metrics.totals.activeSessions,2);
+  assert.equal(metrics.totals.subscribed,1);
+  assert.deepEqual(metrics.series.at(-1),{day:metrics.series.at(-1).day,registrations:2,logins:2,chat:0,site:0,image:2,search:0,errors:2});
+
+  const sessions=await (await get('sessions?userId='+first.user.id)).json();
+  assert.equal(sessions.total,1);
+  assert.equal(sessions.items[0].device,'Chrome · Android');
+  assert.ok(!Object.hasOwn(sessions.items[0],'token'));
+  assert.equal((await manage('end-session',sessions.items[0].id)).status,200);
+  assert.equal((await call('/api/auth/session',{cookie:first.cookie}).then(r=>r.json())).user,null);
+  assert.equal((await manage('block',second.user.id)).status,200);
+  assert.equal((await call('/api/auth/session',{cookie:second.cookie}).then(r=>r.json())).user,null);
+  const prior=sent.length;
+  server.advance(61_000);
+  assert.equal((await call('/api/auth/request',{body:{email:'bob@example.net'}})).status,200);
+  assert.equal(sent.length,prior);
+  assert.equal((await manage('unblock',second.user.id)).status,200);
+  assert.equal((await call('/api/admin/logout',{cookie,body:{}})).status,200);
+  assert.equal((await get('users')).status,401);
+ }finally{await server.close();}
+});
+
+test('a legacy database keeps existing accounts and sessions after migration',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'focus-admin-migrate-'));
+ const path=join(dir,'accounts.sqlite');
+ const token='z'.repeat(43);
+ const now=Date.parse('2026-11-07T08:00:00Z');
+ const db=new DatabaseSync(path);
+ db.exec('CREATE TABLE users(id TEXT PRIMARY KEY,email TEXT UNIQUE NOT NULL,created INTEGER NOT NULL); CREATE TABLE sessions(token TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),expires INTEGER NOT NULL);');
+ db.prepare('INSERT INTO users VALUES(?,?,?)').run('legacy','legacy@example.net',now-DAY);
+ db.prepare('INSERT INTO sessions VALUES(?,?,?)').run(digest(token),'legacy',now+DAY);
+ db.close();
+ const server=await start({FOCUS_AUTH_DB:path});
+ try{
+  const session=await (await server.call('/api/auth/session',{cookie:'__Host-focus_session='+token})).json();
+  assert.deepEqual(session.user,{id:'legacy',email:'legacy@example.net',name:'',subscriptionUntil:null});
+  const old=new DatabaseSync(path);
+  try{
+   const row=old.prepare('SELECT id,started,last_seen FROM sessions').get();
+   assert.match(row.id,/^[a-f0-9]{32}$/);
+   assert.equal(row.started,null);
+   assert.equal(row.last_seen,now);
+  }finally{old.close();}
+ }finally{await server.close();await rm(dir,{recursive:true,force:true});}
+});
