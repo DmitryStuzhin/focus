@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ru">
+<head>
+ <meta charset="utf-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+ <meta name="theme-color" content="#0e1511">
+ <meta name="description" content="Вход в Focus — рабочее пространство для диалогов, файлов и проектов.">
+ <title>Вход в Focus</title>
+ <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+ <link rel="stylesheet" href="/login.css">
+ <script type="module" src="/login.js"></script>
+</head>
+<body>
+ <main>
+  <section class="arrival" aria-labelledby="welcome-title">
+   <div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
+   <header class="top frame">
+    <a class="wordmark" href="/login" aria-label="Focus"><span class="focus-mark" aria-hidden="true"></span>Focus</a>
+    <a class="about-link" href="#about">О проекте <span aria-hidden="true">↘</span></a>
+   </header>
+   <div class="arrival-grid frame">
+    <div class="welcome">
+     <p class="eyebrow"><span aria-hidden="true"></span> ТВОЁ РАБОЧЕЕ ПРОСТРАНСТВО</p>
+     <h1 id="welcome-title">От мысли<br>до <em>дела.</em></h1>
+     <p>Обсуждай идеи, разбирай файлы и собирай проекты в одном пространстве с Guzan.</p>
+    </div>
+    <section class="login-card" aria-labelledby="login-title">
+     <div class="card-top">
+      <span class="card-icon" aria-hidden="true">
+       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m4 7 8 6 8-6"/></svg>
+      </span>
+      <span class="step" id="step">ШАГ 1 / 2</span>
+     </div>
+     <h2 id="login-title">Войди в Focus</h2>
+     <p class="card-intro" id="card-intro">Укажи почту. Мы отправим код для входа или регистрации.</p>
+     <form id="email-form" hidden>
+      <label for="email">Электронная почта</label>
+      <input id="email" name="email" type="email" autocomplete="email" placeholder="name@example.com" maxlength="254" required>
+      <button class="primary" type="submit">Получить код <span aria-hidden="true">↗</span></button>
+     </form>
+     <form id="code-form" hidden>
+      <label for="code">Код из письма</label>
+      <input id="code" class="otp" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="000000" maxlength="6" pattern="[0-9]{6}" required>
+      <button class="primary" type="submit">Войти в Focus <span aria-hidden="true">↗</span></button>
+      <div class="code-actions">
+       <button class="text-button" id="change-email" type="button">Изменить почту</button>
+       <button class="text-button" id="resend" type="button">Получить новый код</button>
+      </div>
+     </form>
+     <p class="feedback" id="feedback" role="status" aria-live="polite" hidden></p>
+     <a class="guest-link" id="guest" href="/" hidden>Открыть Focus <span aria-hidden="true">↗</span></a>
+     <p class="card-footer"><span aria-hidden="true"></span> Одноразовый код вместо пароля</p>
+     <noscript><p class="feedback">Для входа нужен JavaScript.</p></noscript>
+    </section>
+   </div>
+  </section>
+  <section class="about frame" id="about" aria-labelledby="about-title">
+   <div class="about-head">
+    <p class="eyebrow">О ПРОЕКТЕ</p>
+    <h2 id="about-title">Место для работы<br>с идеями</h2>
+   </div>
+   <div class="features">
+    <article><span class="feature-no">01</span><h3>Диалоги с Guzan</h3><p>Задавай вопросы, уточняй детали и развивай идеи в разговоре.</p></article>
+    <article><span class="feature-no">02</span><h3>Файлы и проекты</h3><p>Держи материалы рядом с диалогами и возвращайся к ним, когда нужно.</p></article>
+    <article><span class="feature-no">03</span><h3>От данных к результату</h3><p>Строй графики, проверяй код и открывай предпросмотр сайтов прямо в чате.</p></article>
+   </div>
+  </section>
+ </main>
+ <footer class="frame site-footer"><span>Focus</span><span>Рабочее пространство с Guzan</span></footer>
+</body>
+</html>

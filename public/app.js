@@ -8,10 +8,10 @@ import {buildChatContext,searchQuery} from './chat-context.js';
 import {sourcePills,sourcesDialog,linkCitations} from './search-ui.js';
 import {inlineMarkdown,answerTable,answerChart,prefersJsonCode} from './answer-format.js';
 import {icon,mark} from './icons.js';
-import {uid,readState,writeState,fresh,putBlob,getBlob,deleteBlob,validBackup} from './store.js';
+import {uid,readState,writeState,fresh,putBlob,getBlob,deleteBlob,validBackup,selectStorageScope,AUTH_EVENT_KEY} from './store.js';
 const app=document.querySelector('#app');
 const MODEL_LABEL='Guzan 1.1';
-let state=readState();
+let state=fresh(), account=null, ready=false;
 let ui={view:'chat',archive:false,filesTab:'files',folder:null,collapsed:new Set(),sidebarClosed:false,mobileNav:false,mobileFiles:false,draft:'',attachments:[],menu:null,sort:'name'};
 let toastTimer,uploadAttach=false,objectURLs=[],generation=null,apiStatus={configured:false,model:'',label:MODEL_LABEL};
 const e=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -153,7 +153,7 @@ async function previewFile(id){const f=state.files.find(x=>x.id===id&&!x.deleted
 async function editFile(id){const f=state.files.find(x=>x.id===id),blob=await getBlob(id);if(!f||!blob)return;const text=await blob.text();modal(f.name,`<form><div class="form-field"><label for="editor-text">Содержимое файла</label><textarea id="editor-text" class="file-editor" name="content" maxlength="2000000" spellcheck="false">${e(text)}</textarea></div><p class="error-text" id="form-error" hidden></p><div class="dialog-footer">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">Сохранить изменения</button></div></form>`,{wide:true,onSubmit:async(data,form)=>{form.querySelector('[type=submit]').disabled=true;try{const b=new Blob([data.get('content')],{type:f.type||'text/plain'});await putBlob(id,b);f.size=b.size;f.updated=Date.now();log(`Изменён файл «${f.name}»`,f.project);persist();closeModal();render();toast('Изменения сохранены')}catch{form.querySelector('[type=submit]').disabled=false;el('form-error').textContent='Не удалось сохранить файл';el('form-error').hidden=false}}})}
 function searchDialog(){modal('Поиск по пространству',`<div class="search-input-wrap">${icon('search')}<input id="search-input" aria-label="Поиск диалогов и проектов" placeholder="Название проекта или текст диалога" autocomplete="off" autofocus /></div><div class="search-results" id="search-results"></div>`);searchResults('');el('search-input').oninput=ev=>searchResults(ev.target.value)}
 function searchResults(q){q=q.toLocaleLowerCase('ru').trim();const projects=liveProjects().filter(p=>!q||p.name.toLocaleLowerCase('ru').includes(q));const chats=state.chats.filter(c=>!c.deleted&&!state.projects.find(p=>p.id===c.project)?.deleted&&(!q||[c.title,...c.messages.map(m=>m.content)].join(' ').toLocaleLowerCase('ru').includes(q)));const rows=[...projects.map(p=>({id:p.id,action:'search-project',title:p.name,sub:'Проект',ico:'folder'})),...chats.map(c=>({id:c.id,action:'search-chat',title:c.title,sub:`${projectName(c.project)}${c.archived?' · Архив':''}`,ico:'chat'}))].slice(0,30);el('search-results').innerHTML=rows.map(r=>`<button class="search-result" data-action="${r.action}" data-id="${r.id}">${icon(r.ico)}<span><strong class="truncate">${e(r.title)}</strong><small class="truncate">${e(r.sub)}</small></span></button>`).join('')||'<div class="search-empty">Ничего не найдено. Попробуйте другое слово.</div>'}
-function settingsDialog(){modal('Настройки',`<form id="settings-form"><div class="settings-section"><h3>Ваше пространство</h3><div class="form-field"><label for="settings-name">Название</label><input id="settings-name" name="name" value="${e(state.settings.name)}" maxlength="60" required /></div><div class="form-field" style="margin-bottom:0"><label for="settings-theme">Оформление</label><select name="theme" id="settings-theme">${[['light','Светлое'],['dark','Тёмное'],['system','Как на устройстве']].map(([v,l])=>`<option value="${v}" ${state.settings.theme===v?'selected':''}>${l}</option>`).join('')}</select></div><div class="setting-row"><div>Отправлять по Enter<p>Shift + Enter добавляет новую строку</p></div><button class="switch" type="button" role="switch" aria-label="Отправлять по Enter" aria-checked="${state.settings.sendOnEnter}" data-action="toggle-enter"></button></div></div><div class="settings-section"><h3>Данные</h3><p class="settings-note" style="margin-bottom:16px">История и файлы сохраняются только в этом браузере. Для переноса на другое устройство скачайте резервную копию.</p><div class="settings-buttons">${button('export-backup',`${icon('download')} Скачать копию`,'','type="button"')}${button('import-backup',`${icon('upload')} Восстановить`,'','type="button"')}</div></div><div class="settings-section"><h3>Подключение модели</h3><p class="settings-note">${e(MODEL_LABEL)} · ${apiStatus.configured?'подключена':'не настроена'}. Запросы проходят через сервер приложения. Ключ API не хранится в браузере. Текст диалога и поддерживаемые вложения передаются провайдеру модели для ответа. В бесплатном режиме режимы глубины ответа не применяются.</p></div><p class="settings-note">Focus · первая версия<br>Дизайн по референсам и <a href="https://github.com/heydamir/unslop" target="_blank" rel="noopener noreferrer">Unslop</a> — Damir Sokolovsky, CC BY 4.0</p><div class="dialog-footer" style="margin-top:24px">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">Сохранить</button></div></form>`,{onSubmit:(data)=>{state.settings.name=data.get('name').trim()||'Моё пространство';state.settings.theme=data.get('theme');state.settings.sendOnEnter=document.querySelector('[data-action=toggle-enter]')?.getAttribute('aria-checked')==='true';persist();closeModal();render();toast('Настройки сохранены')}})}
+function settingsDialog(){modal('Настройки',`<form id="settings-form">${account?`<div class="settings-section"><h3>Аккаунт Focus</h3><p class="settings-note">${e(account.email)}</p>${button('logout','Выйти из аккаунта','ghost','type="button"')}</div>`:''}<div class="settings-section"><h3>Ваше пространство</h3><div class="form-field"><label for="settings-name">Название</label><input id="settings-name" name="name" value="${e(state.settings.name)}" maxlength="60" required /></div><div class="form-field" style="margin-bottom:0"><label for="settings-theme">Оформление</label><select name="theme" id="settings-theme">${[['light','Светлое'],['dark','Тёмное'],['system','Как на устройстве']].map(([v,l])=>`<option value="${v}" ${state.settings.theme===v?'selected':''}>${l}</option>`).join('')}</select></div><div class="setting-row"><div>Отправлять по Enter<p>Shift + Enter добавляет новую строку</p></div><button class="switch" type="button" role="switch" aria-label="Отправлять по Enter" aria-checked="${state.settings.sendOnEnter}" data-action="toggle-enter"></button></div></div><div class="settings-section"><h3>Данные</h3><p class="settings-note" style="margin-bottom:16px">История и файлы сохраняются только в этом браузере. Для переноса на другое устройство скачайте резервную копию.</p><div class="settings-buttons">${button('export-backup',`${icon('download')} Скачать копию`,'','type="button"')}${button('import-backup',`${icon('upload')} Восстановить`,'','type="button"')}</div></div><div class="settings-section"><h3>Подключение модели</h3><p class="settings-note">${e(MODEL_LABEL)} · ${apiStatus.configured?'подключена':'не настроена'}. Запросы проходят через сервер приложения. Ключ API не хранится в браузере. Текст диалога и поддерживаемые вложения передаются провайдеру модели для ответа. В бесплатном режиме режимы глубины ответа не применяются.</p></div><p class="settings-note">Focus · первая версия<br>Дизайн по референсам и <a href="https://github.com/heydamir/unslop" target="_blank" rel="noopener noreferrer">Unslop</a> — Damir Sokolovsky, CC BY 4.0</p><div class="dialog-footer" style="margin-top:24px">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">Сохранить</button></div></form>`,{onSubmit:(data)=>{state.settings.name=data.get('name').trim()||'Моё пространство';state.settings.theme=data.get('theme');state.settings.sendOnEnter=document.querySelector('[data-action=toggle-enter]')?.getAttribute('aria-checked')==='true';persist();closeModal();render();toast('Настройки сохранены')}})}
 function imageSubscriptionDialog(){
  if(!isSecureContext){toast('Введите код подписки на защищённой странице HTTPS');return}
  modal('GPT Image по подписке',`<form><div class="form-field"><label for="image-pass">Код подписки</label><input id="image-pass" name="pass" type="password" autocomplete="off" maxlength="64" pattern="[a-f0-9]{64}" /></div><p class="settings-note">Вставьте код, полученный после оплаты. Пустое поле включает бесплатную генерацию.</p><div class="dialog-footer"><button class="btn primary" type="submit">Применить</button></div></form>`,{onSubmit:data=>{
@@ -230,6 +230,16 @@ case 'preview-file':await previewFile(id);break;
 case 'download-file':await downloadFile(id);break;
 case 'edit-file':await editFile(id);break;
 case 'settings':settingsDialog();break;
+case 'logout':{
+ t.disabled=true;
+ try{
+  const response=await fetch('/api/auth/logout',{method:'POST'});
+  if(!response.ok)throw new Error();
+  try{localStorage.setItem(AUTH_EVENT_KEY,uid());}catch{}
+  location.replace('/login');
+ }catch{t.disabled=false;toast('Не удалось выйти. Попробуй ещё раз.');}
+ break;
+}
 case 'toggle-theme':state.settings.theme=document.documentElement.dataset.theme==='dark'?'light':'dark';applyTheme();persist();break;
 case 'toggle-enter':t.setAttribute('aria-checked',t.getAttribute('aria-checked')!=='true');break;
 case 'export-backup':await exportBackup();break;
@@ -267,7 +277,7 @@ document.addEventListener('change',event=>{
 });
 document.addEventListener('submit',ev=>{if(ev.target.id==='composer-form'){ev.preventDefault();send()}});
 document.addEventListener('input',ev=>{if(ev.target.id==='composer-input'){ui.draft=ev.target.value;el('send-button').disabled=!generation&&!ui.draft.trim()&&!ui.attachments.length;resizeComposer()}});
-document.addEventListener('keydown',ev=>{if(ev.key==='Escape'){closeMenu();if(activeChat()?.preview&&ui.view==='chat'){setPreview(null);return}if(ui.mobileNav||ui.mobileFiles){ui.mobileNav=false;ui.mobileFiles=false;render()}}if((ev.metaKey||ev.ctrlKey)&&ev.key.toLowerCase()==='k'){ev.preventDefault();searchDialog()}if((ev.metaKey||ev.ctrlKey)&&ev.key.toLowerCase()==='n'){ev.preventDefault();closeModal();newChat()}if(ev.target.id==='composer-input'&&ev.key==='Enter'&&!ev.isComposing){if((state.settings.sendOnEnter&&!ev.shiftKey&&!ev.altKey)||(ev.ctrlKey||ev.metaKey)){ev.preventDefault();send()}}if(ui.menu&&(ev.key==='ArrowDown'||ev.key==='ArrowUp')){ev.preventDefault();const buttons=[...ui.menu.querySelectorAll('button')];const i=buttons.indexOf(document.activeElement);buttons[(i+(ev.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length]?.focus()}});
+document.addEventListener('keydown',ev=>{if(!ready)return;if(ev.key==='Escape'){closeMenu();if(activeChat()?.preview&&ui.view==='chat'){setPreview(null);return}if(ui.mobileNav||ui.mobileFiles){ui.mobileNav=false;ui.mobileFiles=false;render()}}if((ev.metaKey||ev.ctrlKey)&&ev.key.toLowerCase()==='k'){ev.preventDefault();searchDialog()}if((ev.metaKey||ev.ctrlKey)&&ev.key.toLowerCase()==='n'){ev.preventDefault();closeModal();newChat()}if(ev.target.id==='composer-input'&&ev.key==='Enter'&&!ev.isComposing){if((state.settings.sendOnEnter&&!ev.shiftKey&&!ev.altKey)||(ev.ctrlKey||ev.metaKey)){ev.preventDefault();send()}}if(ui.menu&&(ev.key==='ArrowDown'||ev.key==='ArrowUp')){ev.preventDefault();const buttons=[...ui.menu.querySelectorAll('button')];const i=buttons.indexOf(document.activeElement);buttons[(i+(ev.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length]?.focus()}});
 el('file-input').addEventListener('change',ev=>uploadFiles([...ev.target.files],uploadAttach));
 el('import-input').addEventListener('change',ev=>importBackup(ev.target.files[0]));
 let dragDepth=0;
@@ -580,6 +590,7 @@ async function requestAnswer(c){
    if(!query)throw new Error('Для поиска добавьте текст вопроса.');
    generation.query=query;
    const response=await fetch('/api/search',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({query}),signal:controller.signal});
+   if(response.status===401&&account){location.replace('/login');return;}
    let research;try{research=await response.json()}catch{throw new Error('Не удалось прочитать результаты поиска.')}
    if(!response.ok)throw new Error(research.error||'Поиск не выполнен. Попробуйте позже.');
    searchId=research.searchId;
@@ -604,6 +615,7 @@ async function requestAnswer(c){
   const pass=imageRequest&&isSecureContext?sessionStorage.getItem('focus-image-pass'):null;
   const headers={'content-type':'application/json',...(pass?{'x-focus-image-pass':pass}:{})};
   const response=await fetch('/api/chat',{method:'POST',headers,body:JSON.stringify({messages,...(website?{sitePreview:true,previewKind}:{}),...(reference?{imageReference:reference}:{}),effort:state.settings.effort,...(searchId?{searchId}:{})}),signal:controller.signal});
+  if(response.status===401&&account){location.replace('/login');return;}
   let data;try{data=await response.json()}catch{throw new Error('Сервер вернул некорректный ответ. Попробуйте ещё раз.')}
   if(!response.ok)throw new Error(data.error||'Не удалось получить ответ');
   if(!data.text)throw new Error('Получен пустой ответ');
@@ -623,6 +635,25 @@ async function requestAnswer(c){
  }catch(err){c.error=err.name==='AbortError'?'Запрос остановлен. Его можно повторить.':err.message||'Не удалось получить ответ';}
  finally{generation=null;persist();refresh()}
 }
-render();
-fetch('/api/status').then(r=>r.json()).then(d=>{apiStatus=d;render()}).catch(()=>{});
+async function boot(){
+ try{
+  const response=await fetch('/api/auth/session',{cache:'no-store'});
+  if(response.status!==404){
+   if(!response.ok)throw new Error();
+   const session=await response.json();
+   if(session.enabled&&!session.user){location.replace('/login');return;}
+   account=session.user;
+  }
+  selectStorageScope(account?.id);
+  state=readState();
+  ready=true;
+  render();
+  fetch('/api/status').then(r=>r.json()).then(d=>{apiStatus=d;render()}).catch(()=>{});
+ }catch{
+  app.innerHTML='<section class="welcome"><div class="welcome-inner"><h1>Не удалось открыть Focus</h1><p class="welcome-sub">Проверь подключение и обнови страницу.</p></div></section>';
+ }
+}
+window.addEventListener('storage',event=>{if(event.key===AUTH_EVENT_KEY)location.reload();});
+window.addEventListener('pageshow',event=>{if(event.persisted&&account)location.reload();});
+boot();
 

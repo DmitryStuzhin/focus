@@ -4,6 +4,7 @@ const types={html:'text/html; charset=utf-8',css:'text/css; charset=utf-8',js:'t
 const assets={};
 for(const name of await readdir(new URL('public/',root))){assets['/'+name]={type:types[name.split('.').pop()]||'application/octet-stream',body:await readFile(new URL('public/'+name,root),'utf8')}}
 assets['/']=assets['/index.html'];
+assets['/login']=assets['/login.html'];
 let source=await readFile(new URL('worker/api.js',root),'utf8');
 for(const [name,file] of [['resolveAction,SPLIT_ACTIONS','action-phrases.js'],['localIntent,taskIntent','work-intent.js'],['imageIntent','image-intent.js'],['compareText','text-diff.js'],['buildIntent,isPreviewBlock,nativeBuildIntent','site-preview.js']]){
  const shared=assets['/'+file].body.replace(/^export /gm,'');

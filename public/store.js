@@ -1,10 +1,27 @@
 export const STORAGE_KEY='focus.workspace.v1';
+let scope='';
+const scoped=key=>scope?key+'.'+scope:key;
+export const selectStorageScope=id=>{scope=id||'';};
+export const AUTH_EVENT_KEY='focus.auth.changed';
 export const uid=()=>crypto.randomUUID?.()||Array.from(crypto.getRandomValues(new Uint8Array(16)),x=>x.toString(16).padStart(2,'0')).join('');
 export const fresh=()=>({version:1,projects:[{id:'personal',name:'Личное пространство',description:'',created:Date.now(),deleted:false}],chats:[],files:[],changes:[],settings:{name:'Моё пространство',model:'flash',effort:'balanced',theme:'dark',sendOnEnter:true,showFiles:true,webSearch:false},activeProject:'personal',activeChat:null});
-export function readState(){try{const d=JSON.parse(localStorage.getItem(STORAGE_KEY));if(d?.version===1&&Array.isArray(d.projects)&&Array.isArray(d.chats)&&Array.isArray(d.files)){return {...fresh(),...d,settings:{...fresh().settings,...d.settings}}}}catch{}return fresh()}
-export function writeState(state){localStorage.setItem(STORAGE_KEY,JSON.stringify(state))}
-let db;
-export async function fileDB(){if(db)return db;db=await new Promise((resolve,reject)=>{const r=indexedDB.open('focus.files.v1',1);r.onupgradeneeded=()=>r.result.createObjectStore('blobs');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)});return db}
+export function readState(){try{const d=JSON.parse(localStorage.getItem(scoped(STORAGE_KEY)));if(d?.version===1&&Array.isArray(d.projects)&&Array.isArray(d.chats)&&Array.isArray(d.files)){return {...fresh(),...d,settings:{...fresh().settings,...d.settings}}}}catch{}return fresh()}
+export function writeState(state){localStorage.setItem(scoped(STORAGE_KEY),JSON.stringify(state))}
+const fileDatabases=new Map();
+export async function fileDB(){
+ const key=scoped('focus.files.v1');
+ if(!fileDatabases.has(key)){
+  const db=new Promise((resolve,reject)=>{
+   const r=indexedDB.open(key,1);
+   r.onupgradeneeded=()=>r.result.createObjectStore('blobs');
+   r.onsuccess=()=>resolve(r.result);
+   r.onerror=()=>reject(r.error);
+  });
+  fileDatabases.set(key,db);
+  db.catch(()=>fileDatabases.delete(key));
+ }
+ return fileDatabases.get(key);
+}
 async function transact(mode,fn){const d=await fileDB();return new Promise((resolve,reject)=>{const tx=d.transaction('blobs',mode);let result;try{const r=fn(tx.objectStore('blobs'));if(r)r.onsuccess=()=>{result=r.result}}catch(e){reject(e);return}tx.oncomplete=()=>resolve(result);tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||new Error('Не удалось сохранить файл'))})}
 export const putBlob=(id,blob)=>transact('readwrite',s=>s.put(blob,id));
 export const getBlob=id=>transact('readonly',s=>s.get(id));

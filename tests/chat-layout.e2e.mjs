@@ -352,3 +352,5 @@ try{
  if(browser)await browser.close();
  await new Promise(resolve=>server.close(resolve));
 }
+
+await import("./auth.e2e.mjs");
