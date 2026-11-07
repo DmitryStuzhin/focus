@@ -1,9 +1,26 @@
-export function siteIntent(content){
+const buildVerb=/^(?:\/code\s+)?(?:напиши|написать|сделай|сделать|создай|создать|сверстай|сверстать|разработай|разработать|собери|собрать|запрограммируй|build|make|create|write)\s+/iu;
+const buildTarget=/(?<![\p{L}\p{N}_])(?:сайт\p{L}*|лендинг\p{L}*|веб[- ]?страниц\p{L}*|html|website|landing page|web page|(?<game>игр[ауые]|игрушк[ауие]|мини[- ]?игр[ауые]|(?:mobile |browser )?game)|(?<app>(?:веб[- ]?)?приложени[еяю]|(?:web |mobile )?app(?:lication)?|калькулятор|трекер|дашборд|таймер|тренаж[её]р|to-do list))(?=[^\p{L}\p{N}_]|$)/iu;
+const secondaryArtifact=/(?<!\p{L})(?:картин\p{L}*|фотограф\p{L}*|изображен\p{L}*|постер\p{L}*|обложк\p{L}*|логотип\p{L}*|план\p{L}*|описани\p{L}*|промпт\p{L}*|текст\p{L}*|инструкци\p{L}*|скриншот\p{L}*|image|poster|logo|plan|guide)(?!\p{L})/iu;
+
+export function buildIntent(content){
  const text=String(content||'').trim();
- if(/^\/site(?=\s|$)/iu.test(text))return true;
- const request=text.replace(/^(?:(?:можешь|пожалуйста|давай|бро)(?:\s*[,!]\s*|\s+))+/iu,'');
- const match=/^(?:\/code\s+)?(?:напиши|написать|сделай|сделать|создай|создать|сверстай|сверстать|разработай|собери|build|make|create|write)\s([^\n]{0,120}?)(?:сайт|лендинг|веб[- ]?страниц|веб[- ]?приложен|html\b|website\b|landing page\b|web page\b|web app\b)/iu.exec(request);
- return !!match&&!/(?:картин|фотограф|изображен|постер|обложк|логотип|план|описан|промпт|текст)/iu.test(match[1]);
+ if(/^\/site(?=\s|$)/iu.test(text))return 'site';
+ const action=buildVerb.exec(text);
+ if(!action)return null;
+ const brief=text.slice(action[0].length);
+ const match=buildTarget.exec(brief.slice(0,150));
+ if(!match||secondaryArtifact.test(brief.slice(0,match.index)))return null;
+ return match.groups.game?'game':match.groups.app?'app':'site';
+}
+
+export function nativeBuildIntent(content){
+ const kind=buildIntent(content);
+ return (kind==='app'||kind==='game')&&
+  /(?<![\p{L}\p{N}])(?:apk|aab|ipa|swiftui|swift|kotlin|python|pygame|java|c\+\+|c#|rust|android studio|xcode|flutter|react native|unity|godot|unreal(?: engine)?|нативн\p{L}*)(?![\p{L}\p{N}])/iu.test(content);
+}
+
+export function updatesBuild(content){
+ return /(?<!\p{L})(?:эту\s+(?:игру|версию)|это\s+приложение|текущ\p{L}*\s+(?:игру|приложение|версию)|сложнее|проще|быстрее|медленнее|ярче|темнее)(?!\p{L})/iu.test(content);
 }
 
 export function isSiteRevision(content){

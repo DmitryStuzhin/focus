@@ -235,10 +235,40 @@ try{
  assert.ok(right.x>=chatBox.x+chatBox.width-1);
  await draftPage.close();
  console.log('Dental site opens to the right using the actual API without model credentials');
-
-
-
-
+ const gamePage=await browser.newPage({viewport:{width:1440,height:900}});
+ await gamePage.goto('http://127.0.0.1:'+server.address().port);
+ await gamePage.waitForLoadState('networkidle');
+ const gameComposer=gamePage.getByRole('textbox',{name:'Сообщение',exact:true});
+ await gameComposer.fill('Сделай мне залипательную игру на мобилку');
+ await gamePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ const gameFrame=gamePage.frameLocator('#preview-root iframe');
+ await gameFrame.getByRole('heading',{name:'Поймай импульс'}).waitFor();
+ const gameBox=await gamePage.locator('#preview-root').boundingBox();
+ const gameChat=await gamePage.locator('.main').boundingBox();
+ assert.ok(gameBox.x>=gameChat.x+gameChat.width-1);
+ await gameFrame.getByRole('button',{name:'Играть',exact:true}).click();
+ await gameFrame.locator('.cell[data-target]').evaluate(cell=>cell.click());
+ assert.equal(await gameFrame.locator('#score').textContent(),'1');
+ await gameFrame.locator('body').evaluate(()=>{
+  const now=performance.now.bind(performance);
+  performance.now=()=>now()+21000;
+  document.querySelector('#start').addEventListener('click',()=>{performance.now=now;},{once:true,capture:true});
+ });
+ await gameFrame.getByRole('button',{name:'Играть снова',exact:true}).click();
+ assert.equal(await gameFrame.locator('#score').textContent(),'0');
+ let gameRevision;
+ await gamePage.route('**/api/chat',async route=>{
+  gameRevision=route.request().postDataJSON();
+  await route.fulfill({status:503,json:{error:'Модель недоступна. Текущая версия сохранена.'}});
+ });
+ await gameComposer.fill('Сделай игру сложнее');
+ await gamePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ await gamePage.getByText('Модель недоступна. Текущая версия сохранена.',{exact:true}).waitFor();
+ assert.equal(gameRevision.previewKind,'game');
+ assert.match(gameRevision.messages.at(-1).attachments[0].text,/Поймай импульс/u);
+ await gameFrame.getByRole('heading',{name:'Поймай импульс'}).waitFor();
+ await gamePage.close();
+ console.log('Natural mobile game request opens a playable preview with score, restart and revision context');
 
 }finally{
  if(browser)await browser.close();

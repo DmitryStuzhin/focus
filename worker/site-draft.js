@@ -46,3 +46,87 @@ export function createSiteDraft(prompt){
 <section id="contacts" class="section"><h2>Контакты</h2><p>${dental?'Укажите адрес клиники, телефон и часы приёма.':'Укажите адрес, телефон или электронную почту.'}</p></section>
 </main><footer class="footer">${name}</footer></div></body></html>`;
 }
+
+export function createGameDraft(){
+ return `<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Поймай импульс</title>
+<style>
+*{box-sizing:border-box}body{margin:0;min-height:100dvh;display:grid;place-items:center;background:#12121c;color:#faf7ff;font:16px/1.45 system-ui,sans-serif;padding:16px}main{width:min(100%,420px)}h1{font-size:clamp(25px,7vw,42px);margin:0}p{margin:8px 0 16px;color:#d3cce2}button{border:0;cursor:pointer;font:inherit;touch-action:manipulation}button:focus-visible{outline:3px solid white;outline-offset:3px}.stats{display:flex;flex-wrap:wrap;gap:8px 20px;margin:12px 0;color:#ded7eb}.board{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.cell{min-height:44px;aspect-ratio:1;border:1px solid #48425d;border-radius:14px;background:#282539;color:#c4bad7}.cell[data-target]{background:#ddfc82;border-color:#ddfc82;color:#272f10;font-weight:800}.cell:disabled{cursor:default}.start{width:100%;margin-top:14px;min-height:46px;border-radius:12px;background:#ddfc82;color:#272f10;font-weight:800}.start:disabled{opacity:.55;cursor:default}#status{min-height:2.8em;margin:8px 0 0}
+</style></head>
+<body><main>
+<h1>Поймай импульс</h1>
+<p>Нажимай на светящуюся клетку или её цифру. Каждые три попадания ускоряют игру.</p>
+<div class="stats"><span>Счёт <output id="score">0</output></span><span>Время <output id="time">20</output> с</span><span>Рекорд <output id="best">0</output></span></div>
+<div class="board" aria-label="Игровое поле"></div>
+<button class="start" id="start" type="button">Играть</button>
+<p id="status" role="status"></p>
+</main><script>
+const board=document.querySelector('.board');
+const score=document.querySelector('#score'), time=document.querySelector('#time');
+const best=document.querySelector('#best'), start=document.querySelector('#start');
+const status=document.querySelector('#status');
+const cells=Array.from({length:9},(_,index)=>{
+ const cell=document.createElement('button');
+ cell.type='button';
+ cell.className='cell';
+ cell.textContent=String(index+1);
+ cell.disabled=true;
+ cell.addEventListener('click',()=>hit(index));
+ board.append(cell);
+ return cell;
+});
+let points=0, record=0, target=-1, deadline=0, moveTimer, clockTimer;
+function moveTarget(){
+ if(!deadline)return;
+ if(performance.now()>=deadline){finish();return;}
+ if(target>=0)cells[target].removeAttribute('data-target');
+ const offset=1+Math.floor(Math.random()*8);
+ target=(target+offset)%cells.length;
+ cells[target].setAttribute('data-target','');
+ clearTimeout(moveTimer);
+ moveTimer=setTimeout(moveTarget,Math.max(240,900-85*Math.floor(points/3)));
+}
+function hit(index){
+ if(!deadline)return;
+ if(performance.now()>=deadline){finish();return;}
+ if(index!==target)return;
+ score.value=String(++points);
+ moveTarget();
+}
+function finish(){
+ deadline=0;
+ clearTimeout(moveTimer);
+ clearInterval(clockTimer);
+ if(target>=0)cells[target].removeAttribute('data-target');
+ target=-1;
+ time.value='0';
+ record=Math.max(record,points);
+ best.value=String(record);
+ for(const cell of cells)cell.disabled=true;
+ start.disabled=false;
+ start.textContent='Играть снова';
+ status.textContent='Раунд завершён. Счёт: '+points+'.';
+ start.focus();
+}
+start.addEventListener('click',()=>{
+ points=0;
+ score.value='0';
+ time.value='20';
+ status.textContent='';
+ start.disabled=true;
+ for(const cell of cells)cell.disabled=false;
+ deadline=performance.now()+20000;
+ moveTarget();
+ clockTimer=setInterval(()=>{
+  const remaining=Math.ceil((deadline-performance.now())/1000);
+  if(remaining<=0)finish();
+  else time.value=String(remaining);
+ },100);
+});
+document.addEventListener('keydown',event=>{
+ if(!event.repeat&&/^[1-9]$/.test(event.key))hit(Number(event.key)-1);
+});
+</script></body></html>`;
+}

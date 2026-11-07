@@ -446,3 +446,40 @@ test('formats inline and attached JSON without changing numbers, keys or string 
  assert.equal(invalid.status,400);
  assert.match((await invalid.json()).error,/Синтаксическая ошибка/u);
 });
+
+test('interactive builds retry incomplete output and send game or app requirements to the model',async()=>{
+ const html='<!doctype html><html><body><button id="go">Старт</button><script>document.querySelector("#go").onclick=()=>{document.body.dataset.started="yes";};</script></body></html>';
+ const requests=[];
+ const response=await chat(req({messages:[{role:'user',content:'Сделай мне залипательную игру на мобилку'}]}),
+  {OPENROUTER_API_KEY:'secret'},async(_url,options)=>{
+   requests.push(JSON.parse(options.body));
+   const content=requests.length===1?'```html index.html\n<h1>Играть</h1>\n```':html;
+   return Response.json({choices:[{message:{content},finish_reason:'stop'}]});
+  });
+ assert.equal(response.status,200);
+ assert.equal(requests.length,2);
+ assert.match(requests[0].messages[0].content,/играбельную браузерную игру/u);
+ assert.match((await response.json()).text,/```html index\.html\n<!doctype html>/u);
+ const app=await chat(req({messages:[{role:'user',content:'Собери приложение для учёта расходов'}]}),
+  env,async(_url,options)=>{
+   assert.match(JSON.parse(options.body).systemInstruction.parts[0].text,/интерактивное приложение/u);
+   return Response.json({candidates:[{content:{parts:[{text:html}]},finishReason:'STOP'}]});
+  });
+ assert.equal(app.status,200);
+ assert.match((await app.json()).text,/<script>/u);
+});
+
+test('game fallback is playable HTML, and an unavailable app or edit returns an error',async()=>{
+ const fail=()=>assert.fail('no configured provider');
+ const call=(content,extra={},attachments)=>chat(req({messages:[{role:'user',content,attachments}],...extra}),{},fail);
+ const game=await call('Сделай мне залипательную игру на мобилку');
+ assert.equal(game.status,200);
+ assert.equal((await game.json()).model,'local-game-draft');
+ const app=await call('Собери приложение для расходов');
+ assert.equal(app.status,503);
+ const edit=await call('Добавь новый уровень',{sitePreview:true,previewKind:'game'},[
+  {name:'Текущая версия предпросмотра — index.html',text:'<html>Моя игра</html>'},
+ ]);
+ assert.equal(edit.status,503);
+ assert.match((await edit.json()).error,/Текущая версия сохранена/u);
+});

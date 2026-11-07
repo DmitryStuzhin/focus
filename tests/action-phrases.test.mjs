@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import {resolveAction} from '../public/action-phrases.js';
 import {localIntent,taskIntent} from '../public/work-intent.js';
 import {imageIntent} from '../public/image-intent.js';
-import {siteIntent} from '../public/site-preview.js';
+import {buildIntent,nativeBuildIntent} from '../public/site-preview.js';
 import {projectSearchQuery} from '../public/project-search.js';
 
 const resolve=text=>resolveAction(text,{
- local:localIntent,task:taskIntent,site:siteIntent,image:imageIntent,project:projectSearchQuery,
+ local:localIntent,task:taskIntent,site:buildIntent,image:imageIntent,native:nativeBuildIntent,project:projectSearchQuery,
 });
 
 test('recognizes tools inside ordinary messages',()=>{
@@ -40,4 +40,16 @@ test('does not execute quoted, conditional, negated or fenced examples',()=>{
  ])assert.ok(resolve(example).phrases,example);
  assert.equal(resolve('«😺 Нарисуй кота». А теперь сделай сайт для приюта.').site,true);
  assert.equal(resolve('Не делай сайт, а нарисуй кота.').image.mode,'create');
+});
+
+test('routes browser games and apps separately from native builds and illustrations',()=>{
+ assert.equal(resolve('Сделай мне залипательную игру на мобилку').previewKind,'game');
+ assert.equal(resolve('Есть идея. Можешь собрать приложение для учёта расходов?').previewKind,'app');
+ assert.equal(resolve('Я хочу, чтобы ты разработал таймер для интервальной тренировки').previewKind,'app');
+ assert.equal(resolve('Сделай сайт с игрой').previewKind,'site');
+ assert.equal(resolve('Разработай приложение для учёта расходов на Flutter').nativeProject,true);
+ assert.equal(resolve('Напиши игру на Python').task.mode,'code');
+ assert.equal(resolve('Сделай игру на Unity').site,undefined);
+ assert.equal(resolve('Сделай обложку для игры').image.preset,'design');
+ assert.ok(resolve('Объясни, как сделать игру на мобилку.').phrases);
 });

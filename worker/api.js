@@ -1,7 +1,7 @@
 import {resolveAction} from '../public/action-phrases.js';
 import {localIntent,taskIntent} from '../public/work-intent.js';
-import {createSiteDraft} from './site-draft.js';
-import {siteIntent,isPreviewBlock} from '../public/site-preview.js';
+import {createSiteDraft,createGameDraft} from './site-draft.js';
+import {buildIntent,isPreviewBlock,nativeBuildIntent} from '../public/site-preview.js';
 import {compareText} from '../public/text-diff.js';
 import {imageIntent} from '../public/image-intent.js';
 // Provider credentials belong to runtime secrets, never to the browser bundle.
@@ -56,17 +56,21 @@ const CODE_GUIDANCE=[
  'Для каждого файла, который нужно создать или заменить, верни отдельный Markdown-блок с языком и точным именем файла в заголовке, например: ```python main.py. Используй имя без каталогов и полное содержимое файла. Один блок на файл.',
  'Имена файлов для сохранения могут содержать латинские буквы, цифры, точки, дефисы и подчёркивания. Не смешивай фрагменты с полными файлами: для фрагментов указывай только язык.',
  'Если файл неполный или отсутствует, не выдумывай его содержимое для замены. Запроси актуальный файл или покажи небольшой фрагмент без имени.',
- 'Кратко опиши изменения, команды запуска и способы проверки, если это уместно. Никогда не утверждай, что выполнил команды или тесты.',
+ 'Для явно запрошенного нативного проекта укажи структуру проекта, необходимые зависимости, версии при наличии в запросе и команды сборки. Не обещай готовый APK, IPA или публикацию. Кратко опиши изменения, команды запуска и способы проверки, если это уместно. Никогда не утверждай, что выполнил команды или тесты.',
 ].join(' ');
 const TASK_GUIDANCE={
  code:CODE_GUIDANCE,
  plan:'Режим /plan. Составь план без выполнения и без готовых замен файлов. Начни с результата и ограничений. Дай 3–8 выполнимых шагов отдельными строками в формате Markdown "- [ ] Сделать ...". Каждый шаг — одно проверяемое действие. Сохрани важные зависимости, явно обозначь неизвестные и критерии готовности. Если пользователь возвращается к плану, учитывай отмеченные шаги.',
  review:'Режим /review. Проведи ревью переданного кода или изменений. Сначала находки по серьёзности: воспроизводимые ошибки, регрессии, безопасность и недостающие проверки. Для каждой укажи уровень, имя файла, предоставленный номер строки или название функции, сценарий сбоя и конкретную правку. Используй номера только из исходника с пометкой «с номерами строк». Не выдумывай находки, файлы или выполненные проверки. Если исходников нет, попроси приложить их. Если проблем не видно, скажи об этом и обозначь границы проверки. Не переписывай файлы целиком.',
 };
-const SITE_GUIDANCE='Подготовь рабочий предпросмотр запрошенного сайта. Верни один полный Markdown-блок с заголовком ```html index.html: HTML-документ со встроенными <style> и <script>. Используй обычные HTML, CSS и JavaScript, без внешних библиотек, шрифтов, изображений или API. Для иллюстраций подойдут SVG и CSS. Сделай страницу адаптивной, а интерактивные элементы рабочими. При правке используй приложенную текущую версию и верни весь обновлённый документ, сохранив остальные функции. Краткое пояснение вынеси за пределы блока.';
+const SITE_GUIDANCE='Подготовь рабочий предпросмотр запрошенного проекта. Верни один полный Markdown-блок с заголовком ```html index.html: HTML-документ со встроенными <style> и <script>. Используй обычные HTML, CSS и JavaScript, без внешних библиотек, шрифтов, изображений или API. Для иллюстраций подойдут SVG и CSS. Сделай страницу адаптивной, а интерактивные элементы рабочими. При правке используй приложенную текущую версию и верни весь обновлённый документ, сохранив остальные функции. Краткое пояснение вынеси за пределы блока.';
+const INTERACTIVE_GUIDANCE={
+ game:'Создай играбельную браузерную игру, учитывая жанр и ограничения пользователя. Если механику делегировали, придумай один увлекательный цикл с понятной целью. Реализуй экран старта, игровой цикл, счёт или прогресс, завершение и повторный запуск без дублирования таймеров. Для телефона используй Pointer Events или экранные кнопки, для компьютера также добавь клавиатуру. Покажи короткую инструкцию в самой игре.',
+ app:'Создай интерактивное приложение, выполняющее главную задачу пользователя. Сделай основные формы и кнопки рабочими, обрабатывай неверный ввод и пустые состояния, обеспечь доступность с телефона и клавиатуры. Для простого приложения используй данные в памяти, при необходимости добавь импорт и экспорт. Если пользователь просит серверные возможности, явно обозначь, какую часть показывает прототип.',
+};
 function chatSystem(research,taskMode,siteMode){
  const guidance=TASK_GUIDANCE[taskMode];
- return SYSTEM+(research?RESEARCH_GUIDANCE:'')+(guidance?'\n'+guidance:'')+(siteMode?'\n'+SITE_GUIDANCE:'');
+ return SYSTEM+(research?RESEARCH_GUIDANCE:'')+(guidance?'\n'+guidance:'')+(siteMode?'\n'+SITE_GUIDANCE+(INTERACTIVE_GUIDANCE[siteMode]?'\n'+INTERACTIVE_GUIDANCE[siteMode]+' В изолированном предпросмотре сетевые запросы и localStorage недоступны.':''):'');
 }
 function sourcePart(file,numberLines){
  const name=String(file.name).slice(0,150);
@@ -95,7 +99,7 @@ async function openRouterChat(contents,request,env,fetcher,research,taskMode,sit
  for(let attempt=0;attempt<(siteMode?2:1);attempt++){
   const model=attempt?fallbackModel:OPENROUTER_MODEL;
   const requestMessages=attempt?[{role:'system',content:messages[0].content+
-   '\nВерни компактный, законченный HTML. Сначала выведи блок с сайтом. Сократи декоративные детали и пояснения, чтобы вместить весь документ.'},...messages.slice(1)]:messages;
+   '\nВерни компактный, законченный HTML. Сначала выведи блок с проектом. Сохрани рабочую механику. Сократи декоративные детали и пояснения, чтобы вместить весь документ.'},...messages.slice(1)]:messages;
   let response;
   try{
    response=await fetcher('https://openrouter.ai/api/v1/chat/completions',{
@@ -122,7 +126,8 @@ async function openRouterChat(contents,request,env,fetcher,research,taskMode,sit
    return json({error:'Модель не смогла ответить на этот запрос. Попробуйте переформулировать.',code:'content_filtered'},422);
   }
   const truncated=choice?.finish_reason==='length';
-  if(siteMode&&!attempt&&!signal.aborted&&(!text.trim()||truncated))continue;
+  if(siteMode&&!attempt&&!signal.aborted&&(!text.trim()||truncated||
+   (siteMode!=='site'&&!previewHTML(text,siteMode))))continue;
   if(!text.trim()){
    const error=siteMode?'Бесплатные модели не вернули HTML. Повторите запрос или попросите более компактный сайт.':'Модель вернула пустой ответ. Повторите запрос.';
    return json({error,code:'empty_response'},422);
@@ -494,6 +499,20 @@ async function generateImage(prompt,request,env,fetcher,reference=null,preset=nu
  }catch{return json({error:'Не удалось получить изображение. Повторите запрос.',code:'image_connection'},502)}
 }
 
+function previewHTML(text,kind){
+ const value=text.trim();
+ const blocks=value.replace(/\r\n/g,'\n').matchAll(/^[ \t]*```([^\n]*)\n([\s\S]*?)^[ \t]*```[ \t]*(?=$)/gm);
+ const candidates=[['html',value,true],...Array.from(blocks,([,header,code])=>[header,code,false])];
+ for(const [header,code,raw] of candidates){
+  const complete=/^(?:<!doctype\s+html\b|<html(?:\s|>))/iu.test(code.trim())&&/<\/html>\s*$/iu.test(code);
+  if(raw&&!complete)continue;
+  if(!isPreviewBlock(header,code))continue;
+  if(kind!=='site'&&(!complete||!/<script\b[^>]*>\s*[^\s<][\s\S]*?<\/script\s*>/iu.test(code)))return null;
+  return {code,raw};
+ }
+ return null;
+}
+
 export async function chat(request,env,fetcher=fetch){
  const origin=request.headers.get('origin');if(origin&&origin!==new URL(request.url).origin)return json({error:'Запрос с другого сайта отклонён'},403);
  if(!/application\/json/i.test(request.headers.get('content-type')||''))return json({error:'Ожидается JSON'},415);
@@ -504,7 +523,7 @@ export async function chat(request,env,fetcher=fetch){
  const latest=input.messages.at(-1);
  if(typeof latest?.content==='string'&&latest.content.length>150000)return json({error:'Диалог слишком длинный. Начните новый или сократите вложения.'},413);
  const action=latest?.role==='user'&&typeof latest.content==='string'
-  ?resolveAction(latest.content,{local:localIntent,task:taskIntent,site:siteIntent,image:imageIntent}):{};
+  ?resolveAction(latest.content,{local:localIntent,task:taskIntent,site:buildIntent,image:imageIntent,native:nativeBuildIntent}):{};
  const taskRequest=action.task;
  const taskMode=taskRequest?.mode;
  let total=0;const contents=[];for(const m of input.messages){if(!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'||(m.attachments!=null&&!Array.isArray(m.attachments)))return json({error:'Некорректное сообщение'},400);total+=m.content.length;const parts=[];if(m.content)parts.push({text:m.content});for(const f of (m.attachments||[]).slice(0,8)){if(!f||typeof f!=='object')continue;if(f.text&&typeof f.text==='string'){total+=f.text.length;parts.push(sourcePart(f,m===latest&&taskMode==='review'))}else if(f.data&&['image/png','image/jpeg','image/webp','application/pdf'].includes(f.mimeType)&&typeof f.data==='string'&&/^[A-Za-z0-9+/=\r\n]+$/.test(f.data)&&f.data.length<8000000){parts.push({inlineData:{mimeType:f.mimeType,data:f.data}})}}if(parts.length)contents.push({role:m.role==='assistant'?'model':'user',parts})}
@@ -513,8 +532,9 @@ export async function chat(request,env,fetcher=fetch){
  if(taskMode==='code'&&!taskRequest.details.trim())return json({error:'Опишите задачу после /code. Например: /code напиши тесты для приложенного файла на Python.',code:'code_input'},400);
  if(taskMode==='plan'&&!taskRequest.details.trim())return json({error:'Опишите цель после /plan.',code:'plan_input'},400);
  const siteMode=latest.role==='user'&&(!taskMode||taskMode==='code')&&
-  (action.site||input.sitePreview===true);
- if(siteMode&&/^\s*сделай\s+сайт[.!?]*\s*$/iu.test(action.input)){
+    !action.nativeProject&&(action.previewKind||(input.sitePreview===true&&
+   (['site','app','game'].includes(input.previewKind)?input.previewKind:'site')));
+ if(siteMode==='site'&&/^\s*сделай\s+сайт[.!?]*\s*$/iu.test(action.input)){
   return json({text:'Какой сайт сделать? Напишите, для кого или для чего он нужен.',model:'local-site-question',provider:'local'});
  }
  if(action.site&&/^\s*\/site\s*$/iu.test(action.input))return json({error:'Опишите сайт после /site.',code:'site_input'},400);
@@ -534,15 +554,20 @@ export async function chat(request,env,fetcher=fetch){
  }
  const configured=modelConfig(env).configured;
  const existingPreview=latest.attachments?.some(file=>typeof file?.text==='string'&&
-  /^(?:Текущая версия предпросмотра — |.*\.html?$)/iu.test(String(file.name)));
+  (/^Текущая версия предпросмотра — /iu.test(String(file.name))||siteMode==='site'&&/\.html?$/iu.test(String(file.name))));
+ const gameDraft=()=>json({
+  text:'Модель не подготовила игру по вашему описанию. Открыл запасную мини-игру «Поймай импульс». В неё уже можно сыграть.\n\n```html index.html\n'+createGameDraft()+'\n```',
+  model:'local-game-draft',provider:'local',truncated:false,
+ });
  const siteDraft=()=>json({
   text:'Сервис модели не подготовил сайт. Открыл стартовую страницу, собранную внутри Guzan. Проверьте тексты и заполните контакты перед публикацией.\n\n```html index.html\n'+createSiteDraft(action.site?action.input:
    'Сделай сайт '+(/^\s*(?:для|про|о)\s+/iu.test(latest.content)?'':'для ')+latest.content)+'\n```',
   model:'local-site-draft',provider:'local',truncated:false,
  });
  if(!configured){
-  if(siteMode&&!existingPreview)return siteDraft();
-  return json({error:siteMode?'Модель недоступна. Текущая версия сайта сохранена.':'Модель ещё не подключена. Запрос сохранён в истории.',code:'not_configured'},503);
+  if(siteMode==='game'&&!existingPreview)return gameDraft();
+  if(siteMode==='site'&&!existingPreview)return siteDraft();
+  return json({error:siteMode?existingPreview?'Модель недоступна. Текущая версия сохранена.':'Для создания приложения подключите модель.':'Модель ещё не подключена. Запрос сохранён в истории.',code:'not_configured'},503);
  }
  let research=null;
  if(input.searchId){research=researchCache.get(input.searchId);if(!research||research.identity!==requester(request)||Date.now()-research.created>900000)return json({error:'Результаты поиска устарели. Повторите запрос с поиском.',code:'search_expired'},409)}
@@ -553,17 +578,18 @@ export async function chat(request,env,fetcher=fetch){
  if(!siteMode||request.signal.aborted)return result;
  const data=await result.clone().json();
  if(result.ok&&!data.truncated&&typeof data.text==='string'){
-  const html=data.text.trim();
-  if(/^(?:<!doctype\s+html\b|<html(?:\s|>))/iu.test(html)&&/<\/html>$/iu.test(html)&&isPreviewBlock('html',html)){
-   return json({...data,text:'```html index.html\n'+html+'\n```'});
-  }
-  const blocks=html.replace(/\r\n/g,'\n').matchAll(/^[ \t]*```([^\n]*)\n([\s\S]*?)^[ \t]*```[ \t]*(?=$)/gm);
-  if(Array.from(blocks).some(([,header,code])=>isPreviewBlock(header,code)))return result;
+  const preview=previewHTML(data.text,siteMode);
+  if(preview)return preview.raw?json({...data,text:'```html index.html\n'+preview.code+'\n```'}):result;
  }else if(!result.ok&&result.status<500&&result.status!==429&&data.code!=='empty_response'){
   return result;
  }
- if(!existingPreview)return siteDraft();
- return json({error:'Модель не подготовила правку. Текущая версия сайта осталась в предпросмотре. Попробуйте повторить запрос.',code:'site_revision_unavailable'},502);
+ if(!existingPreview){
+  if(siteMode==='game')return gameDraft();
+  if(siteMode==='site')return siteDraft();
+  if(!result.ok)return result;
+  return json({error:'Модель не вернула рабочий предпросмотр приложения. Уточните главную функцию и повторите запрос.',code:'app_preview_unavailable'},502);
+ }
+ return json({error:'Модель не подготовила правку. Текущая версия осталась в предпросмотре. Попробуйте повторить запрос.',code:'site_revision_unavailable'},502);
 }
 async function googleChat(contents,request,env,fetcher,research,taskMode,siteMode,requestedEffort){
  const effort=['fast','balanced','deep'].includes(requestedEffort)?requestedEffort:'balanced';

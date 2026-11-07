@@ -4,11 +4,11 @@ const actionBoundary=/(?:[.!?](?=\s|$)|\r?\n+|[,;:](?=\s|$)|—(?=\s)|(?<!\S)(?:
 const actionIntro=/^(?:(?:и\s+)?(?:а\s+теперь|а\s+ещ[её]|а|но|теперь|сначала|затем|потом|заодно|дальше|пожалуйста|можешь|можно|давай|короче|слушай|гузан|бро)\s*[,!]?\s+)+/iu;
 const requestLead=/^(?:(?:мне\s+)?нужно|(?:я\s+)?хочу|прошу|хотелось бы)$/iu;
 const requestForms=new Map(Object.entries({
- сделал:'сделай', создал:'создай', собрал:'собери', нарисовал:'нарисуй',
+ сделал:'сделай', создал:'создай', разработал:'разработай', собрал:'собери', нарисовал:'нарисуй',
  сгенерировал:'сгенерируй', написал:'напиши', исправил:'исправь',
  проверил:'проверь', нашёл:'найди', нашел:'найди', поискал:'поищи',
  составил:'составь', посчитал:'посчитай', отформатировал:'отформатируй',
- сделать:'сделай', создать:'создай', собрать:'собери', нарисовать:'нарисуй',
+ сделать:'сделай', создать:'создай', разработать:'разработай', собрать:'собери', нарисовать:'нарисуй',
  сгенерировать:'сгенерируй', написать:'напиши', исправить:'исправь',
  проверить:'проверь', найти:'найди', поискать:'поищи', составить:'составь',
  посчитать:'посчитай', отформатировать:'отформатируй', сравнить:'сравни',
@@ -57,7 +57,7 @@ export function actionPhrases(content){
  return phrases;
 }
 
-export function resolveAction(content,{local,task,site,image,project}){
+export function resolveAction(content,{local,task,site,image,project,native}){
  const original=String(content||'').trim();
  const phrases=actionPhrases(original);
  for(const {input,short,visible} of phrases){
@@ -69,7 +69,10 @@ export function resolveAction(content,{local,task,site,image,project}){
   if(shortQuery!=null)return {input,projectQuery:shortQuery||project(input)};
   if(/^(?:найди|поищи|проверь)\s+(?:в интернете|в сети)(?=\s|[,:]|$)/iu.test(short))return {input,web:true};
   const taskRequest=task(visible);
-  if((!taskRequest||taskRequest.mode==='code')&&site(visible))return {input,task:task(input)||taskRequest,site:true};
+  const previewKind=site(visible);
+  const nativeProject=previewKind&&native?.(input);
+  if(nativeProject)return {input,task:task(input)||{mode:'code',details:input},nativeProject:true};
+  if(previewKind&&(!taskRequest||taskRequest.mode==='code'))return {input,task:task(input)||taskRequest,site:true,previewKind};
   if(taskRequest)return {input,task:task(input)||taskRequest};
   const imageRequest=image(visible)||(/^(?:нарисуй|изобрази|draw|paint)$/iu.test(visible)&&image(short));
   if(imageRequest)return {input,image:/^\/(?:design|image)\b/iu.test(input)?image(input):{...imageRequest,prompt:imageRequest.mode==='create'?original:input}};

@@ -1,7 +1,7 @@
 import {resolveAction} from './action-phrases.js';
 import {projectSearchQuery,projectPath,searchProjectFiles,readMatchContext} from './project-search.js';
 import {localIntent,taskIntent} from './work-intent.js';
-import {isPreviewBlock,isSiteRevision,siteIntent} from './site-preview.js';
+import {isPreviewBlock,isSiteRevision,buildIntent,nativeBuildIntent,updatesBuild} from './site-preview.js';
 import {compareText} from './text-diff.js';
 import {imageIntent,latestImage,imageReference} from './image-intent.js';
 import {buildChatContext,searchQuery} from './chat-context.js';
@@ -292,7 +292,7 @@ function previewArtifact(chat,selection=chat?.preview){
  const header=parts[offset];
  const code=parts[offset+1];
  if(typeof header!=='string'||!isPreviewBlock(header,code))return null;
- return {chatId:chat.id,messageId:message.id,block:selection.block,filename:codeBlockInfo(header).filename||'index.html',code};
+ return {chatId:chat.id,messageId:message.id,block:selection.block,filename:codeBlockInfo(header).filename||'index.html',kind:message.previewKind,code};
 }
 function findWebsite(message){
  if(!message||message.truncated)return null;
@@ -313,7 +313,7 @@ function syncPreviewPanel(artifact,reload=false){
  }
  if(!reload&&mountedPreview?.artifact.chatId===artifact.chatId&&mountedPreview.artifact.messageId===artifact.messageId&&mountedPreview.artifact.block===artifact.block&&mountedPreview.artifact.code===artifact.code)return;
  root.hidden=false;
- root.innerHTML=`<aside class="site-preview" aria-label="Предпросмотр сайта">
+ root.innerHTML=`<aside class="site-preview" aria-label="Предпросмотр">
   <header class="site-preview-header">
    <div class="site-preview-title"><strong>Предпросмотр</strong><span class="truncate">${e(artifact.filename)}</span></div>
    <div class="site-preview-actions">
@@ -321,7 +321,7 @@ function syncPreviewPanel(artifact,reload=false){
     ${ib('close-preview','close','Закрыть предпросмотр')}
    </div>
   </header>
-  <iframe title="Предпросмотр сайта" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>
+  <iframe title="Предпросмотр" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>
  </aside>`;
  const frame=root.querySelector('iframe');
  const id=uid();
@@ -464,7 +464,7 @@ async function requestAnswer(c){
  if(generation)return;
  c.error=null;c.pendingSearch=null;
  const controller=new AbortController();const lastUser=c.messages.findLast(m=>m.role==='user');
- const action=resolveAction(lastUser?.content,{local:localIntent,task:taskIntent,site:siteIntent,image:imageIntent,project:projectSearchQuery});
+ const action=resolveAction(lastUser?.content,{local:localIntent,task:taskIntent,site:buildIntent,image:imageIntent,native:nativeBuildIntent,project:projectSearchQuery});
  const projectQuery=action.projectQuery??null;
  const localMode=action.local?.mode;
  const localSkill=!!localMode||projectQuery!==null;
@@ -475,12 +475,15 @@ async function requestAnswer(c){
  const recentAnswer=c.messages.slice(0,c.messages.lastIndexOf(lastUser)).findLast(message=>message.role==='assistant');
  const priorWebsite=previewArtifact(c)||previewArtifact(c,findWebsite(recentAnswer));
  const revisionPhrases=action.phrases||[{visible:action.input}];
- const revision=priorWebsite&&!localSkill&&!explicitSearch&&!action.image&&(!taskMode||taskMode==='code')&&revisionPhrases.some(({visible})=>
+ const revision=priorWebsite&&!action.nativeProject&&!localSkill&&!explicitSearch&&!action.image&&(!taskMode||taskMode==='code')&&revisionPhrases.some(({visible})=>
   isSiteRevision(visible)&&(!/(?:изображени|картинк|фотографи|постер|обложк)/iu.test(visible)||/(?:сайт|страниц|секци|шапк|футер)/iu.test(visible)));
  const contextualImage=previousImage&&action.phrases?.find(({visible})=>imageIntent(visible,true));
  const siteDetails=recentAnswer?.model==='local-site-question'&&lastUser?.content?.trim()&&
   !localSkill&&!taskMode&&!explicitSearch&&!/^\s*\//u.test(lastUser.content)&&!action.image&&!contextualImage;
- const website=action.site||!!revision||!!siteDetails;
+ const updating=revision&&(!action.previewKind||action.previewKind==='site'||
+  (priorWebsite.kind===action.previewKind&&updatesBuild(action.input)));
+ const previewKind=action.previewKind||(updating?(priorWebsite.kind||'site'):siteDetails&&!action.nativeProject?'site':null);
+ const website=!!previewKind;
  const codeMode=taskMode==='code'||website;
  const imageRequest=website||taskMode||localSkill||explicitSearch?null:action.image||(contextualImage&&imageIntent(contextualImage.input,true));
  const withSearch=(!!lastUser?.webSearch||explicitSearch)&&!localSkill&&!imageRequest&&!website;
@@ -522,13 +525,13 @@ async function requestAnswer(c){
   const messages=(localSkill||imageRequest)
    ?[{role:'user',content:lastUser.content,...(fileSkill?{attachments:await attachmentPayload(lastUser.files||[])}:{})}]
    :await buildChatContext(c.messages,projectFiles,attachmentPayload,
-    revision?{name:'Текущая версия предпросмотра — '+priorWebsite.filename,text:priorWebsite.code}:null);
+    updating?{name:'Текущая версия предпросмотра — '+priorWebsite.filename,text:priorWebsite.code}:null);
   const codeTargets=codeMode?await Promise.all((messages.at(-1)?.attachments||[])
    .filter(file=>lastUser.files?.includes(file.id)&&typeof file.text==='string')
    .map(async file=>({id:file.id,name:file.name,hash:file.truncated?null:await codeHash(file.text)}))):[];
   const pass=imageRequest&&isSecureContext?sessionStorage.getItem('focus-image-pass'):null;
   const headers={'content-type':'application/json',...(pass?{'x-focus-image-pass':pass}:{})};
-  const response=await fetch('/api/chat',{method:'POST',headers,body:JSON.stringify({messages,...(website?{sitePreview:true}:{}),...(reference?{imageReference:reference}:{}),effort:state.settings.effort,...(searchId?{searchId}:{})}),signal:controller.signal});
+  const response=await fetch('/api/chat',{method:'POST',headers,body:JSON.stringify({messages,...(website?{sitePreview:true,previewKind}:{}),...(reference?{imageReference:reference}:{}),effort:state.settings.effort,...(searchId?{searchId}:{})}),signal:controller.signal});
   let data;try{data=await response.json()}catch{throw new Error('Сервер вернул некорректный ответ. Попробуйте ещё раз.')}
   if(!response.ok)throw new Error(data.error||'Не удалось получить ответ');
   if(!data.text)throw new Error('Получен пустой ответ');
@@ -540,7 +543,7 @@ async function requestAnswer(c){
    const extension={'image/png':'png','image/jpeg':'jpg','image/webp':'webp'}[blob.type];
    state.files.push({id:imageFile,project:c.project,parent:null,name:'Guzan-'+imageFile.slice(0,8)+'.'+extension,kind:'file',type:blob.type,size:blob.size,created:Date.now(),updated:Date.now(),deleted:false});
   }
-  const answer={id:uid(),role:'assistant',...(website?{siteMode:true}:{}),...(taskMode?{taskMode}:{}),...(codeMode?{codeMode,codeTargets}:{}),...(imageFile?{imageFile}:{}),content:data.text,at:Date.now(),model:data.model||apiStatus.model||'Модель',usage:data.usage,truncated:!!data.truncated,...(data.search?{search:data.search}:{})};
+  const answer={id:uid(),role:'assistant',...(website?{siteMode:true,previewKind}:{}),...(taskMode?{taskMode}:{}),...(codeMode?{codeMode,codeTargets}:{}),...(imageFile?{imageFile}:{}),content:data.text,at:Date.now(),model:data.model||apiStatus.model||'Модель',usage:data.usage,truncated:!!data.truncated,...(data.search?{search:data.search}:{})};
   c.messages.push(answer);
   const nextPreview=findWebsite(answer);
   if(nextPreview&&(innerWidth>=960||c.preview))c.preview=nextPreview;
