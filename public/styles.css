@@ -75,6 +75,42 @@
 .artifact-actions{display:flex;gap:4px;flex-wrap:wrap}
 .answer-artifact .code-block{margin-bottom:0}
 #preview-root.preview-full{width:100%;z-index:45}
+.code-toolbar{user-select:none}
+.code-block{
+ --syntax-keyword:#8247a8;
+ --syntax-string:#267242;
+ --syntax-literal:#a34722;
+ --syntax-name:#235fa0;
+ --syntax-comment:#626b61;
+}
+[data-theme=dark] .code-block{
+ --syntax-keyword:#dab0fa;
+ --syntax-string:#a8d5a2;
+ --syntax-literal:#f3b98b;
+ --syntax-name:#a5cef7;
+ --syntax-comment:#a4ae9e;
+}
+.code-block :is(.hljs-keyword,.hljs-selector-tag,.hljs-meta .hljs-keyword){color:var(--syntax-keyword)}
+.code-block :is(.hljs-string,.hljs-regexp,.hljs-addition){color:var(--syntax-string)}
+.code-block :is(.hljs-number,.hljs-literal,.hljs-symbol,.hljs-meta,.hljs-deletion){color:var(--syntax-literal)}
+.code-block :is(.hljs-title,.hljs-built_in,.hljs-type,.hljs-name,.hljs-attr,.hljs-attribute,.hljs-selector-class,.hljs-selector-id,.hljs-variable){color:var(--syntax-name)}
+.code-block :is(.hljs-comment,.hljs-quote){color:var(--syntax-comment);font-style:italic}
+.code-block .hljs-subst{color:var(--text)}
+.selection-action{
+ position:fixed;z-index:48;max-width:calc(100vw - 16px);padding:7px 12px;
+ border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--text);
+ box-shadow:var(--shadow);font-size:13px;font-weight:500;line-height:1.4;
+}
+.selection-action:hover{background:var(--hover)}
+.message-quote{
+ display:flex;align-items:flex-start;gap:8px;min-width:0;margin-bottom:8px;padding:6px 8px 6px 10px;
+ border-left:2px solid var(--accent);border-radius:0 6px 6px 0;background:var(--hover);
+}
+.message-bubble .message-quote{background:var(--surface)}
+.quote-copy{flex:1;min-width:0;color:var(--secondary);font-size:12px;line-height:1.45}
+.quote-copy strong{display:block;color:var(--text);font-size:11px;font-weight:600}
+.quote-copy span{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere}
+.message-quote .icon-btn{width:28px;height:28px;flex-shrink:0}
 @media(max-width:639px){
  #preview-root{width:100%}
  #preview-root .site-preview-header{padding:0 8px 0 12px}

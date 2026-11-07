@@ -22,6 +22,22 @@ test('OpenRouter uses only free router, server bearer key and original message r
 test('OpenRouter quota and authentication errors do not echo provider secrets',async()=>{
  for(const status of [401,402,403,429,503]){const r=await chat(req(payload),{OPENROUTER_API_KEY:'router-secret'},async()=>Response.json({error:{message:'router-secret'}},{status}));assert.equal(r.status,status===429?429:502);assert.ok(!(await r.text()).includes('router-secret'))}
 });
+test('a selected excerpt reaches the model as context in the user turn',async()=>{
+ const quote='def greet(name):\n    return name';
+ const content='Что делает эта строка?';
+ const r=await chat(req({messages:[{role:'user',content,quote}]}),{OPENROUTER_API_KEY:'test'},async(_url,options)=>{
+  const message=JSON.parse(options.body).messages.at(-1);
+  assert.equal(message.role,'user');
+  assert.deepEqual(message.content,[
+   {type:'text',text:content},
+   {type:'text',text:'Выделенный пользователем фрагмент сообщения (контекст для вопроса):\n'+quote},
+  ]);
+  return Response.json({choices:[{message:{content:'Ответ'},finish_reason:'stop'}]});
+ });
+ assert.equal(r.status,200);
+ const tooLong=await chat(req({messages:[{role:'user',content,quote:'x'.repeat(4001)}]}),env,()=>assert.fail('must not fetch'));
+ assert.equal(tooLong.status,400);
+});
 test('OpenRouter rejects binary PDFs rather than silently ignoring them',async()=>{
  const r=await chat(req({messages:[{role:'user',content:'Read',attachments:[{mimeType:'application/pdf',data:'YWJj'}]}]}),{OPENROUTER_API_KEY:'router-secret'},()=>{throw Error('must not fetch')});assert.equal(r.status,400);assert.equal((await r.json()).code,'unsupported_attachment');
 });

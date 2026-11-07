@@ -3,8 +3,15 @@ const TEXT_LIMIT = 145_000;
 const REQUEST_LIMIT = 11_900_000;
 const PROJECT_TEXT_LIMIT = 30_000;
 const ATTACHMENT_LIMIT = 8;
+export const MAX_QUOTE_LENGTH = 4000;
 const encoder = new TextEncoder();
 const bytes = value => encoder.encode(JSON.stringify(value)).byteLength;
+
+function messageContext(message) {
+  const role = message.role || 'user';
+  const quote = role === 'user' && typeof message.quote === 'string' ? message.quote.slice(0, MAX_QUOTE_LENGTH) : '';
+  return {role, content: message.content || '', ...(quote ? {quote} : {}), attachments: []};
+}
 
 // Carry a topic forward for short follow-ups with an explicit reference.
 const followUp = /^(?:а\s+(?:в|на|у|для|по|что насч[её]т)|(?:а\s+)?(?:почему|зачем|когда|где|сколько|как)\s+(?:это|он[аи]?|они|там|тогда)|(?:а\s+)?(?:источники|подробнее|сравни с|что насч[её]т)|(?:and (?:in|for)|what about|how about|why is that|sources|tell me more)\b)(?:[\s?.,!]|$)/iu;
@@ -108,9 +115,9 @@ export async function buildChatContext(messages, projectFiles, readAttachments, 
   // Protect the latest question and explicitly attached files before optional context.
   const latest = selected.at(-1);
   if (!latest) return result;
-  const current = {role: latest.role || 'user', content: latest.content || '', attachments: []};
+  const current = messageContext(latest);
   const query = terms(current.content);
-  textLeft -= current.content.length;
+  textLeft -= current.content.length + (current.quote?.length || 0);
   bytesLeft -= bytes(current) + 1;
   if (preview) appendAttachment(current, preview, Math.min(110_000, Math.floor(textLeft * 0.8)));
   const currentIds = [...new Set(latest.files || [])].slice(0, ATTACHMENT_LIMIT);
@@ -144,10 +151,11 @@ export async function buildChatContext(messages, projectFiles, readAttachments, 
   result.push(current);
 
   for (const original of selected.slice(0, -1).reverse()) {
-    const message = {role: original.role || 'user', content: original.content || '', attachments: []};
+    const message = messageContext(original);
     const cost = bytes(message) + 1;
-    if (message.content.length > textLeft || cost > bytesLeft) break;
-    textLeft -= message.content.length;
+    const textLength = message.content.length + (message.quote?.length || 0);
+    if (textLength > textLeft || cost > bytesLeft) break;
+    textLeft -= textLength;
     bytesLeft -= cost;
     const ids = (original.files || []).filter(id => !seen.has(id)).slice(0, ATTACHMENT_LIMIT);
     for (const file of await readAttachments(ids)) appendAttachment(message, file);
