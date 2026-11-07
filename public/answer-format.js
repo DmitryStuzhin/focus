@@ -60,17 +60,25 @@ export function answerTable(lines,index){
 const chartNumber = new Intl.NumberFormat('ru-RU',{maximumSignificantDigits:6});
 const point = n => Number(n.toFixed(2));
 
-export function answerChart(source){
+const chartFields = new Set(['type','title','unit','labels','values']);
+
+export function prefersJsonCode(request){
+ return /^\s*\/json(?:\s|$)|(?:в\s+(?:(?:виде|формате)\s+)?|как\s+)`?json\b|(?:покажи|дай|верни|выведи|сгенерируй|напиши|отформатируй|проверь)\s+(?:сырой\s+|только\s+)?`?json\b/iu.test(request);
+}
+
+export function answerChart(source,{strictFields=false}={}){
  if(source.length>8000)return null;
  let chart;
  try{chart=JSON.parse(source);}catch{return null;}
- if(!chart||!['line','bar'].includes(chart.type)||typeof chart.title!=='string'||
-  !chart.title.trim()||chart.title.length>120||typeof chart.unit!=='string'||chart.unit.length>32||
+ if(!chart||typeof chart!=='object'||Array.isArray(chart)||
+  strictFields&&Object.keys(chart).some(key=>!chartFields.has(key))||
+  !['line','bar'].includes(chart.type)||typeof chart.title!=='string'||!chart.title.trim()||chart.title.length>120||
+  (chart.unit!==undefined&&(typeof chart.unit!=='string'||chart.unit.length>32))||
   !Array.isArray(chart.labels)||!Array.isArray(chart.values)||chart.labels.length<2||
   chart.labels.length>20||chart.labels.length!==chart.values.length||
   !chart.labels.every(label=>typeof label==='string'&&label.trim()&&label.length<=48)||
   !chart.values.every(value=>typeof value==='number'&&Number.isFinite(value)&&Math.abs(value)<=1e12))return null;
- const {type,title,unit,labels,values}=chart;
+ const {type,title,unit='',labels,values}=chart;
  const bar=type==='bar', left=93, right=612, top=16, bottom=195, width=right-left;
  const min=Math.min(...values), max=Math.max(...values);
  let low=bar?Math.min(0,min):min, high=bar?Math.max(0,max):max;

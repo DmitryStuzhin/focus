@@ -310,11 +310,19 @@ try{
   'Пн | 12',
   'Вт | 19',
   '',
-  '```focus-chart',
+  '```json',
   JSON.stringify({type:'line',title:'Посещения',unit:'визитов',labels:['Пн','Вт'],values:[12,19]}),
   '```',
   '',
   '> Визитов стало больше.',
+  '',
+  '```json',
+  JSON.stringify({type:'bar',title:'Продажи',labels:['Пн','Вт'],values:[30,20]}),
+  '```',
+  '',
+  '```json',
+  JSON.stringify({status:'ok'}),
+  '```',
  ].join('\n');
  await chartPage.route('**/api/chat',route=>route.fulfill({json:{text:chartReply,model:'test'}}));
  await chartPage.goto('http://127.0.0.1:'+server.address().port);
@@ -326,8 +334,17 @@ try{
  const graphBox=await graphic.boundingBox();
  assert.ok(graphBox.x>=0&&graphBox.x+graphBox.width<=390);
  await chartPage.getByRole('cell',{name:'19',exact:true}).waitFor();
- await chartPage.getByText('Данные графика',{exact:true}).click();
+ await chartPage.getByRole('img',{name:'Продажи'}).waitFor();
+ await chartPage.locator('.code-block pre').getByText('{"status":"ok"}',{exact:true}).waitFor();
+ await chartPage.locator('.answer-chart').first().getByText('Данные графика',{exact:true}).click();
  await chartPage.locator('.answer-chart table').getByRole('cell',{name:'19',exact:true}).waitFor();
+ await chartPage.reload();
+ await chartPage.getByRole('img',{name:'Продажи'}).waitFor();
+ await chartPage.getByRole('textbox',{name:'Сообщение',exact:true}).fill('Покажи только JSON для графика');
+ await chartPage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ const codeReply=chartPage.locator('.assistant-message').last();
+ await codeReply.locator('.code-block pre').filter({hasText:'Посещения'}).waitFor();
+ assert.equal(await codeReply.locator('.answer-chart').count(),0);
  await chartPage.close();
  console.log('A phone renders an SVG chart with inspectable values, a Markdown table and a callout');
 
