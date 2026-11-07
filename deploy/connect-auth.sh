@@ -13,17 +13,19 @@ IFS= read -r -s -p 'Timeweb mailbox password: ' smtp_password </dev/tty
 printf '\n'
 [[ -n "$smtp_password" ]] || { echo 'A mailbox password is required.' >&2; exit 1; }
 IFS= read -r -p 'Address to receive a test email: ' smtp_test </dev/tty
-printf '%s' "$smtp_password" | runuser -u focus -- "$node" --input-type=module -e '
+smtp_port=$(printf '%s' "$smtp_password" | runuser -u focus -- "$node" --disable-warning=ExperimentalWarning --input-type=module -e '
  import {readFileSync} from "node:fs";
  import {normalizeEmail} from "./scripts/auth.mjs";
  import {sendLoginCode} from "./scripts/mail.mjs";
  const [sender,recipient]=process.argv.slice(1);
  const from=normalizeEmail(sender),to=normalizeEmail(recipient);
- if(!from||!to)process.exit(1);
- try{await sendLoginCode({from,to,password:readFileSync(0,"utf8"),code:"000000"});}
- catch{console.error("SMTP test failed. Check the mailbox credentials and port 465.");process.exit(1);}
-' "$smtp_user" "$smtp_test"
-echo 'Timeweb accepted the test email.'
+ if(!from||!to){console.error("Check the mailbox and test recipient addresses.");process.exit(1);}
+ try{
+  const port=await sendLoginCode({from,to,password:readFileSync(0,"utf8"),code:"000000"});
+  process.stdout.write(String(port));
+ }catch(error){console.error(error.message);process.exit(1);}
+' "$smtp_user" "$smtp_test")
+echo "Timeweb accepted the test email on port $smtp_port."
 IFS= read -r -p 'When the test email arrives, type yes to enable required sign-in: ' proceed </dev/tty
 [[ "$proceed" == yes ]] || exit 0
 
@@ -65,7 +67,7 @@ fi
 printf '%s\n%s' "$secret" "$smtp_password" | "$node" --input-type=module -e '
  import {readFileSync,writeFileSync} from "node:fs";
  import {normalizeEmail} from "./scripts/auth.mjs";
- const [path,user]=process.argv.slice(1);
+ const [path,user,port]=process.argv.slice(1);
  const input=readFileSync(0,"utf8");
  const separator=input.indexOf("\n");
  const secret=input.slice(0,separator),password=input.slice(separator+1);
@@ -76,9 +78,10 @@ printf '%s\n%s' "$secret" "$smtp_password" | "$node" --input-type=module -e '
   "FOCUS_AUTH_DB=/var/lib/focus/accounts.sqlite",
   "FOCUS_AUTH_SECRET="+secret,
   "FOCUS_SMTP_USER="+quote(normalizeEmail(user)),
+  "FOCUS_SMTP_PORT="+port,
   "FOCUS_SMTP_PASSWORD="+quote(password),"",
  ].join("\n"),{mode:0o600});
-' "$backup/new-auth.env" "$smtp_user"
+' "$backup/new-auth.env" "$smtp_user" "$smtp_port"
 unset smtp_password secret
 install -d -m 755 "$dropin_dir"
 changed=1

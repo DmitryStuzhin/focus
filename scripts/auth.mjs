@@ -136,7 +136,7 @@ export function createAuth(env,{mailer=sendLoginCode,clock=Date.now}={}) {
   });
   if(limited)return limited;
   try{
-   await mailer({from,to:email,code,password:env.FOCUS_SMTP_PASSWORD});
+   await mailer({from,to:email,code,password:env.FOCUS_SMTP_PASSWORD,port:env.FOCUS_SMTP_PORT});
   }catch{
    deleteChallenge.run(id);
    console.error('Focus auth: SMTP delivery request failed.');
