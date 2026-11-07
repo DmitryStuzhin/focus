@@ -4,20 +4,58 @@ import {mkdtemp,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 
+const expiry = 'Код действует 10 минут и используется один раз.';
+const unsolicited = 'Если ты не запрашивал код, просто проигнорируй это письмо.';
+
+function loginEmailHtml(code) {
+ return `<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Код входа в Focus</title></head>
+<body style="margin:0;padding:0;background-color:#edf1eb;color:#192b20;font-family:Arial,sans-serif;">
+<div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;mso-hide:all;">Одноразовый код для входа в Focus. Действует 10 минут.</div>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" bgcolor="#edf1eb">
+ <tr><td align="center" style="padding:32px 14px;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" bgcolor="#ffffff" style="max-width:500px;border:1px solid #d5dfd3;border-radius:20px;">
+   <tr><td bgcolor="#182e23" style="padding:24px 24px 22px;border-radius:19px 19px 0 0;background-color:#182e23;background-image:linear-gradient(115deg,#182e23,#31563e);color:#f5faef;">
+    <div style="font-size:25px;line-height:30px;font-weight:700;letter-spacing:-1px;">Focus</div>
+    <div style="margin-top:5px;font-size:11px;line-height:16px;font-weight:700;letter-spacing:1.5px;color:#d7edbb;">РАБОЧЕЕ ПРОСТРАНСТВО</div>
+   </td></tr>
+   <tr><td style="padding:28px 24px 22px;">
+    <h1 style="margin:0;font-size:26px;line-height:32px;letter-spacing:-0.6px;color:#192b20;">Подтверди вход</h1>
+    <p style="margin:8px 0 22px;font-size:15px;line-height:23px;color:#42584a;">Введи этот код на странице входа в Focus.</p>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" bgcolor="#eef6e9" style="border:1px solid #d4e3cd;border-radius:12px;">
+     <tr><td align="center" style="padding:18px 10px 17px;">
+      <div style="font-size:11px;line-height:16px;font-weight:700;letter-spacing:1.6px;color:#425f4b;">КОД ПОДТВЕРЖДЕНИЯ</div>
+      <div style="margin-top:5px;padding-left:6px;font-family:Consolas,'Courier New',monospace;font-size:36px;line-height:46px;font-weight:700;letter-spacing:6px;white-space:nowrap;color:#172f21;">${code}</div>
+     </td></tr>
+    </table>
+    <p style="margin:14px 0 0;font-size:13px;line-height:20px;color:#42584a;">${expiry}</p>
+   </td></tr>
+   <tr><td bgcolor="#f7f9f6" style="padding:17px 24px;border-top:1px solid #e2e9df;border-radius:0 0 19px 19px;font-size:13px;line-height:20px;color:#4a5e50;">${unsolicited}</td></tr>
+  </table>
+ </td></tr>
+</table>
+</body>
+</html>`;
+}
+
+function alternative(boundary,type,content) {
+ const encoded = Buffer.from(content).toString('base64').match(/.{1,76}/gu).join('\r\n');
+ return ['--'+boundary, 'Content-Type: '+type+'; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', encoded];
+}
+
 function message({from,to,code}) {
  const subject = Buffer.from('Код входа в Focus').toString('base64');
- const text = [
-  'Твой код входа в Focus: '+code,
-  '',
-  'Код действует 10 минут и используется один раз.',
-  'Если ты не запрашивал код, просто проигнорируй это письмо.',
- ].join('\r\n');
- const body = Buffer.from(text).toString('base64').match(/.{1,76}/gu).join('\r\n');
+ const id = randomUUID();
+ const boundary = 'focus-'+id;
+ const text = ['Твой код входа в Focus: '+code, '', expiry, unsolicited].join('\r\n');
  return [
   'From: Focus <'+from+'>', 'To: <'+to+'>', 'Subject: =?UTF-8?B?'+subject+'?=',
-  'Date: '+new Date().toUTCString(), 'Message-ID: <'+randomUUID()+'@'+from.split('@')[1]+'>',
-  'MIME-Version: 1.0', 'Content-Type: text/plain; charset=UTF-8',
-  'Content-Transfer-Encoding: base64', '', body, '',
+  'Date: '+new Date().toUTCString(), 'Message-ID: <'+id+'@'+from.split('@')[1]+'>',
+  'MIME-Version: 1.0', 'Content-Type: multipart/alternative; boundary="'+boundary+'"', '',
+  ...alternative(boundary,'text/plain',text),
+  ...alternative(boundary,'text/html',loginEmailHtml(code).replaceAll('\n','\r\n')),
+  '--'+boundary+'--', '',
  ].join('\r\n');
 }
 
@@ -59,6 +97,7 @@ function diagnose({exitCode,connectTime,uploaded,reply},port) {
 
 export async function sendLoginCode({from,to,code,password,port},{transport=runCurl}={}) {
  if(typeof password!=='string'||!password||/[\r\n\0]/u.test(password))throw new Error('Invalid SMTP configuration.');
+ if(typeof code!=='string'||!/^[0-9]{6}$/u.test(code))throw new Error('Invalid Focus login code.');
  if(port!=null&&port!==''&&![465,587].includes(Number(port)))throw new Error('Invalid SMTP port. Use 465 or 587.');
  const preferred = port?Number(port):465;
  const ports = [preferred,preferred===465?587:465];

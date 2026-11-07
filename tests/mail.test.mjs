@@ -5,6 +5,32 @@ import {sendLoginCode} from '../scripts/mail.mjs';
 
 const mail={from:'auth@example.com',to:'user@example.net',code:'000001',password:'fixture-password'};
 
+test('login email carries the same copyable six-digit code in plain text and HTML',async()=>{
+ await sendLoginCode(mail,{transport:async args=>{
+  const source=await readFile(args[args.indexOf('--upload-file')+1],'utf8');
+  const boundary=/Content-Type: multipart\/alternative; boundary="([^"]+)"\r\n/u.exec(source)?.[1];
+  assert.ok(boundary);
+  const [,plain,html,end]=source.split('--'+boundary);
+  assert.equal(end,'--\r\n');
+  const decode=(part,type)=>{
+   const [headers,body]=part.split('\r\n\r\n');
+   assert.equal(headers,`\r\nContent-Type: ${type}; charset=UTF-8\r\nContent-Transfer-Encoding: base64`);
+   assert.ok(body.trim().split('\r\n').every(line=>line.length<=76));
+   return Buffer.from(body,'base64').toString('utf8');
+  };
+  const text=decode(plain,'text/plain');
+  const markup=decode(html,'text/html');
+  assert.match(text,/Твой код входа в Focus: 000001/u);
+  assert.match(markup,/>000001<\/div>/u);
+  for(const version of [text,markup])assert.match(version,/Код действует 10 минут и используется один раз/u);
+  return {exitCode:0,reply:250};
+ }});
+});
+
+test('unexpected login code markup is rejected before transport',async()=>{
+ await assert.rejects(sendLoginCode({...mail,code:'<img>'},{transport:()=>assert.fail('must not send')}),/Invalid Focus login code/u);
+});
+
 test('an unreachable SMTP port falls back to STARTTLS and returns the working port',async()=>{
  const urls=[];
  const port=await sendLoginCode(mail,{transport:async(args,credentials)=>{
