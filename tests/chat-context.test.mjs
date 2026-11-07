@@ -75,3 +75,27 @@ test('ordinary questions never auto-attach zero-score project files',async()=>{
  const result=await buildChatContext([user('Объясни фотосинтез')],[file],async ids=>ids.map(()=>({name:file.name,text:'Private project notes'})));
  assert.deepEqual(result.at(-1).attachments,[]);
 });
+
+
+test('large current attachments retain recent user constraints and answers',async()=>{
+ const messages=[
+  {role:'user',content:'Используй Python 3.12. Сохрани поддержку пустого ввода.'},
+  {role:'assistant',content:'Предыдущая версия и объяснение.'},
+  {role:'user',content:'Исправь ошибку в этом файле',files:['large']},
+ ];
+ const context=await buildChatContext(messages,[],async ids=>ids.map(id=>({id,name:'main.py',text:'x'.repeat(200000)})));
+ assert.deepEqual(context.map(message=>message.content),messages.map(message=>message.content));
+ assert.equal(context.at(-1).attachments[0].truncated,true);
+ assert.ok(JSON.stringify(context).length<150000);
+});
+
+test('a short correction retrieves the file from the preceding topic',async()=>{
+ const files=Array.from({length:8},(_,index)=>({id:String(index),name:'source'+index+'.txt',updated:index}));
+ const context=await buildChatContext([
+  {role:'user',content:'Найди проблему с billingRenewal в проекте'},
+  {role:'assistant',content:'Ошибка возникает в обработчике подписки.'},
+  {role:'user',content:'Исправь это'},
+ ],files,async ids=>ids.map(id=>({id,name:'source'+id+'.txt',text:id==='0'?'billingRenewal fails here':'Other unrelated text'})));
+ assert.equal(context.at(-1).attachments[0].id,'0');
+ assert.equal(context.at(-1).content,'Исправь это');
+});

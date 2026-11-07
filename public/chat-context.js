@@ -95,9 +95,16 @@ export async function buildChatContext(messages, projectFiles, readAttachments, 
   let textLeft = TEXT_LIMIT;
   let bytesLeft = REQUEST_LIMIT;
 
+  // Reserve room for recent instructions before filling the request with files.
+  const recent = selected.slice(0, -1).slice(-8);
+  const reservedText = Math.min(20_000, recent.reduce((sum, message) => sum + (message.content || '').length + (messageContext(message).quote?.length || 0), 0));
+  const reservedBytes = Math.min(100_000, recent.reduce((sum, message) => sum + bytes(messageContext(message)) + 1, 0));
+  let textReserve = reservedText;
+  let byteReserve = reservedBytes;
+
   function appendAttachment(message, file, textCap = textLeft, query) {
     if (message.attachments.length >= ATTACHMENT_LIMIT) return false;
-    const available = Math.min(textLeft, textCap);
+    const available = Math.max(0, Math.min(textLeft - textReserve, textCap));
     let attachment = file;
     if (typeof file.text === 'string' && file.text.length > available) {
       const text = excerpt(file.text, available, query);
@@ -105,7 +112,7 @@ export async function buildChatContext(messages, projectFiles, readAttachments, 
       attachment = {...file, text, truncated: true};
     }
     const cost = bytes(attachment) + 1;
-    if (cost > bytesLeft) return false;
+    if (cost > bytesLeft - byteReserve) return false;
     message.attachments.push(attachment);
     bytesLeft -= cost;
     textLeft -= attachment.text?.length || 0;
@@ -116,7 +123,12 @@ export async function buildChatContext(messages, projectFiles, readAttachments, 
   const latest = selected.at(-1);
   if (!latest) return result;
   const current = messageContext(latest);
-  const query = terms(current.content);
+  const refersBack = current.content.length <= 180 &&
+    /^(?:(?:а |теперь |пожалуйста[, ]+))?(?:исправь|доработай|продолжи|улучши|сделай (?:это|его|её|ее)|проверь (?:это|его|её|ее)|объясни подробнее|а что|подробнее)(?=\s|[.!?]|$)/iu.test(current.content.trim());
+  const topic = refersBack ? recent.filter(message => message.role === 'user').slice(-2)
+    .map(message => message.content).join(' ').slice(-3000) : '';
+  const retrievalQuestion = [current.content, topic].filter(Boolean).join(' ');
+  const query = terms(retrievalQuestion);
   textLeft -= current.content.length + (current.quote?.length || 0);
   bytesLeft -= bytes(current) + 1;
   if (preview) appendAttachment(current, preview, Math.min(110_000, Math.floor(textLeft * 0.8)));
@@ -137,7 +149,7 @@ export async function buildChatContext(messages, projectFiles, readAttachments, 
     let projectLeft = PROJECT_TEXT_LIMIT;
     const availableFiles=projectFiles.filter(file=>!seen.has(file.id));
     const candidates=current.attachments.length<ATTACHMENT_LIMIT&&textLeft>=500
-      ?await readRelevantProjectFiles(availableFiles,current.content,readAttachments):[];
+      ?await readRelevantProjectFiles(availableFiles,retrievalQuestion,readAttachments):[];
     for (const {file,attachment} of candidates) {
       if (current.attachments.length >= ATTACHMENT_LIMIT || Math.min(projectLeft, textLeft) < 500) break;
       const before = textLeft;
@@ -155,6 +167,8 @@ export async function buildChatContext(messages, projectFiles, readAttachments, 
     const cost = bytes(message) + 1;
     const textLength = message.content.length + (message.quote?.length || 0);
     if (textLength > textLeft || cost > bytesLeft) break;
+    textReserve = Math.max(0, textReserve - textLength);
+    byteReserve = Math.max(0, byteReserve - cost);
     textLeft -= textLength;
     bytesLeft -= cost;
     const ids = (original.files || []).filter(id => !seen.has(id)).slice(0, ATTACHMENT_LIMIT);
