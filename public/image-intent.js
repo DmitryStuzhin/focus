@@ -38,6 +38,9 @@ export function imageAspectRatio(content){
  const explicit=/\s+--ar\s+(\S+)\s*$/iu.exec(text);
  if(explicit)return {ratio:explicit[1],prompt:text.slice(0,explicit.index).trim()};
  const normalized=text.toLowerCase().replaceAll('ё','е');
+ if(/(?:сделай|адаптируй|обрежь|кадрируй|make|crop)\s+(?:(?:его|ее|это|картинку|изображение|постер)\s+)?(?:вертикальн|portrait)/iu.test(normalized))return {ratio:'9:16',prompt:text};
+ if(/(?:сделай|адаптируй|обрежь|кадрируй|make|crop)\s+(?:(?:его|ее|это|картинку|изображение|постер)\s+)?(?:горизонтальн|landscape)/iu.test(normalized))return {ratio:'16:9',prompt:text};
+ if(/(?:сделай|адаптируй|обрежь|кадрируй|make|crop)\s+(?:(?:его|ее|это|картинку|изображение|постер)\s+)?(?:квадратн|square)/iu.test(normalized))return {ratio:'1:1',prompt:text};
  if(/(?:\b9\s*[:xх]\s*16\b|обои\s+(?:на|для)\s+телефон|экран\s+телефона|сторис|stories|reels|shorts|вертикальн\p{L}*\s+(?:изображен|картин|постер|обложк|формат))/iu.test(normalized))return {ratio:'9:16',prompt:text};
  if(/(?:\b16\s*[:xх]\s*9\b|широкоформатн\p{L}*|обои\s+(?:на|для)\s+(?:компьютер|рабочий стол)|баннер\s+(?:для\s+)?youtube|превью\s+(?:для\s+)?youtube|youtube\s+thumbnail|горизонтальн\p{L}*\s+(?:изображен|картин|постер|обложк|формат))/iu.test(normalized))return {ratio:'16:9',prompt:text};
  if(/(?:\b1\s*[:xх]\s*1\b|квадратн\p{L}*\s+(?:изображен|картин|постер|обложк|формат)|аватар(?:к[ауи])?(?!\p{L})|иконк[ауи](?!\p{L}))/iu.test(normalized))return {ratio:'1:1',prompt:text};
@@ -56,5 +59,6 @@ export async function imageReference(blob){
   return {mimeType:'image/png',data:canvas.toDataURL('image/png').split(',')[1],width:bitmap.width,height:bitmap.height};
  }finally{bitmap.close()}
 }
+
 
 

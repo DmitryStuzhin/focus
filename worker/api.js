@@ -500,7 +500,8 @@ async function generateImage(prompt,request,env,fetcher,reference=null,preset=nu
  const cloudflare=!paidOnly&&!openAIKey&&!!(env.CLOUDFLARE_ACCOUNT_ID||env.CLOUDFLARE_API_TOKEN);
  const account=env.CLOUDFLARE_ACCOUNT_ID?.trim();
  const token=openAIKey||(cloudflare?env.CLOUDFLARE_API_TOKEN?.trim():subscribed?env.OPENROUTER_API_KEY:null);
- const design=preset==='design'&&cloudflare;
+ // The poster model accepts text only; edits must use the reference-capable path.
+ const design=preset==='design'&&cloudflare&&!reference;
  let model=openAIKey?OPENAI_IMAGE_MODEL:design?DESIGN_IMAGE_MODEL:cloudflare?CLOUDFLARE_IMAGE_MODEL:env.OPENROUTER_IMAGE_MODEL;
  if(!token||!model||(cloudflare&&!/^[a-f0-9]{32}$/i.test(account||''))){
   if(paidOnly)return json({error:'Генерация по подписке ещё не подключена на сервере.',code:'image_not_configured'},503);
@@ -522,7 +523,7 @@ async function generateImage(prompt,request,env,fetcher,reference=null,preset=nu
   const params={model,prompt,size:dimensions,quality:'medium',output_format:'jpeg'};
   if(reference){
    body=new FormData();
-   params.prompt='Apply the requested edit to the supplied image. Preserve unmentioned details. Request: '+prompt;
+   params.prompt='Edit the supplied image, not a new unrelated image. Preserve identity, facial features, clothing, existing text and unmentioned details. Change only what the request asks. When changing aspect ratio, keep the main subject intact and extend the background unless cropping is explicitly requested. Request: '+prompt;
    for(const [name,value] of Object.entries(params))body.set(name,value);
    const bytes=Uint8Array.from(atob(reference.data),c=>c.charCodeAt(0));
    body.append('image[]',new Blob([bytes],{type:reference.mimeType}),'reference.png');
@@ -537,7 +538,7 @@ async function generateImage(prompt,request,env,fetcher,reference=null,preset=nu
  }else if(cloudflare){
   const [width,height]=size;
   body=new FormData();
-  body.set('prompt',reference?'Edit image 0 according to this request. Preserve all unmentioned details, subjects and composition. Request: '+prompt:prompt);
+  body.set('prompt',reference?'Edit image 0. Preserve identity, facial features, clothing, existing text and unmentioned details. Change only what the request asks. When changing aspect ratio, keep the main subject intact and extend the background unless cropping is explicitly requested. Request: '+prompt:prompt);
   if(reference)body.set('input_image_0',new Blob([Uint8Array.from(atob(reference.data),c=>c.charCodeAt(0))],{type:reference.mimeType}),'reference.png');
   body.set('width',String(width));
   body.set('height',String(height));
@@ -674,7 +675,9 @@ export async function chat(request,env,fetcher=fetch,context={}){
  if(siteMode&&context.userId)context.activity='site';
  const reference=input.imageReference;
  const edit=reference&&action.phrases?.find(({visible})=>imageIntent(visible,true));
- const imageRequest=siteMode||taskMode||action.local||action.web?null:action.image||(edit&&imageIntent(edit.input,true));
+ // Resolve with the reference first: an initial create classification must not
+ // discard an existing picture for requests such as "make this poster darker".
+ const imageRequest=siteMode||taskMode||action.local||action.web?null:(edit&&imageIntent(edit.input,true))||action.image;
  if(latest.role==='user'&&imageRequest){
   if(context.userId)context.activity='image';
   if(imageRequest.mode==='edit'){
@@ -756,6 +759,7 @@ async function googleChat(contents,request,env,fetcher,research,taskMode,siteMod
 }
 const PREVIEW_CSP="sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; form-action 'none'; base-uri 'none'; frame-ancestors 'self' https://chatgpt.com https://*.chatgpt.com";
 export default{async fetch(request,env,ctx){const url=new URL(request.url);if(['/login','/login.html'].includes(url.pathname)&&['GET','HEAD'].includes(request.method))return new Response(request.method==='HEAD'?null:ASSETS['/login.html'].body,{headers:{...headers,'content-type':'text/html; charset=utf-8','cache-control':'no-store','content-security-policy':"default-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"}});if(url.pathname==='/preview.html'&&['GET','HEAD'].includes(request.method))return new Response(request.method==='HEAD'?null:ASSETS['/preview.html'].body,{headers:{...headers,'content-type':'text/html; charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer','content-security-policy':PREVIEW_CSP}});if(url.pathname==='/api/status')return request.method==='GET'?json({...modelConfig(env),searchConfigured:!!env.TAVILY_API_KEY,images:imageAccess(env)}):json({error:'Метод не поддерживается'},405);if(url.pathname==='/api/search')return request.method==='POST'?searchWeb(request,env):json({error:'Метод не поддерживается'},405);if(url.pathname==='/api/chat')return request.method==='POST'?chat(request,env,fetch,ctx):json({error:'Метод не поддерживается'},405);if(!['GET','HEAD'].includes(request.method))return new Response('Method not allowed',{status:405,headers});const asset=ASSETS[url.pathname];if(!asset)return new Response('Not found',{status:404,headers});const adminPage=url.pathname==='/admin'||url.pathname==='/admin.html';const body=request.method==='HEAD'?null:asset.encoding==='base64'?Uint8Array.from(atob(asset.body),byte=>byte.charCodeAt(0)):asset.body;return new Response(body,{headers:{...headers,'content-type':asset.type,'cache-control':adminPage?'no-store':'no-cache','content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors "+(adminPage?"'none'; form-action 'self'":"'self' https://chatgpt.com https://*.chatgpt.com")}})}};
+
 
 
 

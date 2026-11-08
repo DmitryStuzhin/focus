@@ -37,3 +37,10 @@ test('image refinements preserve references and do not intercept programming',()
  assert.equal(imageIntent('Создай новую картинку с синим фоном',true)?.mode,'create');
  assert.equal(imageIntent('Как изменить фон?',true),null);
 });
+
+test('follow-up orientation changes select actual output dimensions',()=>{
+ for(const [text,ratio] of [['Сделай картинку вертикальной','9:16'],['Сделай горизонтальным','16:9'],['Сделай квадратной','1:1']]){
+  assert.equal(imageIntent(text,true).mode,'edit');
+  assert.equal(imageAspectRatio(text).ratio,ratio);
+ }
+});
