@@ -4,6 +4,11 @@ function requestWords(content){
 
 export function taskIntent(content){
  const text=requestWords(content);
+ // Terminal advice uses the coding pipeline and its larger response budget.
+ if(/^\/terminal(?=\s|$)/iu.test(text))return {mode:'code',details:text.replace(/^\/terminal\s*/iu,'')};
+ const terminalQuestion=/^(?:как|что|почему|помоги|объясни|разбери|проверь|исправь|почини|настрой|установи|запусти|покажи|дай|напиши|нужно|надо)/iu.test(text);
+ if(terminalQuestion&&/(?:терминал|консол|командн\p{L}*\s+строк|powershell|\bbash\b|\bsystemctl\b|\bdocker\b|\bnpm\b|\bgit\b|депло|лог[иах]?\b)/iu.test(text))return {mode:'code',details:text};
+ if(/(?:^|\n)(?:Traceback \(most recent call last\):|npm (?:ERR!|error)|fatal: |error: failed to|Job for [\w@.-]+\.service failed|[\w.-]+@[^\s:]+:[^\n]*[$#] )/u.test(text))return {mode:'code',details:text};
  const command=/^\/(code|plan|review|evidence)(?=\s|$)\s*([\s\S]*)$/iu.exec(text);
  if(command)return {mode:command[1].toLowerCase(),details:command[2]};
  if(/^(?:(?:проверь|посмотри|разбери|проанализируй)\s+(?:(?:мой|этот|прикрепл[её]нный)\s+)?(?:код|исходник\p{L}*|правк\p{L}*|diff)(?=[\s:,.!?]|$)|(?:проведи|сделай)\s+(?:ревью|код[- ]ревью)|найди\s+ошибки\s+в\s+(?:коде|исходниках))/iu.test(text))return {mode:'review',details:text};
@@ -18,6 +23,7 @@ export function taskIntent(content){
 
 export function codeFollowUpIntent(content){
  const text=requestWords(content);
+ if(/^(?:вот (?:ошибка|вывод|лог)|не работает|не запускается|та же ошибка|что дальше|что вводить|какую команду|command not found|permission denied)(?=[\s.,:!?]|$)/iu.test(text))return true;
  return text.length<=240&&/^(?:исправь|почини|отладь|доработай|продолжи|измени|обнови|добавь|убери|удали|перепиши|отрефактори|сделай)\s+(?:это|его|её|ее|код|файл|функци\p{L}*|так,?\s+чтобы(?!\p{L})|ещ[её](?!\p{L})|обработк\p{L}*|поддержк\p{L}*)/iu.test(text);
 }
 
@@ -40,5 +46,6 @@ export function localIntent(content){
  if(/^(?:сравни|сопоставь)\s+(?:(?:эти|прикрепл[её]нные|два|текстовые)\s+)*(?:файлы|файла|версии)(?:\s+построчно)?\s*[.!?]?$/iu.test(text))return {mode:'diff',details:''};
  return null;
 }
+
 
 
