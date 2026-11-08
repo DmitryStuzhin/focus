@@ -163,7 +163,7 @@ test('natural image format selects phone and YouTube dimensions',async()=>{
  const env={CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'cloudflare'};
  for(const [content,width,height] of [
   ['Нарисуй обои на телефон с ночным городом','720','1280'],
-  ['Создай горизонтальную обложку для YouTube','1280','720'],
+  ['Создай горизонтальное изображение для YouTube','1280','720'],
  ]){
   const response=await chat(req({messages:[{role:'user',content}]}),env,async(_url,options)=>{
    assert.equal(options.body.get('width'),width,content);
@@ -678,4 +678,5 @@ test('a cut-off OpenRouter answer continues once and keeps the original if conti
  assert.equal(partial.status,200);
  assert.equal((await partial.json()).truncated,true);
 });
+
 
