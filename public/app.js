@@ -1,6 +1,6 @@
 import {resolveAction,SPLIT_ACTIONS} from './action-phrases.js';
 import {projectSearchQuery,projectPath,searchProjectFiles,readMatchContext} from './project-search.js';
-import {localIntent,taskIntent} from './work-intent.js';
+import {codeFollowUpIntent,localIntent,taskIntent} from './work-intent.js';
 import {isPreviewBlock,isSiteRevision,buildIntent,nativeBuildIntent,updatesBuild} from './site-preview.js';
 import {compareText} from './text-diff.js';
 import {imageIntent,latestImage,imageReference} from './image-intent.js';
@@ -811,10 +811,11 @@ async function requestAnswer(c){
  const localSkill=!!localMode||!!(action.locals&&!action.task)||projectQuery!==null;
  const fileModes=['csv','diff','json','csvdiff'];
  const fileSkill=fileModes.includes(localMode)||action.locals?.some(skill=>fileModes.includes(skill.mode));
- const taskMode=action.task?.mode;
+ const recentAnswer=c.messages.slice(0,c.messages.lastIndexOf(lastUser)).findLast(message=>message.role==='assistant');
+ const codeFollowUp=recentAnswer?.codeMode&&codeFollowUpIntent(lastUser?.content);
+ const taskMode=action.task?.mode||(codeFollowUp?'code':null);
  const explicitSearch=action.web;
  const previousImage=latestImage(c.messages);
- const recentAnswer=c.messages.slice(0,c.messages.lastIndexOf(lastUser)).findLast(message=>message.role==='assistant');
  const priorWebsite=previewArtifact(c)||previewArtifact(c,findWebsite(recentAnswer));
  const revisionPhrases=action.phrases||[{visible:action.input}];
  const revision=priorWebsite&&!action.nativeProject&&!action.locals&&!action.splitActions&&!localSkill&&!explicitSearch&&!action.image&&(!taskMode||taskMode==='code')&&revisionPhrases.some(({visible})=>
@@ -878,7 +879,7 @@ async function requestAnswer(c){
    .filter(file=>lastUser.files?.includes(file.id)&&typeof file.text==='string')
    .map(async file=>({id:file.id,name:file.name,hash:file.truncated?null:await codeHash(file.text)}))):[];
   const headers={'content-type':'application/json'};
-  const response=await fetch('/api/chat',{method:'POST',headers,body:JSON.stringify({messages,...(website?{sitePreview:true,previewKind}:{}),...(reference?{imageReference:reference}:{}),effort:state.settings.effort,...(searchId?{searchId}:{})}),signal:controller.signal});
+  const response=await fetch('/api/chat',{method:'POST',headers,body:JSON.stringify({messages,...(website?{sitePreview:true,previewKind}:{}),...(codeFollowUp?{codeContext:true}:{}),...(reference?{imageReference:reference}:{}),effort:state.settings.effort,...(searchId?{searchId}:{})}),signal:controller.signal});
   if(response.status===401&&account){location.replace('/login');return;}
   let data;try{data=await response.json()}catch{throw new Error('Сервер вернул некорректный ответ. Попробуйте ещё раз.')}
   if(!response.ok)throw new Error(data.error||'Не удалось получить ответ');
@@ -923,4 +924,5 @@ async function boot(){
 window.addEventListener('storage',event=>{if(event.key===AUTH_EVENT_KEY)location.reload();});
 window.addEventListener('pageshow',event=>{if(event.persisted&&account)location.reload();});
 boot();
+
 

@@ -9,32 +9,23 @@ export function taskIntent(content){
  if(/^(?:(?:проверь|посмотри|разбери|проанализируй)\s+(?:(?:мой|этот|прикрепл[её]нный)\s+)?(?:код|исходник\p{L}*|правк\p{L}*|diff)(?=[\s:,.!?]|$)|(?:проведи|сделай)\s+(?:ревью|код[- ]ревью)|найди\s+ошибки\s+в\s+(?:коде|исходниках))/iu.test(text))return {mode:'review',details:text};
  if(/^(?:составь|сделай|подготовь|продумай|предложи)\s+(?:(?:пошаговый|подробный|рабочий)\s+)?план(?=[\s:,.!?]|$)/iu.test(text))return {mode:'plan',details:text};
  if(/^(?:сверь\s+(?:эти\s+|прикрепл[её]нные\s+)?(?:документы|отч[её]ты|договоры)|(?:проверь|сверь)\s+по\s+(?:(?:этому|прикрепл[её]нному)\s+)?(?:документу|договору|файлу|отч[её]ту|вложениям)|найди\s+подтверждение\s+в\s+(?:документах|вложениях|файлах)|(?:посмотри|уточни|проверь|что)\s+в\s+(?:(?:этом|прикрепл[её]нном)\s+)?(?:документе|договоре|отч[её]те|вложениях))(?=[\s:,.!?]|$)/iu.test(text))return {mode:'evidence',details:text};
- const codeAction=/^(?:напиши|создай|исправь|измени|обнови|добавь|сгенерируй|перепиши|реализуй)\s+/iu;
- const codeTarget=/(?:^|\s)(?:код|скрипт|программ[ау]|функци[юию]|тест[ы]?|python|javascript|typescript|rust|java|sql|golang|c\+\+|c#)(?=[\s:,.!?]|$)|(?:^|\s)[a-z0-9_.-]+\.(?:py|js|ts|rs|go|java|cpp|cs|sql|sh|rb|php|html|css)(?=[\s:,.!?]|$)/iu;
+ const codeAction=/^(?:напиши|создай|исправь|почини|отладь|измени|обнови|добавь|сгенерируй|перепиши|реализуй|отрефактори)\s+/iu;
+ const codeTarget=/(?:^|\s)(?:код|скрипт|программ[ау]|функци[юию]|тест[ы]?|баг|ошибк[ауи]|исходник\p{L}*|прикрепл[её]нн\p{L}*\s+файл|python|javascript|typescript|rust|java|sql|golang|c\+\+|c#)(?=[\s:,.!?]|$)|(?:^|\s)[a-z0-9_.-]+\.(?:py|js|ts|rs|go|java|cpp|cs|sql|sh|rb|php|html|css)(?=[\s:,.!?]|$)/iu;
  if(codeAction.test(text)&&codeTarget.test(text))return {mode:'code',details:text};
  if(/^напиши\s+на\s+go(?=[\s:,.!?]|$)/iu.test(text))return {mode:'code',details:text};
  return null;
 }
 
-
-function percentageIntent(text){
- const number=String.raw`(\d+(?:[.,]\d+)?)`;
- const ending=String.raw`\s*[.!?]?$`;
- const part=new RegExp(String.raw`^(?:посчитай|вычисли|рассчитай|сколько будет)\s+${number}\s*(?:%|процент(?:а|ов)?)\s+от\s+${number}${ending}`,'iu').exec(text);
- if(part)return {mode:'calc',details:part[1]+'% * '+part[2]};
- const change=new RegExp(String.raw`^(увеличь|уменьши)\s+${number}\s+на\s+${number}\s*(?:%|процент(?:а|ов)?)${ending}`,'iu').exec(text);
- if(change)return {mode:'calc',details:change[2]+' * (1 '+(change[1].toLowerCase()==='увеличь'?'+':'-')+' '+change[3]+'%)'};
- const discount=new RegExp(String.raw`^(?:посчитай|рассчитай)\s+цену\s+${number}\s+(?:со скидкой|после скидки)\s+${number}\s*(?:%|процент(?:а|ов)?)${ending}`,'iu').exec(text);
- if(discount)return {mode:'calc',details:discount[1]+' * (1 - '+discount[2]+'%)'};
- return null;
+export function codeFollowUpIntent(content){
+ const text=requestWords(content);
+ return text.length<=240&&/^(?:исправь|почини|отладь|доработай|продолжи|измени|обнови|добавь|убери|удали|перепиши|отрефактори|сделай)\s+(?:это|его|её|ее|код|файл|функци\p{L}*|так,?\s+чтобы(?!\p{L})|ещ[её](?!\p{L})|обработк\p{L}*|поддержк\p{L}*)/iu.test(text);
 }
+
 
 export function localIntent(content){
  const text=requestWords(content);
  const command=/^\/(calc|stats|convert|csv|diff|json|csvdiff)(?=\s|$)\s*([\s\S]*)$/iu.exec(text);
  if(command)return {mode:command[1].toLowerCase(),details:command[2].trim()};
- const percentage=percentageIntent(text);
- if(percentage)return percentage;
  const csvdiff=/^(?:сравни|сверь|сопоставь)\s+(?:(?:эти|прикрепл[её]нные|два)\s+)*(?:csv(?:[- ]файлы?)?|файла\s+csv)(?=[\s:.!?]|$)(?:\s+(?:по\s+(?:столбцу|колонке|ключу)|по)\s+([\s\S]+?))?\s*[.!?]?$/iu.exec(text);
  if(csvdiff)return {mode:'csvdiff',details:(csvdiff[1]||'id').trim()};
  const json=/^(?:проверь|отформатируй|приведи в порядок)\s+(?:этот\s+|прикрепл[её]нный\s+)?json(?:[- ]файл)?(?=[\s:.!?]|$)\s*:?\s*([\s\S]*)$/iu.exec(text);
@@ -49,4 +40,5 @@ export function localIntent(content){
  if(/^(?:сравни|сопоставь)\s+(?:(?:эти|прикрепл[её]нные|два|текстовые)\s+)*(?:файлы|файла|версии)(?:\s+построчно)?\s*[.!?]?$/iu.test(text))return {mode:'diff',details:''};
  return null;
 }
+
 

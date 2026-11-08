@@ -159,6 +159,22 @@ test('Cloudflare image format is passed as dimensions and excluded from the prom
  assert.equal((await response.json()).code,'image_aspect_ratio');
 });
 
+test('natural image format selects phone and YouTube dimensions',async()=>{
+ const env={CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'cloudflare'};
+ for(const [content,width,height] of [
+  ['Нарисуй обои на телефон с ночным городом','720','1280'],
+  ['Создай горизонтальную обложку для YouTube','1280','720'],
+ ]){
+  const response=await chat(req({messages:[{role:'user',content}]}),env,async(_url,options)=>{
+   assert.equal(options.body.get('width'),width,content);
+   assert.equal(options.body.get('height'),height,content);
+   assert.equal(options.body.get('prompt'),content);
+   return Response.json({result:{image:'iVBORw0KGgo='}});
+  });
+  assert.equal(response.status,200);
+ }
+});
+
 test('natural image request uses the image provider without a chat model',async()=>{
  const r=await chat(req({messages:[{role:'user',content:'Нарисуй кота'}]}),{CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'cf'},async(url,options)=>{
   assert.ok(url.endsWith('/flux-2-klein-4b'));assert.equal(options.body.get('prompt'),'Нарисуй кота');assert.equal(options.body.get('input_image_0'),null);
@@ -342,6 +358,21 @@ test('coding mode passes source context and requests named complete files',async
  const empty=await chat(req({messages:[{role:'user',content:'/code'}]}),{},()=>assert.fail('empty code request should not call a model'));
  assert.equal(empty.status,400);
  assert.equal((await empty.json()).code,'code_input');
+});
+
+test('a short correction continues the preceding code task',async()=>{
+ const messages=[
+  {role:'user',content:'Напиши код функции parser'},
+  {role:'assistant',content:'```js parser.js\nexport function parser(value){ return value; }\n```'},
+  {role:'user',content:'Добавь обработку пустого ввода'},
+ ];
+ const response=await chat(req({messages,codeContext:true}),{OPENROUTER_API_KEY:'secret'},async(_url,options)=>{
+  const body=JSON.parse(options.body);
+  assert.match(body.messages[0].content,/короткой правке предыдущего кода/u);
+  assert.deepEqual(body.messages.slice(-2).map(message=>message.role),['assistant','user']);
+  return Response.json({choices:[{message:{content:'```js parser.js\nexport function parser(value){ return value || null; }\n```'},finish_reason:'stop'}]});
+ });
+ assert.equal(response.status,200);
 });
 
 test('review mode grounds findings in source line numbers and leaves excerpts unnumbered',async()=>{
@@ -647,3 +678,4 @@ test('a cut-off OpenRouter answer continues once and keeps the original if conti
  assert.equal(partial.status,200);
  assert.equal((await partial.json()).truncated,true);
 });
+
