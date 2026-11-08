@@ -12,7 +12,13 @@ export function imageIntent(content,hasImage=false){
  if(/^(?:нарисуй|нарисовать|изобрази|создай|создать|сделай|сгенерируй|draw|make|create)\s+(?:(?:мне|линейный|столбчатую|круговую)\s+)*(?:график|диаграмм[ауые]|chart|graph)(?![\p{L}\p{N}_])/iu.test(t))return null;
  // Requests for advice, text, or prompts must remain ordinary conversation.
  if(/^(?:как |почему |объясни|расскажи|напиши|придумай промпт|не |don't |how |explain|write )/u.test(t)||/^(?:измени|сделай|добавь|убери|замени|перепиши).*?(?:ответ|абзац|код|текст ответа|список|таблиц)/u.test(t))return null;
- if(hasImage&&/^(?:сделай|make)\s/u.test(t)&&/(?:ярче|темнее|светлее|реалистичнее|лучше|краснее|brighter|darker|realistic)/u.test(t))return {mode:'edit',prompt:text};
+ // A previous picture must not hijack a subsequent programming task.
+ if(/(?:^|\s)(?:код|функци[юяи]|скрипт|компонент|api|css|html|javascript|typescript|python|тесты|баг|ошибку)(?=[\s.,:!?]|$)/iu.test(t))return null;
+ // Refinements refer to the existing picture, even when they name a poster.
+ const newPicture=/(?:новую|новое|новый|другую|другое|другой|с нуля|new|another)\s/iu.test(t);
+ const refinement=/(?:фон|освещени|цвет|контраст|резкост|детализац|композици|надпис|шрифт|ярче|темнее|светлее|реалистичнее|краснее|brighter|darker|realistic|background|lighting)/iu.test(t);
+ if(hasImage&&!newPicture&&/^(?:сделай|make|перерисуй|переработай|адаптируй)\s/u.test(t)&&refinement)return {mode:'edit',prompt:text};
+ if(hasImage&&!newPicture&&/^(?:сделай|адаптируй|обрежь|кадрируй|resize|crop)\s/u.test(t)&&/(?:9\s*:\s*16|16\s*:\s*9|1\s*:\s*1|вертикальн|горизонтальн|квадратн|сторис|shorts|reels)/iu.test(t))return {mode:'edit',prompt:text};
  const poster=/^(?:нарисуй|нарисовать|создай|создать|сделай|сделать|сгенерируй|сгенерировать|оформи|create|make|design|draw)\s+[^\n]{0,60}?(?:постер|афиш|обложк|poster\b|cover\b)/u;
  if(poster.test(t))return {mode:'create',preset:'design',prompt:text};
  const visual=/(?:картин|изображен|фото|иллюстрац|портрет|аватар|логотип|обложк|постер|рисунок|image|picture|photo|illustration|logo|poster)/u;
@@ -50,4 +56,5 @@ export async function imageReference(blob){
   return {mimeType:'image/png',data:canvas.toDataURL('image/png').split(',')[1],width:bitmap.width,height:bitmap.height};
  }finally{bitmap.close()}
 }
+
 

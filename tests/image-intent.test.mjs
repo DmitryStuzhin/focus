@@ -28,3 +28,12 @@ test('natural image formats map to provider aspect ratios',()=>{
  assert.equal(imageAspectRatio('кот --ar 4:3').ratio,'4:3');
 });
 
+
+test('image refinements preserve references and do not intercept programming',()=>{
+ for(const text of ['Сделай фон синим','Сделай постер с более реалистичным освещением','Сделай картинку вертикальной 9:16'])
+  assert.equal(imageIntent(text,true)?.mode,'edit',text);
+ for(const text of ['Добавь функцию сортировки','Сделай компонент ярче','Исправь ошибку в коде'])
+  assert.equal(imageIntent(text,true),null,text);
+ assert.equal(imageIntent('Создай новую картинку с синим фоном',true)?.mode,'create');
+ assert.equal(imageIntent('Как изменить фон?',true),null);
+});
