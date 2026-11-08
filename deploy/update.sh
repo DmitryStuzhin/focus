@@ -13,16 +13,46 @@ previous=$(readlink -e /opt/focus/current || true)
 [[ "$previous" == /opt/focus/releases/* && -d "$previous" ]] || previous=
 [[ "${previous##*/}" != "$revision" ]] || exit 0
 if [[ "${1:-}" != '--initial' ]]; then
-    # Fail closed on unavailable API, pending, cancelled, skipped, or failed CI.
+    # Fail closed while GitHub is unavailable, but do not mark a transient outage
+    # as a broken deployment. systemd treats exit 75 as a successful wait.
     python3 - "$revision" <<'PY'
-import json,sys,urllib.request
-sha=sys.argv[1]
-url=f'https://api.github.com/repos/DmitryStuzhin/focus/actions/workflows/ci.yml/runs?event=push&head_sha={sha}&per_page=10'
-req=urllib.request.Request(url,headers={'Accept':'application/vnd.github+json','User-Agent':'focus-deployer'})
-with urllib.request.urlopen(req,timeout=30) as r: runs=json.load(r)['workflow_runs']
-runs=sorted([r for r in runs if r['head_sha']==sha and r['head_branch']=='main'],key=lambda r:(r['run_number'],r.get('run_attempt',1)),reverse=True)
-if not runs or runs[0]['status']!='completed' or runs[0]['conclusion']!='success':
-    print('Waiting for successful GitHub CI:',sha);sys.exit(75)
+import json
+import sys
+import time
+import urllib.error
+import urllib.request
+
+sha = sys.argv[1]
+url = f'https://api.github.com/repos/DmitryStuzhin/focus/actions/workflows/ci.yml/runs?event=push&head_sha={sha}&per_page=10'
+request = urllib.request.Request(url, headers={
+    'Accept': 'application/vnd.github+json',
+    'User-Agent': 'focus-deployer',
+})
+
+payload = None
+last_error = None
+for attempt in range(5):
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = json.load(response)
+        break
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as error:
+        last_error = error
+        if attempt < 4:
+            time.sleep(min(2 ** attempt, 8))
+
+if payload is None:
+    print(f'GitHub CI is temporarily unavailable; deployment postponed: {last_error}', file=sys.stderr)
+    sys.exit(75)
+
+runs = sorted(
+    [run for run in payload.get('workflow_runs', []) if run.get('head_sha') == sha and run.get('head_branch') == 'main'],
+    key=lambda run: (run.get('run_number', 0), run.get('run_attempt', 1)),
+    reverse=True,
+)
+if not runs or runs[0].get('status') != 'completed' or runs[0].get('conclusion') != 'success':
+    print('Waiting for successful GitHub CI:', sha)
+    sys.exit(75)
 PY
 fi
 stage=$(mktemp -d /opt/focus/staging/build.XXXXXX)
@@ -58,4 +88,10 @@ if [[ "$healthy" != 1 ]]; then
     fi
     exit 1
 fi
+# Keep the installed deployment machinery in sync with the verified release.
+install -m 644 "$release/deploy/focus.service" /etc/systemd/system/focus.service
+install -m 644 "$release/deploy/focus-update.service" /etc/systemd/system/focus-update.service
+install -m 644 "$release/deploy/focus-update.timer" /etc/systemd/system/focus-update.timer
+install -m 755 "$release/deploy/update.sh" /usr/local/sbin/focus-update
+systemctl daemon-reload
 printf 'Deployed %s\n' "$revision"
