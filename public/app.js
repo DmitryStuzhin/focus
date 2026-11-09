@@ -53,7 +53,9 @@ async function saveForgeCheckpoint(chat,content){
  const now=Date.now();
  const folder=(name,parent)=>state.files.find(file=>file.project===chat.project&&!file.deleted&&file.kind==='folder'&&(file.parent||null)===(parent||null)&&file.name===name);
  const addFolder=(name,parent)=>{const existing=folder(name,parent);if(existing)return existing;const entry={id:uid(),project:chat.project,parent:parent||null,name,kind:'folder',type:'',size:0,created:now,updated:now,deleted:false,forgeManaged:true};state.files.push(entry);return entry};
- const root=addFolder('Guzan Forge',null);
+ const legacyRoot=folder('Guzan Forge',null);
+ if(legacyRoot)legacyRoot.name='Focus Forge';
+ const root=legacyRoot||addFolder('Focus Forge',null);
  const stamp=new Date(now).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).replace(',', '').replace(':','-');
  let checkpointName='Версия '+stamp,index=2;
  while(folder(checkpointName,root.id))checkpointName='Версия '+stamp+' ('+(index++)+')';
@@ -65,10 +67,10 @@ async function saveForgeCheckpoint(chat,content){
   await putBlob(id,blob);
   state.files.push({id,project:chat.project,parent,name:parts.at(-1),kind:'file',type,size:blob.size,created:now,updated:now,deleted:false,forgeManaged:true,sourcePath:source.name});
  }
- log(`Guzan Forge сохранил контрольную точку «${checkpointName}» (${files.length} ${plural(files.length,'файл','файла','файлов')})`,chat.project);
+ log(`Focus Forge сохранил контрольную точку «${checkpointName}» (${files.length} ${plural(files.length,'файл','файла','файлов')})`,chat.project);
  return {id:checkpoint.id,count:files.length,name:checkpointName};
 }
-function forgeCard(report){if(!report)return '';const ready=report.status==='ready';return `<section class="forge-report ${ready?'ready':'needs-work'}" aria-label="Проверка Guzan Forge"><div class="forge-report-head"><div><strong>Guzan Forge</strong><span>${ready?'Результат подготовлен':'Нужна доработка'}</span></div><span class="forge-status">${ready?'Проверено':'Есть замечания'}</span></div><div class="forge-checks">${report.checks.map(item=>`<div class="forge-check ${item.status}"><span aria-hidden="true">${item.status==='pass'?'✓':item.status==='warn'?'!':'×'}</span><div><strong>${e(item.label)}</strong><small>${e(item.detail)}</small></div></div>`).join('')}</div>${report.checkpoint?`<button class="btn ghost forge-open" data-action="open-forge-checkpoint" data-id="${e(report.checkpoint.id)}">Открыть контрольную точку</button>`:''}<small class="forge-limitation">${e(report.limitation)}</small></section>`}
+function forgeCard(report){if(!report)return '';const ready=report.status==='ready';return `<section class="forge-report ${ready?'ready':'needs-work'}" aria-label="Проверка Focus Forge"><div class="forge-report-head"><div><strong>Focus Forge</strong><span>${ready?'Результат подготовлен':'Нужна доработка'}</span></div><span class="forge-status">${ready?'Проверено':'Есть замечания'}</span></div><div class="forge-checks">${report.checks.map(item=>`<div class="forge-check ${item.status}"><span aria-hidden="true">${item.status==='pass'?'✓':item.status==='warn'?'!':'×'}</span><div><strong>${e(item.label)}</strong><small>${e(item.detail)}</small></div></div>`).join('')}</div>${report.checkpoint?`<button class="btn ghost forge-open" data-action="open-forge-checkpoint" data-id="${e(report.checkpoint.id)}">Открыть контрольную точку</button>`:''}<small class="forge-limitation">${e(report.limitation)}</small></section>`}
 function toast(text){clearTimeout(toastTimer);const t=el('toast');t.textContent=text;t.classList.add('show');toastTimer=setTimeout(()=>t.classList.remove('show'),4200)}
 let generatedURLs=[];
 function render(){
@@ -85,6 +87,12 @@ function render(){
  <main class="main" ${ui.mobileNav||ui.mobileFiles?'inert':''}>${header()}<div class="main-scroll" id="main-scroll">${mainView()}</div>${ui.view==='chat'?composer():''}</main>
  ${artifact?'<div class="preview-space" aria-hidden="true"></div>':ui.view==='chat'?filesPanel(showFiles):''}</div>`;
  syncPreviewPanel(artifact);
+ if(ui.view==='chat'){
+  const answers=activeChat()?.messages.filter(message=>message.role==='assistant')||[];
+  [...app.querySelectorAll('.messages>.assistant-message')].slice(0,answers.length).forEach((node,index)=>{
+   if(answers[index]?.codeMode)node.querySelector('.assistant-label span').textContent='Focus Code';
+  });
+ }
  for(const img of app.querySelectorAll('[data-generated-file]')){
   getBlob(img.dataset.generatedFile).then(blob=>{
    if(!blob||!img.isConnected)return;
@@ -918,7 +926,7 @@ async function requestAnswer(c){
   const nextPreview=findWebsite(answer);
   if(forge){
    let checkpoint=null;
-   try{checkpoint=await saveForgeCheckpoint(c,data.text)}catch{log('Guzan Forge не смог сохранить контрольную точку',c.project)}
+   try{checkpoint=await saveForgeCheckpoint(c,data.text)}catch{log('Focus Forge не смог сохранить контрольную точку',c.project)}
    answer.forge=forgeReport(data.text,{kind:forge.kind,truncated:!!data.truncated,previewReady:!!nextPreview,checkpoint});
   }
   c.messages.push(answer);

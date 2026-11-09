@@ -351,7 +351,7 @@ test('coding mode passes source context and requests named complete files',async
  const response=await chat(req({messages}),{OPENROUTER_API_KEY:'secret'},async(url,options)=>{
   const body=JSON.parse(options.body);
   assert.match(body.messages[0].content,/полное содержимое файла/);
-  assert.match(body.messages[0].content,/Режим Guzan Forge/);
+  assert.match(body.messages[0].content,/Режим Focus Forge/);
   assert.match(body.messages.at(-1).content[1].text,/Файл: main\.rs\nfn main\(\) \{\}/);
   return Response.json({choices:[{message:{content:'Исправил пример.'},finish_reason:'stop'}]});
  });
@@ -412,7 +412,7 @@ test('natural site requests use the HTML preview prompt without intercepting ima
   assert.match(url,/chat\/completions$/);
   const body=JSON.parse(options.body);
   assert.match(body.messages[0].content,/html index\.html/);
-  assert.match(body.messages[0].content,/Режим Guzan Forge/);
+  assert.match(body.messages[0].content,/Режим Focus Forge/);
   assert.equal(body.max_tokens,8192);
   return Response.json({choices:[{message:{content:'<!doctype html><html><body>Галерея</body></html>'},finish_reason:'stop'}]});
  });
