@@ -12,6 +12,7 @@ import {inlineMarkdown,answerTable,answerChart,prefersJsonCode} from './answer-f
 import {STUDIO_LABELS,SITE_STARTERS,IMAGE_STARTERS,TOOL_STARTERS,renderSites,renderImages,renderSkills} from './studios.js';
 import {icon,mark} from './icons.js';
 import {uid,readState,writeState,fresh,putBlob,getBlob,deleteBlob,validBackup,selectStorageScope,AUTH_EVENT_KEY} from './store.js';
+import {forgeIntent,forgeReport,namedCodeFiles} from './forge.js';
 const app=document.querySelector('#app');
 const MODEL_LABEL='Guzan 1.1';
 let state=fresh(), account=null, ready=false;
@@ -45,6 +46,29 @@ const button=(action,text,type='',extra='')=>`<button ${extra.includes('type=')?
 const visibleFiles=()=>state.files.filter(f=>f.project===activeProject()?.id&&!f.deleted);
 function persist(){try{writeState(state);return true}catch(err){toast('Не удалось сохранить изменения: хранилище браузера заполнено');return false}}
 function log(text,project=activeProject()?.id){state.changes.unshift({id:uid(),text,project,at:Date.now()});state.changes=state.changes.slice(0,400)}
+const forgeFileType=name=>/\.html?$/iu.test(name)?'text/html':/\.css$/iu.test(name)?'text/css':/\.(?:js|mjs|cjs)$/iu.test(name)?'text/javascript':/\.json$/iu.test(name)?'application/json':'text/plain';
+async function saveForgeCheckpoint(chat,content){
+ const files=namedCodeFiles(content);
+ if(!files.length||files.length>50||files.reduce((sum,file)=>sum+file.content.length,0)>3000000)return null;
+ const now=Date.now();
+ const folder=(name,parent)=>state.files.find(file=>file.project===chat.project&&!file.deleted&&file.kind==='folder'&&(file.parent||null)===(parent||null)&&file.name===name);
+ const addFolder=(name,parent)=>{const existing=folder(name,parent);if(existing)return existing;const entry={id:uid(),project:chat.project,parent:parent||null,name,kind:'folder',type:'',size:0,created:now,updated:now,deleted:false,forgeManaged:true};state.files.push(entry);return entry};
+ const root=addFolder('Guzan Forge',null);
+ const stamp=new Date(now).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).replace(',', '').replace(':','-');
+ let checkpointName='Версия '+stamp,index=2;
+ while(folder(checkpointName,root.id))checkpointName='Версия '+stamp+' ('+(index++)+')';
+ const checkpoint=addFolder(checkpointName,root.id);
+ for(const source of files){
+  const parts=source.name.split('/');let parent=checkpoint.id;
+  for(const name of parts.slice(0,-1))parent=addFolder(name,parent).id;
+  const id=uid(),type=forgeFileType(source.name),blob=new Blob([source.content],{type:type+';charset=utf-8'});
+  await putBlob(id,blob);
+  state.files.push({id,project:chat.project,parent,name:parts.at(-1),kind:'file',type,size:blob.size,created:now,updated:now,deleted:false,forgeManaged:true,sourcePath:source.name});
+ }
+ log(`Guzan Forge сохранил контрольную точку «${checkpointName}» (${files.length} ${plural(files.length,'файл','файла','файлов')})`,chat.project);
+ return {id:checkpoint.id,count:files.length,name:checkpointName};
+}
+function forgeCard(report){if(!report)return '';const ready=report.status==='ready';return `<section class="forge-report ${ready?'ready':'needs-work'}" aria-label="Проверка Guzan Forge"><div class="forge-report-head"><div><strong>Guzan Forge</strong><span>${ready?'Результат подготовлен':'Нужна доработка'}</span></div><span class="forge-status">${ready?'Проверено':'Есть замечания'}</span></div><div class="forge-checks">${report.checks.map(item=>`<div class="forge-check ${item.status}"><span aria-hidden="true">${item.status==='pass'?'✓':item.status==='warn'?'!':'×'}</span><div><strong>${e(item.label)}</strong><small>${e(item.detail)}</small></div></div>`).join('')}</div>${report.checkpoint?`<button class="btn ghost forge-open" data-action="open-forge-checkpoint" data-id="${e(report.checkpoint.id)}">Открыть контрольную точку</button>`:''}<small class="forge-limitation">${e(report.limitation)}</small></section>`}
 function toast(text){clearTimeout(toastTimer);const t=el('toast');t.textContent=text;t.classList.add('show');toastTimer=setTimeout(()=>t.classList.remove('show'),4200)}
 let generatedURLs=[];
 function render(){
@@ -471,6 +495,7 @@ case 'rename-file':renameDialog('file',id);break;
 case 'trash-file':trashFile(id);break;
 case 'attach-existing':if(!ui.attachments.includes(id))ui.attachments.push(id);render();el('composer-input')?.focus();break;
 case 'preview-file':await previewFile(id);break;
+case 'open-forge-checkpoint':if(state.files.some(file=>file.id===id&&!file.deleted&&file.kind==='folder')){ui.folder=id;ui.filesTab='files';state.settings.showFiles=true;if(innerWidth<960)ui.mobileFiles=true;setPreview(null);persist();render()}break;
 case 'download-file':await downloadFile(id);break;
 case 'edit-file':await editFile(id);break;
 case 'settings':settingsDialog();break;
@@ -800,6 +825,7 @@ function markdown(text,message,request=''){
    out+=`<section class="answer-artifact"><div class="artifact-summary"><div><strong>${label}</strong><small>${e(info.filename||'index.html')}</small></div><div class="artifact-actions">${button('open-preview','Открыть','primary',attrs+' aria-label="Предпросмотр"')}${button('download-code','Скачать HTML','ghost',attrs)}</div></div><details><summary>Посмотреть код</summary>${codeBlock}</details></section>`;
   }else out+=codeBlock;
  }
+ if(message?.forge)out+=forgeCard(message.forge);
  return out;
 }
 async function attachmentPayload(ids){const result=[];let bytes=0;for(const id of [...new Set(ids)]){const f=state.files.find(f=>f.id===id&&!f.deleted&&f.kind!=='folder');if(!f)continue;const blob=await getBlob(id);if(!blob)continue;if(isText(f)&&blob.size<500000){result.push({id,name:f.name,text:await blob.text()})}else if(['image/png','image/jpeg','image/webp','application/pdf'].includes(f.type)&&blob.size<5*1048576&&bytes+blob.size<6*1048576){bytes+=blob.size;const data=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result.split(',')[1]);r.onerror=reject;r.readAsDataURL(blob)});result.push({name:f.name,mimeType:f.type,data})}else if(ids.includes(id)){toast(`«${f.name}» сохранён, но не передан модели: используйте текст, PDF или изображение до 5 МБ`)}}return result}
@@ -830,9 +856,10 @@ async function requestAnswer(c){
  const previewKind=action.previewKind||(updating?(priorWebsite.kind||'site'):siteDetails&&!action.nativeProject?'site':null);
  const website=!!previewKind;
  const codeMode=taskMode==='code'||website;
+ const forge=forgeIntent(action.input,{previewKind,taskMode,codeFollowUp});
  const imageRequest=website||taskMode||localSkill||explicitSearch?null:action.image||(contextualImage&&imageIntent(contextualImage.input,true));
  const withSearch=!action.splitActions&&!action.locals&&(!!lastUser?.webSearch||explicitSearch)&&!localSkill&&!imageRequest&&!website;
- generation={chatId:c.id,controller,phase:imageRequest?'imaging':withSearch?'searching':'answering'};
+ generation={chatId:c.id,controller,phase:imageRequest?'imaging':withSearch?'searching':'answering',forge:!!forge};
  const refresh=()=>{if(ui.view==='chat'&&state.activeChat===c.id){render();const scroll=el('main-scroll');if(scroll)scroll.scrollTop=scroll.scrollHeight}};
  refresh();
  try{
@@ -881,15 +908,20 @@ async function requestAnswer(c){
    .filter(file=>lastUser.files?.includes(file.id)&&typeof file.text==='string')
    .map(async file=>({id:file.id,name:file.name,hash:file.truncated?null:await codeHash(file.text)}))):[];
   const headers={'content-type':'application/json'};
-  const response=await fetch('/api/chat',{method:'POST',headers,body:JSON.stringify({messages,...(website?{sitePreview:true,previewKind}:{}),...(codeFollowUp?{codeContext:true}:{}),...(reference?{imageReference:reference}:{}),effort:state.settings.effort,...(searchId?{searchId}:{})}),signal:controller.signal});
+  const response=await fetch('/api/chat',{method:'POST',headers,body:JSON.stringify({messages,...(website?{sitePreview:true,previewKind}:{}),...(codeFollowUp?{codeContext:true}:{}),...(forge?{forgeMode:true,forgeKind:forge.kind}:{}),...(reference?{imageReference:reference}:{}),effort:state.settings.effort,...(searchId?{searchId}:{})}),signal:controller.signal});
   if(response.status===401&&account){location.replace('/login');return;}
   let data;try{data=await response.json()}catch{throw new Error('Сервер вернул некорректный ответ. Попробуйте ещё раз.')}
   if(!response.ok)throw new Error(data.error||'Не удалось получить ответ');
   if(!data.text)throw new Error('Получен пустой ответ');
   const imageFile=data.image?await saveGeneratedImage(data.image,c.project):null;
   const answer={id:uid(),role:'assistant',...(website?{siteMode:true,previewKind}:{}),...(taskMode?{taskMode}:{}),...(codeMode?{codeMode,codeTargets}:{}),...(imageFile?{imageFile}:{}),content:data.text,at:Date.now(),model:data.model||apiStatus.model||'Модель',usage:data.usage,truncated:!!data.truncated,...(data.search?{search:data.search}:{})};
-  c.messages.push(answer);
   const nextPreview=findWebsite(answer);
+  if(forge){
+   let checkpoint=null;
+   try{checkpoint=await saveForgeCheckpoint(c,data.text)}catch{log('Guzan Forge не смог сохранить контрольную точку',c.project)}
+   answer.forge=forgeReport(data.text,{kind:forge.kind,truncated:!!data.truncated,previewReady:!!nextPreview,checkpoint});
+  }
+  c.messages.push(answer);
   if(nextPreview&&(innerWidth>=960||c.preview))c.preview=nextPreview;
   c.pendingSearch=null;c.updated=Date.now();if(data.provider!=='local'&&data.provider!=='image')apiStatus.configured=true;
  }catch(err){c.error=err.name==='AbortError'?'Запрос остановлен. Его можно повторить.':err.message||'Не удалось получить ответ';}

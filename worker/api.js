@@ -71,9 +71,10 @@ const INTERACTIVE_GUIDANCE={
  game:'Создай играбельную браузерную игру, учитывая жанр и ограничения пользователя. Если механику делегировали, придумай один увлекательный цикл с понятной целью. Реализуй экран старта, игровой цикл, счёт или прогресс, завершение и повторный запуск без дублирования таймеров. Для телефона используй Pointer Events или экранные кнопки, для компьютера также добавь клавиатуру. Покажи короткую инструкцию в самой игре.',
  app:'Создай интерактивное приложение, выполняющее главную задачу пользователя. Сделай основные формы и кнопки рабочими, обрабатывай неверный ввод и пустые состояния, обеспечь доступность с телефона и клавиатуры. Для простого приложения используй данные в памяти, при необходимости добавь импорт и экспорт. Если пользователь просит серверные возможности, явно обозначь, какую часть показывает прототип.',
 };
-function chatSystem(env,research,taskMode,siteMode){
+const FORGE_GUIDANCE='\nРежим Guzan Forge. Пользователь ждёт готовый проверяемый результат, а не советы или обещания. Сначала молча сформулируй критерии готовности из запроса, затем создай артефакт. Проведи внутреннюю проверку полноты: все запрошенные функции, согласованность файлов и путей, обработка ошибок, мобильный сценарий и команды запуска. Исправь обнаруженные противоречия до ответа. В конце кратко перечисли, что подготовлено, и отдельно укажи, что проверено анализом, а что требует реального запуска. Никогда не утверждай, что запускал команды, тесты, сборку или публикацию, если среда действительно этого не делала.';
+function chatSystem(env,research,taskMode,siteMode,forgeMode=false){
  const guidance=TASK_GUIDANCE[taskMode];
- return SYSTEM+capabilityInstructions(env,modelConfig(env).configured)+'\n'+ANSWER_FORMAT+(research?RESEARCH_GUIDANCE:'')+(guidance?'\n'+guidance:'')+(siteMode?'\n'+SITE_GUIDANCE+(INTERACTIVE_GUIDANCE[siteMode]?'\n'+INTERACTIVE_GUIDANCE[siteMode]+' В изолированном предпросмотре сетевые запросы и localStorage недоступны.':''):'');
+ return SYSTEM+capabilityInstructions(env,modelConfig(env).configured)+'\n'+ANSWER_FORMAT+(research?RESEARCH_GUIDANCE:'')+(guidance?'\n'+guidance:'')+(taskMode==='code'||siteMode||forgeMode?FORGE_GUIDANCE:'')+(siteMode?'\n'+SITE_GUIDANCE+(INTERACTIVE_GUIDANCE[siteMode]?'\n'+INTERACTIVE_GUIDANCE[siteMode]+' В изолированном предпросмотре сетевые запросы и localStorage недоступны.':''):'');
 }
 function sourcePart(file,numberLines){
  const name=String(file.name).slice(0,150);
@@ -83,8 +84,8 @@ function sourcePart(file,numberLines){
  }
  return {text:'Файл: '+name+(file.truncated?' (фрагмент)':'')+'\n'+file.text};
 }
-async function openRouterChat(contents,request,env,fetcher,research,taskMode,siteMode){
- const messages=[{role:'system',content:chatSystem(env,research,taskMode,siteMode)}];
+async function openRouterChat(contents,request,env,fetcher,research,taskMode,siteMode,forgeMode){
+ const messages=[{role:'system',content:chatSystem(env,research,taskMode,siteMode,forgeMode)}];
  for(const m of contents){
   const content=[];
   for(const p of m.parts){
@@ -668,6 +669,7 @@ export async function chat(request,env,fetcher=fetch,context={}){
  const siteMode=latest.role==='user'&&(!taskMode||taskMode==='code')&&
     !action.nativeProject&&(action.previewKind||(input.sitePreview===true&&
    (['site','app','game'].includes(input.previewKind)?input.previewKind:'site')));
+ const forgeMode=input.forgeMode===true&&(taskMode==='code'||!!siteMode||['code','project','site','app','game'].includes(input.forgeKind));
  if(siteMode==='site'&&/^\s*сделай\s+сайт[.!?]*\s*$/iu.test(action.input)){
   return json({text:'Какой сайт сделать? Напишите, для кого или для чего он нужен.',model:'local-site-question',provider:'local'});
  }
@@ -725,8 +727,8 @@ export async function chat(request,env,fetcher=fetch,context={}){
  if(input.searchId){research=researchCache.get(input.searchId);if(!research||research.identity!==requester(request)||Date.now()-research.created>900000)return json({error:'Результаты поиска устарели. Повторите запрос с поиском.',code:'search_expired'},409)}
  if(research)contents.at(-1).parts.push(researchEvidence(research));
  const result=env.OPENROUTER_API_KEY
-  ?await openRouterChat(contents,request,env,fetcher,research,taskMode,siteMode)
-  :await googleChat(contents,request,env,fetcher,research,taskMode,siteMode,input.effort);
+  ?await openRouterChat(contents,request,env,fetcher,research,taskMode,siteMode,forgeMode)
+  :await googleChat(contents,request,env,fetcher,research,taskMode,siteMode,input.effort,forgeMode);
  if(combinedText&&!request.signal.aborted){
   if(!result.ok)return partialAnswer();
   const data=await result.json();
@@ -748,9 +750,9 @@ export async function chat(request,env,fetcher=fetch,context={}){
  }
  return json({error:'Модель не подготовила правку. Текущая версия осталась в предпросмотре. Попробуйте повторить запрос.',code:'site_revision_unavailable'},502);
 }
-async function googleChat(contents,request,env,fetcher,research,taskMode,siteMode,requestedEffort){
+async function googleChat(contents,request,env,fetcher,research,taskMode,siteMode,requestedEffort,forgeMode=false){
  const effort=['fast','balanced','deep'].includes(requestedEffort)?requestedEffort:'balanced';
- const body={systemInstruction:{parts:[{text:chatSystem(env,research,taskMode,siteMode)}]},contents,generationConfig:{maxOutputTokens:8192,temperature:.6,thinkingConfig:{thinkingLevel:effort==='fast'?'minimal':effort==='deep'?'high':'low'}}};
+ const body={systemInstruction:{parts:[{text:chatSystem(env,research,taskMode,siteMode,forgeMode)}]},contents,generationConfig:{maxOutputTokens:8192,temperature:.6,thinkingConfig:{thinkingLevel:effort==='fast'?'minimal':effort==='deep'?'high':'low'}}};
  let response;try{response=await fetcher(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':env.GOOGLE_API_KEY},body:JSON.stringify(body),signal:AbortSignal.any([AbortSignal.timeout(90000),request.signal])})}catch(err){return json({error:err.name==='TimeoutError'?'Модель не успела ответить. Попробуйте ещё раз.':'Не удалось связаться с моделью. Попробуйте ещё раз.',code:'connection'},502)}
  if(!response.ok){const status=response.status;let code='';try{const d=await response.json();code=d.error?.details?.find(x=>x.reason)?.reason||''}catch{}const error=status===429?'Достигнут лимит Google API. Проверьте квоту или повторите позже.':status===401||status===403||code==='API_KEY_INVALID'?'Google не принял API-ключ или у него нет доступа к модели.':status===404?'Эта модель недоступна в Google API для данного ключа.':status===400?'Google отклонил запрос. Проверьте ключ API и поддерживаемые вложения.':'Сервис модели временно недоступен. Повторите позже.';return json({error,code:'provider_error',providerStatus:status},status===429?429:502)}
  let data;try{data=await response.json()}catch{return json({error:'Модель вернула некорректный ответ'},502)}

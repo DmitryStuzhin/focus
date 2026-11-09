@@ -169,3 +169,20 @@
  .topbar-new-chat { padding-inline: 8px; }
  .topbar-new-chat span { display: none; }
 }
+
+.forge-report { margin:18px 0 4px; border:1px solid var(--line); border-radius:14px; background:var(--surface); overflow:hidden; }
+.forge-report.ready { border-color:color-mix(in srgb,#42b883 42%,var(--line)); }
+.forge-report.needs-work { border-color:color-mix(in srgb,#e7a33e 48%,var(--line)); }
+.forge-report-head { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:14px 16px; border-bottom:1px solid var(--line); }
+.forge-report-head>div { display:grid; gap:2px; }
+.forge-report-head strong { font-size:13px; }
+.forge-report-head span,.forge-limitation { color:var(--muted); font-size:11px; }
+.forge-status { padding:5px 8px; border-radius:999px; background:var(--hover); white-space:nowrap; }
+.forge-report.ready .forge-status { color:#42b883; }
+.forge-checks { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px; background:var(--line); }
+.forge-check { display:flex; align-items:flex-start; gap:9px; padding:11px 14px; background:var(--surface); }
+.forge-check>span { display:grid; place-items:center; width:19px; height:19px; border-radius:50%; background:var(--hover); font-size:11px; font-weight:800; flex:0 0 auto; }
+.forge-check.pass>span { color:#42b883; }.forge-check.warn>span { color:#e7a33e; }.forge-check.fail>span { color:#e35d6a; }
+.forge-check>div { display:grid; gap:2px; min-width:0; }.forge-check strong { font-size:12px; }.forge-check small { color:var(--muted); font-size:11px; line-height:1.35; }
+.forge-open { margin:12px 14px 4px; }.forge-limitation { display:block; padding:8px 14px 12px; line-height:1.4; }
+@media(max-width:640px){.forge-checks{grid-template-columns:1fr}.forge-report-head{align-items:flex-start}.forge-status{font-size:10px}}
