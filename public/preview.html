@@ -14,6 +14,7 @@
 <p role="status">Загружаем предпросмотр…</p>
 <script>
  if (window.parent !== window) {
+   const id = location.hash.slice(1);
    const channel = new MessageChannel();
    channel.port1.onmessage = ({data}) => {
      channel.port1.close();
@@ -21,8 +22,26 @@
      document.open();
      document.write(data);
      document.close();
+     let selecting = false;
+     window.addEventListener('message', event => {
+       if (event.source === window.parent && event.data?.type === 'focus-preview-select' && event.data.id === id) {
+         selecting = event.data.active === true;
+         document.documentElement.style.cursor = selecting ? 'crosshair' : '';
+       }
+     });
+     window.addEventListener('click', event => {
+       if (!selecting || !(event.target instanceof Element)) return;
+       event.preventDefault();
+       event.stopImmediatePropagation();
+       selecting = false;
+       document.documentElement.style.cursor = '';
+       const node = event.target.closest('section, article, header, nav, footer, aside, button, form') || event.target;
+       const caption = (node.getAttribute('aria-label') || node.querySelector('h1,h2,h3')?.textContent || node.textContent || '').trim().replace(/\s+/g,' ').slice(0,180);
+       const label = node.tagName.toLowerCase() + (node.id ? '#'+node.id.slice(0,60) : '');
+       window.parent.postMessage({type:'focus-preview-selection', id, caption, label}, '*');
+     }, true);
    };
-   window.parent.postMessage({type:'focus-preview-ready', id:location.hash.slice(1)}, '*', [channel.port2]);
+   window.parent.postMessage({type:'focus-preview-ready', id}, '*', [channel.port2]);
  }
 </script>
 </body>

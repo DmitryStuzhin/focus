@@ -1,3 +1,5 @@
+import {eventStream} from '../public/event-stream.js';
+import {csvTable} from '../public/tabular.js';
 import {resolveAction,SPLIT_ACTIONS} from '../public/action-phrases.js';
 import {codeFollowUpIntent,localIntent,taskIntent} from '../public/work-intent.js';
 import {createSiteDraft,createGameDraft} from './site-draft.js';
@@ -31,23 +33,53 @@ export async function searchWeb(request,env,fetcher=fetch){
  if(!env.TAVILY_API_KEY)return json({error:'Поиск ещё не подключён на сервере.',code:'search_not_configured'},503);
  let input;try{const raw=await request.text();if(raw.length>4096)return json({error:'Поисковый запрос слишком большой'},413);input=JSON.parse(raw)}catch{return json({error:'Не удалось прочитать запрос'},400)}
  const query=typeof input?.query==='string'?input.query.trim():'';if(!query||query.length>600)return json({error:'Введите поисковый запрос длиной до 600 символов.'},400);
+ const supplied=input.queries;
+ if(supplied!==undefined&&(!Array.isArray(supplied)||supplied.length>2||supplied.some(value=>typeof value!=='string'||!value.trim()||value.length>600))){
+  return json({error:'Можно указать до двух дополнительных поисковых запросов.'},400);
+ }
+ const queries=[...new Set([query,...(supplied||[]).map(value=>value.trim())])];
  const identity=requester(request),now=Date.now();
  for(const [key,value]of researchCache)if(now-value.created>900000)researchCache.delete(key);
  for(const [key,value]of searchLimits)if(now-value.start>60000)searchLimits.delete(key);
  let limit=searchLimits.get(identity);if(!limit)limit={start:now,count:0};
- if(limit.count>=6)return json({error:'Слишком много поисков. Подождите минуту.',code:'search_rate_limit'},429);
+ if(limit.count+queries.length>6)return json({error:'Слишком много поисков. Подождите минуту.',code:'search_rate_limit'},429);
  const day=new Date(now).toISOString().slice(0,10);if(day!==searchDay){searchDay=day;searchDayCount=0}
  const dailyLimit=Math.max(1,Math.min(10000,Number(env.TAVILY_DAILY_LIMIT)||30));
- if(searchDayCount>=dailyLimit)return json({error:'Дневной лимит поиска Focus исчерпан. Попробуйте завтра.',code:'search_daily_limit'},429);
- limit.count++;searchLimits.set(identity,limit);searchDayCount++;
- let response;try{response=await fetcher('https://api.tavily.com/search',{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${env.TAVILY_API_KEY}`},body:JSON.stringify({query,search_depth:'basic',topic:'general',max_results:8,include_answer:false,include_raw_content:false,auto_parameters:false}),signal:AbortSignal.any([AbortSignal.timeout(20000),request.signal])})}catch{return json({error:'Поиск не ответил вовремя. Повторите позже или отключите поиск.',code:'search_connection'},502)}
- if(!response.ok){const status=response.status;const error=status===401||status===403?'Сервис поиска отклонил доступ. Проверьте ключ и доступ с сервера.':status===429||status===432||status===433?'Квота поиска исчерпана или сервис перегружен. Повторите позже.':'Сервис поиска временно недоступен. Попробуйте позже.';return json({error,code:'search_provider_error',providerStatus:status},status===429||status===432||status===433?429:502)}
- let data;try{data=await response.json()}catch{return json({error:'Сервис поиска вернул некорректный ответ.'},502)}
- const sources=[],seen=new Set();for(const result of Array.isArray(data.results)?data.results:[]){if(!result||typeof result!=='object')continue;const url=safeSourceURL(result.url);if(!url||seen.has(url))continue;seen.add(url);sources.push({id:sources.length+1,url,domain:new URL(url).hostname.replace(/^www\./,''),title:String(result.title||new URL(url).hostname).slice(0,200),snippet:String(result.content||'').slice(0,1800)});if(sources.length===8)break}
+ if(searchDayCount+queries.length>dailyLimit)return json({error:'Дневной лимит поиска Focus исчерпан. Попробуйте завтра.',code:'search_daily_limit'},429);
+ limit.count+=queries.length;searchLimits.set(identity,limit);searchDayCount+=queries.length;
+ const outcomes=await Promise.all(queries.map(async value=>{
+  let response;
+  try{
+   response=await fetcher('https://api.tavily.com/search',{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${env.TAVILY_API_KEY}`},body:JSON.stringify({query:value,search_depth:'basic',topic:'general',max_results:8,include_answer:false,include_raw_content:false,auto_parameters:false}),signal:AbortSignal.any([AbortSignal.timeout(20000),request.signal])});
+  }catch{return {failure:json({error:'Поиск не ответил вовремя. Повторите позже или отключите поиск.',code:'search_connection'},502)};}
+  if(!response.ok){
+   const status=response.status;
+   const limited=[429,432,433].includes(status);
+   const error=[401,403].includes(status)?'Сервис поиска отклонил доступ. Проверьте ключ и доступ с сервера.':limited?'Квота поиска исчерпана или сервис перегружен. Повторите позже.':'Сервис поиска временно недоступен. Попробуйте позже.';
+   return {failure:json({error,code:'search_provider_error',providerStatus:status},limited?429:502)};
+  }
+  try{
+   const data=await response.json();
+   return {results:Array.isArray(data.results)?data.results:[]};
+  }catch{return {failure:json({error:'Сервис поиска вернул некорректный ответ.'},502)};}
+ }));
+ if(outcomes.every(outcome=>outcome.failure))return outcomes[0].failure;
+ const failedQueries=outcomes.flatMap((outcome,index)=>outcome.failure?[queries[index]]:[]);
+ const sources=[],seen=new Set();
+ for(let rank=0;rank<8;rank++){
+  for(const {results} of outcomes){
+   const result=results?.[rank];
+   if(!result||typeof result!=='object'||sources.length===(supplied?12:8))continue;
+   const url=safeSourceURL(result.url);
+   if(!url||seen.has(url))continue;
+   seen.add(url);
+   sources.push({id:sources.length+1,url,domain:new URL(url).hostname.replace(/^www\./,''),title:String(result.title||new URL(url).hostname).slice(0,200),snippet:String(result.content||'').slice(0,1800)});
+  }
+ }
  if(!sources.length)return json({error:'По этому запросу не найдено подходящих источников. Уточните вопрос или отключите поиск.',code:'search_empty'},422);
- const id=crypto.randomUUID();const searchedAt=new Date().toISOString();const research={query,sources,searchedAt,identity,created:now};
+ const id=crypto.randomUUID();const searchedAt=new Date().toISOString();const research={query,sources,searchedAt,identity,created:now,...(supplied?{queries,failedQueries}:{})};
  if(researchCache.size>=250)researchCache.delete(researchCache.keys().next().value);
- researchCache.set(id,research);return json({searchId:id,query,sources,searchedAt});
+ researchCache.set(id,research);return json({searchId:id,query,sources,searchedAt,...(supplied?{queries,failedQueries}:{})});
 }
 const OPENROUTER_MODEL='openrouter/free';
 function modelConfig(env){return env.OPENROUTER_API_KEY?{configured:true,provider:'openrouter',model:OPENROUTER_MODEL,label:'Guzan 1.1'}:{configured:!!env.GOOGLE_API_KEY,provider:'google',model:MODEL,label:'Guzan 1.1'}}
@@ -99,7 +131,7 @@ async function openRouterChat(contents,request,env,fetcher,research,taskMode,sit
  }
  const signal=AbortSignal.any([AbortSignal.timeout(90000),request.signal]);
  const fallbackModel='google/gemma-4-26b-a4b-it:free';
- const search=research?{query:research.query,sources:publicSources(research),searchedAt:research.searchedAt}:null;
+ const search=research?{query:research.query,sources:publicSources(research),searchedAt:research.searchedAt,...(research.queries?{queries:research.queries,failedQueries:research.failedQueries}:{})}:null;
  for(let attempt=0;attempt<(siteMode?2:1);attempt++){
   const model=attempt?fallbackModel:OPENROUTER_MODEL;
   const requestMessages=attempt?[{role:'system',content:messages[0].content+
@@ -261,52 +293,7 @@ function convertUnits(input){
  const base=calculatePair('*',decimal(value),decimal(source[1]));
  return '**Результат** '+formatFraction(calculatePair('/',base,decimal(target[1])))+' '+to.toLowerCase();
 }
-function readCSV(input,separator,preserveSpaces=false){
- const rows=[];
- let row=[],field='',quoted=false,closed=false;
- const text=input.replace(/^\uFEFF/u,'').replace(/\r\n?/gu,'\n');
- const finishField=()=>{
-  row.push(preserveSpaces?field:field.trim());
-  field='';
-  closed=false;
-  if(row.length>64)throw new Error('CSV должен содержать до 64 столбцов.');
- };
- const finishRow=()=>{
-  finishField();
-  if(row.some(Boolean)||row.length>1)rows.push(row);
-  row=[];
-  if(rows.length>5001)throw new Error('CSV должен содержать до 5000 строк данных.');
- };
- for(let i=0;i<text.length;i++){
-  const c=text[i];
-  if(quoted){
-   if(c!=='"')field+=c;
-   else if(text[i+1]==='"'){field+='"';i++;}
-   else{quoted=false;closed=true;}
-  }else if(c===separator)finishField();
-  else if(c==='\n')finishRow();
-  else if(c==='"'&&!field&&!closed)quoted=true;
-  else if(closed||c==='"')throw new Error('Проверьте кавычки в CSV.');
-  else field+=c;
- }
- if(quoted)throw new Error('В CSV есть незакрытые кавычки.');
- if(field||row.length||closed)finishRow();
- return rows;
-}
 const tableCell=value=>String(value).slice(0,160).replace(/[\r\n]+/gu,' ').replace(/[|\\`*_~<>[\]]/gu,' ');
-function csvTable(text,option,preserveSpaces=false){
- const delimiters=option?[{'запятая':',','точка-с-запятой':';','табуляция':'\t',',':',',';':';'}[option]]:[';',',','\t'];
- if(!delimiters[0])throw new Error('Укажите разделитель: /csv ; или /csv , или /csv табуляция.');
- let rows,problem;
- for(const separator of delimiters){
-  try{
-   const candidate=readCSV(text,separator,preserveSpaces);
-   if(candidate.length&&candidate.every(row=>row.length===candidate[0].length)&&(!rows||candidate[0].length>rows[0].length))rows=candidate;
-  }catch(error){problem=error;}
- }
- if(!rows||rows[0].length<2&&!option)throw new Error(rows||!problem?'Не удалось определить разделитель. Попробуйте /csv ; или /csv ,':problem.message);
- return rows;
-}
 function analyzeCSV(text,option){
  const [head,...data]=csvTable(text,option);
  const result=['**Строк данных:** '+data.length+' · **Столбцов:** '+head.length,'','| Столбец | Пустых | Мин. | Макс. | Сумма | Среднее |','| --- | ---: | ---: | ---: | ---: | ---: |'];
@@ -646,6 +633,11 @@ export async function chat(request,env,fetcher=fetch,context={}){
   total+=m.content.length+(m.quote?.length||0);
   const parts=[];
   if(m.content)parts.push({text:m.content});
+  if(m===latest&&typeof m.projectInstructions==='string'&&m.projectInstructions.trim()){
+   const instructions=m.projectInstructions.trim().slice(0,4000);
+   total+=instructions.length;
+   parts.push({text:'Инструкции пользователя для проекта:\n'+instructions});
+  }
   if(m.quote)parts.push({text:'Выделенный пользователем фрагмент сообщения (контекст для вопроса):\n'+m.quote});
   for(const f of (m.attachments||[]).slice(0,8)){
    if(!f||typeof f!=='object')continue;
@@ -726,6 +718,10 @@ export async function chat(request,env,fetcher=fetch,context={}){
  let research=null;
  if(input.searchId){research=researchCache.get(input.searchId);if(!research||research.identity!==requester(request)||Date.now()-research.created>900000)return json({error:'Результаты поиска устарели. Повторите запрос с поиском.',code:'search_expired'},409)}
  if(research)contents.at(-1).parts.push(researchEvidence(research));
+ if(!siteMode&&!combinedText&&request.headers.get('accept')==='text/event-stream'){
+  const stream=await streamChat(contents,request,env,fetcher,research,taskMode,input.effort,forgeMode);
+  if(stream)return stream;
+ }
  const result=env.OPENROUTER_API_KEY
   ?await openRouterChat(contents,request,env,fetcher,research,taskMode,siteMode,forgeMode)
   :await googleChat(contents,request,env,fetcher,research,taskMode,siteMode,input.effort,forgeMode);
@@ -750,6 +746,90 @@ export async function chat(request,env,fetcher=fetch,context={}){
  }
  return json({error:'Модель не подготовила правку. Текущая версия осталась в предпросмотре. Попробуйте повторить запрос.',code:'site_revision_unavailable'},502);
 }
+async function streamChat(contents,request,env,fetcher,research,taskMode,effort,forgeMode){
+ const router=!!env.OPENROUTER_API_KEY;
+ const system=chatSystem(env,research,taskMode,false,forgeMode);
+ const body=router?{
+  model:OPENROUTER_MODEL,stream:true,max_tokens:taskMode==='code'?8192:4096,
+  messages:[{role:'system',content:system},...contents.map(message=>({
+   role:message.role==='model'?'assistant':'user',
+   content:message.parts.map(part=>part.text?{type:'text',text:part.text}:{
+    type:'image_url',image_url:{url:'data:'+part.inlineData.mimeType+';base64,'+part.inlineData.data}
+   })
+  }))]
+ }:{systemInstruction:{parts:[{text:system}]},contents,generationConfig:{maxOutputTokens:8192,temperature:.6,thinkingConfig:{thinkingLevel:{fast:'minimal',balanced:'low',deep:'high'}[effort]||'low'}}};
+ if(router&&contents.some(message=>message.parts.some(part=>part.inlineData?.mimeType==='application/pdf')))return null;
+ const signal=AbortSignal.any([AbortSignal.timeout(90000),request.signal]);
+ let upstream;
+ try{
+  upstream=await fetcher(router?'https://openrouter.ai/api/v1/chat/completions':
+   `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:streamGenerateContent?alt=sse`,{
+   method:'POST',signal,
+   headers:{'content-type':'application/json',...(router?{authorization:'Bearer '+env.OPENROUTER_API_KEY}:{'x-goog-api-key':env.GOOGLE_API_KEY})},
+   body:JSON.stringify(body)
+  });
+ }catch{return json({error:'Не удалось открыть поток модели. Попробуйте ещё раз.'},502);}
+ if(!upstream.ok){
+  if([400,404,415,422].includes(upstream.status)){await upstream.body?.cancel();return null;}
+  await upstream.body?.cancel();
+  return json({error:'Модель не смогла начать ответ. Попробуйте ещё раз.'},upstream.status===429?429:502);
+ }
+ if(!upstream.body||!upstream.headers.get('content-type')?.includes('text/event-stream')){
+  await upstream.body?.cancel();
+  return null;
+ }
+ const events=eventStream(upstream.body);
+ const encoder=new TextEncoder();
+ let text='',model=router?OPENROUTER_MODEL:MODEL,usage=null,truncated=false,finished=false;
+ const record=value=>encoder.encode('data: '+JSON.stringify(value)+'\n\n');
+ const stream=new ReadableStream({
+  async pull(controller){
+   try{
+    for(;;){
+     const {value,done}=await events.next();
+     if(done||value==='[DONE]'){
+      if(!text.trim()||(!finished&&value!=='[DONE]')){
+       controller.enqueue(record({error:'Поток модели прервался. Попробуйте повторить запрос.'}));
+      }else{
+       controller.enqueue(record({result:{text,model,usage,truncated,provider:router?'openrouter':'google',
+        search:research?{query:research.query,sources:research.sources,searchedAt:research.searchedAt,
+         queries:research.queries,failedQueries:research.failedQueries}:null}}));
+      }
+      await events.return();
+      controller.close();
+      return;
+     }
+     const data=JSON.parse(value);
+     if(data.error)throw new Error('provider stream failure');
+     const candidate=router?data.choices?.[0]:data.candidates?.[0];
+     const reason=router?candidate?.finish_reason:candidate?.finishReason;
+     if(reason){
+      if(['content_filter','error','SAFETY','BLOCKLIST','PROHIBITED_CONTENT'].includes(reason))throw new Error('response unavailable');
+      finished=true;
+      truncated=['length','MAX_TOKENS'].includes(reason);
+     }
+     model=data.model||model;
+     usage=data.usage||data.usageMetadata||usage;
+     const delta=router?candidate?.delta?.content:candidate?.content?.parts?.filter(part=>!part.thought).map(part=>part.text||'').join('');
+     if(typeof delta!=='string'||!delta)continue;
+     text+=delta;
+     if(text.length>200000)throw new Error('response too large');
+     controller.enqueue(record({delta}));
+     return;
+    }
+   }catch{
+    await events.return().catch(()=>{});
+    if(!request.signal.aborted){
+     controller.enqueue(record({error:'Поток модели прервался. Попробуйте повторить запрос.'}));
+     controller.close();
+    }
+   }
+  },
+  async cancel(){await events.return();}
+ });
+ return new Response(stream,{headers:{...headers,'content-type':'text/event-stream; charset=utf-8','cache-control':'no-store','x-accel-buffering':'no'}});
+}
+
 async function googleChat(contents,request,env,fetcher,research,taskMode,siteMode,requestedEffort,forgeMode=false){
  const effort=['fast','balanced','deep'].includes(requestedEffort)?requestedEffort:'balanced';
  const body={systemInstruction:{parts:[{text:chatSystem(env,research,taskMode,siteMode,forgeMode)}]},contents,generationConfig:{maxOutputTokens:8192,temperature:.6,thinkingConfig:{thinkingLevel:effort==='fast'?'minimal':effort==='deep'?'high':'low'}}};
@@ -757,7 +837,7 @@ async function googleChat(contents,request,env,fetcher,research,taskMode,siteMod
  if(!response.ok){const status=response.status;let code='';try{const d=await response.json();code=d.error?.details?.find(x=>x.reason)?.reason||''}catch{}const error=status===429?'Достигнут лимит Google API. Проверьте квоту или повторите позже.':status===401||status===403||code==='API_KEY_INVALID'?'Google не принял API-ключ или у него нет доступа к модели.':status===404?'Эта модель недоступна в Google API для данного ключа.':status===400?'Google отклонил запрос. Проверьте ключ API и поддерживаемые вложения.':'Сервис модели временно недоступен. Повторите позже.';return json({error,code:'provider_error',providerStatus:status},status===429?429:502)}
  let data;try{data=await response.json()}catch{return json({error:'Модель вернула некорректный ответ'},502)}
  const candidate=data.candidates?.[0];const text=candidate?.content?.parts?.filter(p=>!p.thought).map(p=>p.text||'').join('');if(!text)return json({error:data.promptFeedback?.blockReason||candidate?.finishReason==='SAFETY'?'Модель не смогла ответить на этот запрос. Попробуйте переформулировать.':'Получен пустой ответ. Попробуйте ещё раз.',code:data.promptFeedback?.blockReason||candidate?.finishReason==='SAFETY'?'content_filtered':'empty_response'},422);
- return json({text,search:research?{query:research.query,sources:publicSources(research),searchedAt:research.searchedAt}:null,model:MODEL,usage:data.usageMetadata||null,truncated:candidate.finishReason==='MAX_TOKENS'});
+ return json({text,search:research?{query:research.query,sources:publicSources(research),searchedAt:research.searchedAt,...(research.queries?{queries:research.queries,failedQueries:research.failedQueries}:{})}:null,model:MODEL,usage:data.usageMetadata||null,truncated:candidate.finishReason==='MAX_TOKENS'});
 }
 const PREVIEW_CSP="sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; form-action 'none'; base-uri 'none'; frame-ancestors 'self' https://chatgpt.com https://*.chatgpt.com";
 export default{async fetch(request,env,ctx){const url=new URL(request.url);if(['/login','/login.html'].includes(url.pathname)&&['GET','HEAD'].includes(request.method))return new Response(request.method==='HEAD'?null:ASSETS['/login.html'].body,{headers:{...headers,'content-type':'text/html; charset=utf-8','cache-control':'no-store','content-security-policy':"default-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"}});if(url.pathname==='/preview.html'&&['GET','HEAD'].includes(request.method))return new Response(request.method==='HEAD'?null:ASSETS['/preview.html'].body,{headers:{...headers,'content-type':'text/html; charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer','content-security-policy':PREVIEW_CSP}});if(url.pathname==='/api/status')return request.method==='GET'?json({...modelConfig(env),searchConfigured:!!env.TAVILY_API_KEY,images:imageAccess(env)}):json({error:'Метод не поддерживается'},405);if(url.pathname==='/api/search')return request.method==='POST'?searchWeb(request,env):json({error:'Метод не поддерживается'},405);if(url.pathname==='/api/chat')return request.method==='POST'?chat(request,env,fetch,ctx):json({error:'Метод не поддерживается'},405);if(!['GET','HEAD'].includes(request.method))return new Response('Method not allowed',{status:405,headers});const asset=ASSETS[url.pathname];if(!asset)return new Response('Not found',{status:404,headers});const adminPage=url.pathname==='/admin'||url.pathname==='/admin.html';const body=request.method==='HEAD'?null:asset.encoding==='base64'?Uint8Array.from(atob(asset.body),byte=>byte.charCodeAt(0)):asset.body;return new Response(body,{headers:{...headers,'content-type':asset.type,'cache-control':adminPage?'no-store':'no-cache','content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors "+(adminPage?"'none'; form-action 'self'":"'self' https://chatgpt.com https://*.chatgpt.com")}})}};

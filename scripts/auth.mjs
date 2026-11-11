@@ -3,6 +3,8 @@ import {DatabaseSync} from 'node:sqlite';
 import {sendLoginCode} from './mail.mjs';
 import {createAccountStore,digest,nonce,transaction,sessionDevice,DAY} from './accounts.mjs';
 import {createAdmin} from './admin.mjs';
+import {createWorkspace} from './workspace.mjs';
+import {createJobs} from './jobs.mjs';
 import {json,error,readJson} from './auth-http.mjs';
 
 const MINUTE = 60_000;
@@ -53,6 +55,8 @@ export function createAuth(env,{mailer=sendLoginCode,clock=Date.now}={}) {
  `);
  const accounts=createAccountStore(db,env,clock());
  const admin=createAdmin(db,env,accounts);
+ const workspaceRequest=createWorkspace(db);
+ const jobs=createJobs(db);
  const sql = query => db.prepare(query);
  const count = sql('SELECT count(*) AS n FROM auth_events WHERE kind=? AND identity=? AND created>?');
  const record = sql('INSERT INTO auth_events VALUES(?,?,?)');
@@ -167,6 +171,10 @@ export function createAuth(env,{mailer=sendLoginCode,clock=Date.now}={}) {
    if(path.startsWith('/api/admin/'))return admin(request,url,client,now);
    const token = sessionToken(request,secure);
    const user = token ? userBySession.get(token,now)||null : null;
+   const workspace=await workspaceRequest(request,url,user,now);
+   if(workspace)return workspace;
+   const job=await jobs.handle(request,url,user,now,context.runBackground);
+   if(job)return job;
    if(user&&(path==='/'||path.startsWith('/api/')))touchSession.run(now,token,now-MINUTE);
    if(path==='/login'&&user&&['GET','HEAD'].includes(request.method))return redirect('/');
    if(path==='/api/auth/session'){
@@ -208,6 +216,6 @@ export function createAuth(env,{mailer=sendLoginCode,clock=Date.now}={}) {
    return json({user:accounts.profile(user,now)});
   },
   record(id,kind,ok){accounts.record(id,kind,ok,clock());},
-  close(){db.close();},
+  close(){jobs.close();db.close();},
  };
 }

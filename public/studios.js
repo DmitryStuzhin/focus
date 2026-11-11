@@ -1,6 +1,6 @@
 import {icon} from './icons.js';
 
-export const STUDIO_LABELS={sites:'Сайты',images:'Изображения',skills:'Скиллы'};
+export const STUDIO_LABELS={sites:'Сайты',images:'Изображения',tables:'Таблицы',skills:'Скиллы'};
 export const SITE_STARTERS=[
  {title:'Лендинг',icon:'globe',prompt:'Лендинг для небольшого бренда. Первый экран с ясным предложением, блок преимуществ, отзывы и призыв к действию.'},
  {title:'Портфолио',icon:'grid',prompt:'Портфолио специалиста. Короткое вступление, сетка избранных работ, информация обо мне и контакты.'},
@@ -29,7 +29,7 @@ function hero(title,description){
  return `<header class="studio-hero"><h1>${title}</h1><p>${description}</p></header>`;
 }
 
-export function renderSites({e,brief,project,sites,busy}){
+export function renderSites({e,brief,project,sites,busy,canPublish}){
  return `<section class="studio">
   ${hero('Сайты','Опиши страницу, открой предпросмотр и продолжи правки в диалоге.')}
   <form class="studio-panel studio-form" id="site-studio-form">
@@ -43,7 +43,7 @@ export function renderSites({e,brief,project,sites,busy}){
    <div class="studio-section-head"><h2 id="studio-sites-title">Мои сайты</h2><span>${sites.length}</span></div>
    ${sites.length?`<div class="studio-grid studio-grid--sites">${sites.map(({id,title,project,updated})=>`<article class="studio-card">
     <div class="studio-card-body"><h3>${e(title)}</h3><small>${e(project)} · ${e(updated)}</small>
-    <div class="studio-card-actions"><button type="button" data-action="studio-open-site" data-id="${e(id)}">Открыть ${icon('external')}</button><button type="button" data-action="studio-download-site" data-id="${e(id)}">${icon('download')} HTML</button></div></div>
+    <div class="studio-card-actions"><button type="button" data-action="studio-open-site" data-id="${e(id)}">Открыть ${icon('external')}</button><button type="button" data-action="studio-download-site" data-id="${e(id)}">${icon('download')} HTML</button><button type="button" data-action="site-versions" data-id="${e(id)}">${canPublish?'Версии и ссылки':'Версии'}</button></div></div>
    </article>`).join('')}</div>`:`<div class="studio-empty">${icon('globe')}<p>Здесь появятся сайты, созданные в Focus.</p></div>`}
   </section>
  </section>`;

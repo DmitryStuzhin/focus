@@ -1,3 +1,7 @@
+import {eventStream} from './event-stream.js';
+import {workspaceAPI,snapshotWorkspace,restoreWorkspace} from './workspace-features.js';
+import {openTable,createWorkbook,createDocument,createSlides} from './office.js';
+import {compareTables} from './tabular.js';
 import {projectFiles,projectZip} from './project-bundle.js';
 import {resolveAction,SPLIT_ACTIONS} from './action-phrases.js';
 import {projectSearchQuery,projectPath,searchProjectFiles,readMatchContext} from './project-search.js';
@@ -16,6 +20,8 @@ import {forgeIntent,forgeReport,namedCodeFiles} from './forge.js';
 const app=document.querySelector('#app');
 const MODEL_LABEL='Guzan 1.1';
 let state=fresh(), account=null, ready=false;
+let cloudRevision=null, cloudAuto=false, cloudSaving=false, cloudTimer, localRevision=0;
+let pendingResearch=null;
 const imagePassKey=()=>account?"focus-image-pass."+account.id:"focus-image-pass";
 const savedImagePass=()=>isSecureContext?sessionStorage.getItem(imagePassKey()):null;
 const hasImageAccess=()=>account?account.subscriptionUntil>Date.now()||!!savedImagePass():!!savedImagePass();
@@ -44,7 +50,7 @@ const fileIcon=f=>f.kind==='folder'?'folder':f.type?.startsWith('image/')?'image
 const ib=(action,name,label,extra='')=>{const cls=extra.match(/class="([^"]*)"/)?.[1]||'';extra=extra.replace(/class="[^"]*"/,'');return `<button type="button" class="icon-btn ${cls}" data-action="${action}" title="${e(label)}" aria-label="${e(label)}" ${extra}>${icon(name)}</button>`};
 const button=(action,text,type='',extra='')=>`<button ${extra.includes('type=')?'':'type="button"'} class="btn ${type}" data-action="${action}" ${extra}>${text}</button>`;
 const visibleFiles=()=>state.files.filter(f=>f.project===activeProject()?.id&&!f.deleted);
-function persist(){try{writeState(state);return true}catch(err){toast('Не удалось сохранить изменения: хранилище браузера заполнено');return false}}
+function persist(){try{writeState(state);localRevision++;scheduleCloudSave();return true}catch(err){toast('Не удалось сохранить изменения: хранилище браузера заполнено');return false}}
 function log(text,project=activeProject()?.id){state.changes.unshift({id:uid(),text,project,at:Date.now()});state.changes=state.changes.slice(0,400)}
 const forgeFileType=name=>/\.html?$/iu.test(name)?'text/html':/\.css$/iu.test(name)?'text/css':/\.(?:js|mjs|cjs)$/iu.test(name)?'text/javascript':/\.json$/iu.test(name)?'application/json':'text/plain';
 async function saveForgeCheckpoint(chat,content){
@@ -103,7 +109,7 @@ function render(){
 }
 function sidebar(){
  return `<aside class="sidebar ${ui.mobileNav?'mobile-open':''}" aria-label="Навигация" ${(innerWidth<640&&!ui.mobileNav)||(innerWidth>=640&&ui.sidebarClosed)?'inert':''}><div class="brand-row"><button class="brand focus-brand" data-action="workspace" aria-label="Focus — рабочее пространство"><img src="/favicon.svg" alt="" width="24" height="24">Focus</button>${ib('toggle-sidebar','panel','Свернуть навигацию')}</div>
- <nav class="nav-group"><button class="nav-row new-chat" data-action="new-chat">${icon('compose')}<span>Новый диалог</span><kbd class="keycap">⌘ N</kbd></button><button class="nav-row" data-action="search">${icon('search')}<span>Поиск</span><kbd class="keycap">⌘ K</kbd></button><button class="nav-row ${ui.view==='workspace'?'active':''}" data-action="workspace">${icon('grid')}<span>Рабочее пространство</span></button>${Object.entries(STUDIO_LABELS).map(([view,label])=>`<a class="nav-row studio-nav ${ui.view===view?'active':''}" href="#${view}" data-action="studio-view" data-id="${view}" ${ui.view===view?'aria-current="page"':''}>${icon({sites:'globe',images:'image',skills:'command'}[view])}<span>${label}</span></a>`).join('')}</nav>
+ <nav class="nav-group"><button class="nav-row new-chat" data-action="new-chat">${icon('compose')}<span>Новый диалог</span><kbd class="keycap">⌘ N</kbd></button><button class="nav-row" data-action="search">${icon('search')}<span>Поиск</span><kbd class="keycap">⌘ K</kbd></button><button class="nav-row ${ui.view==='workspace'?'active':''}" data-action="workspace">${icon('grid')}<span>Рабочее пространство</span></button>${Object.entries(STUDIO_LABELS).map(([view,label])=>`<a class="nav-row studio-nav ${ui.view===view?'active':''}" href="#${view}" data-action="studio-view" data-id="${view}" ${ui.view===view?'aria-current="page"':''}>${icon({sites:'globe',images:'image',tables:'table',skills:'command'}[view])}<span>${label}</span></a>`).join('')}</nav>
  <div class="projects-heading"><span>Проекты</span>${ib('create-project','plus','Создать проект')}</div>
  <div class="sidebar-tabs" role="tablist" aria-label="Состояние диалогов"><button class="tab ${!ui.archive?'active':''}" role="tab" aria-selected="${!ui.archive}" data-action="tab-dialogs">Диалоги</button><button class="tab ${ui.archive?'active':''}" role="tab" aria-selected="${ui.archive}" data-action="tab-archive">Архив</button></div>
  <nav class="project-tree" aria-label="Проекты и диалоги">${liveProjects().map(p=>{const chats=state.chats.filter(c=>c.project===p.id&&!c.deleted&&!!c.archived===ui.archive).sort((a,b)=>b.updated-a.updated);return `<div class="project-row ${p.id===state.activeProject?'active':''}"><button class="project-link" data-action="select-project" data-id="${p.id}">${icon('chevron',`caret ${ui.collapsed.has(p.id)?'':'open'}`)}${icon('folder')}<span class="truncate">${e(p.name)}</span></button><button class="icon-btn row-more" data-action="project-menu" data-id="${p.id}" aria-label="Действия с проектом ${e(p.name)}">${icon('more')}</button></div>${ui.collapsed.has(p.id)?'':`<div class="chat-list">${chats.map(c=>`<div class="chat-row ${c.id===state.activeChat&&ui.view==='chat'?'active':''}"><button class="chat-link truncate" data-action="select-chat" data-id="${c.id}">${e(c.title)}</button><button class="icon-btn row-more" data-action="chat-menu" data-id="${c.id}" aria-label="Действия с диалогом ${e(c.title)}">${icon('more')}</button></div>`).join('')}</div>`}`}).join('')}${liveProjects().length?'':`<p class="empty-nav">Создайте проект, чтобы начать</p>`}</nav>
@@ -112,7 +118,8 @@ function sidebar(){
 function studioSites(){
  const projects=new Set(liveProjects().map(project=>project.id));
  return state.chats.filter(chat=>!chat.deleted&&projects.has(chat.project)).flatMap(chat=>{
-  const message=chat.messages.findLast(message=>message.role==='assistant'&&(!message.previewKind||message.previewKind==='site')&&findWebsite(message));
+  const preferred=chat.messages.find(message=>message.id===chat.siteVersion);
+  const message=findWebsite(preferred)?preferred:chat.messages.findLast(message=>message.role==='assistant'&&(!message.previewKind||message.previewKind==='site')&&findWebsite(message));
   const selection=findWebsite(message);
   return selection?[{id:chat.id,title:chat.title.replace(/^\/site\s+/iu,''),project:projectName(chat.project),updated:date(chat.updated),at:chat.updated,selection}]:[];
  }).sort((a,b)=>b.at-a.at);
@@ -140,7 +147,7 @@ function mainView(){
  switch(ui.view){
   case 'chat':return chatView();
   case 'workspace':return workspaceView();
-  case 'sites':return renderSites({e,project,brief:studio.siteBrief,sites:studioSites(),busy:!!generation});
+  case 'sites':return renderSites({e,project,brief:studio.siteBrief,sites:studioSites(),busy:!!generation,canPublish:!!account});
   case 'images':{
    const files=studioImages();
    const source=files.find(file=>file.id===studio.image.reference);
@@ -149,6 +156,7 @@ function mainView(){
     access:apiStatus.images,hasPass:hasImageAccess(),subscriptionUntil:account?.subscriptionUntil,busy:!!studio.imageController,error:studio.imageError});
   }
   case 'skills':return renderSkills();
+  case 'tables':return tablesView();
   default:return collectionView();
  }
 }
@@ -245,11 +253,19 @@ async function generateStudioImage(){
 }
 
 function header(){let title=STUDIO_LABELS[ui.view]||(ui.view==='workspace'?'Рабочее пространство':ui.view==='trash'?'Корзина':ui.view==='archive'?'Архив':activeProject()?.name||'Новый диалог');return `<header class="topbar"><div class="topbar-title">${ib('toggle-sidebar','menu','Открыть навигацию',ui.sidebarClosed?'':`class="mobile-only"`)}<span class="truncate">${e(title)}</span>${ui.view==='chat'&&activeChat()?`<span class="top-divider desktop-only"></span><span class="truncate desktop-only" style="color:var(--muted);font-size:12px;font-weight:400">${e(activeChat().title)}</span>`:''}</div><div class="topbar-actions">${themeButton()}${ui.view==='chat'?`<button class="status" data-action="model-info" title="Статус подключения"><span class="status-dot"></span>${apiStatus.configured?e(MODEL_LABEL):'Не подключено'}</button><span class="top-divider"></span>${activeChat()?ib('current-chat-menu','more','Действия с диалогом'):''}${ib('toggle-files','panel','Показать или скрыть файлы',`aria-pressed="${state.settings.showFiles}"`)}`:button('new-chat',`${icon('plus')} <span>Новый диалог</span>`,'ghost topbar-new-chat','aria-label="Новый диалог"')}</div></header>`}
-function chatView(){const c=activeChat();if(!c||!c.messages.length)return `<section class="welcome"><div class="welcome-inner">${mark}<h1>Над чем поработаем?</h1><p class="welcome-sub">Спроси Guzan, приложи файл или начни с одной из задач ниже</p><p class="suggestion-heading" id="suggestion-heading">Быстрые задачи</p><div class="suggestions" role="group" aria-labelledby="suggestion-heading"><button class="suggestion" data-action="prompt" data-prompt="Нарисуй ">${icon('image')}Создать изображение</button><button class="suggestion" data-action="prompt" data-prompt="Сделай постер ">${icon('poster')}Постер или обложка</button><button class="suggestion" data-action="prompt" data-prompt="Напиши код для ">${icon('code')}Написать код</button><button class="suggestion" data-action="prompt" data-prompt="Сделай сайт">${icon('globe')}Создать сайт</button><button class="suggestion" data-action="prompt" data-prompt="Проверь код: ">${icon('search')}Проверить код</button><button class="suggestion" data-action="prompt" data-prompt="Найди в проекте ">${icon('search')}Найти в проекте</button><button class="suggestion" data-action="prompt" data-prompt="Подготовь документ на тему: ">${icon('file')}Создать документ</button><button class="suggestion" data-action="prompt" data-prompt="Собери презентацию на 8 слайдов о ">${icon('slides')}Собрать презентацию</button><button class="suggestion" data-action="prompt" data-prompt="Создай таблицу для ">${icon('table')}Сделать таблицу</button><button class="suggestion" data-action="prompt" data-prompt="Составь план для ">${icon('plan')}Продумать план</button></div></div></section>`;
+function chatView(){const c=activeChat();if(!c||!c.messages.length)return `<section class="welcome"><div class="welcome-inner">${mark}
+ <h1>Над чем поработаем?</h1><div class="suggestions focus-start" aria-label="Быстрые задачи">
+  <button class="suggestion" aria-label="Создать сайт" data-action="prompt" data-prompt="Сделай сайт">${icon('globe')}<span>Создать сайт<small>Предпросмотр и исходники</small></span></button>
+  <button class="suggestion" data-action="studio-view" data-id="tables">${icon('table')}<span>Сверить таблицы<small>Изменения между двумя выгрузками</small></span></button>
+  <button class="suggestion" data-action="research-plan">${icon('search')}<span>Исследовать тему<small>Поиск с источниками</small></span></button>
+  <button class="suggestion" data-action="studio-view" data-id="images">${icon('image')}<span>Создать изображение<small>Генерация и правки</small></span></button>
+ </div><button class="inline-link focus-code-shortcut" data-action="prompt" data-prompt="Напиши код для ">Написать код</button></div></section>`;
  let lastUserContent='';
  return `<section class="messages" aria-label="Сообщения диалога">${c.messages.map(m=>{
   if(m.role==='user')lastUserContent=m.content;
-  return m.role==='assistant'?`<article class="assistant-message"><div class="assistant-label">Focus <span>${e(m.model==='local-calculator'?'Калькулятор':m.model==='local-statistics'?'Статистика':m.model==='local-conversion'?'Конвертер':m.model==='local-csv'?'Анализ CSV':m.model==='local-diff'?'Сравнение файлов':m.model==='local-project-search'?'Поиск по проекту':m.taskMode==='plan'?'План':m.taskMode==='review'?'Ревью кода':MODEL_LABEL)}</span></div>${sourcePills({...m.search,owner:m.id})}<div class="markdown">${m.model==='local-project-search'?renderProjectMatches(m):m.model==='local-diff'?'<div class="code-block"><pre><code>'+e(m.content)+'</code></pre></div>':linkCitations(markdown(m.content,m,lastUserContent),m.search)}</div>${m.imageFile&&state.files.some(f=>f.id===m.imageFile&&!f.deleted)?'<figure class="generated-image"><img data-generated-file="'+e(m.imageFile)+'" alt="Сгенерированное изображение" /><button class="btn" data-action="download-file" data-id="'+e(m.imageFile)+'">Скачать изображение</button></figure>':''}<div class="assistant-actions">${ib('copy-message','copy','Скопировать ответ',`data-id="${m.id}"`)}${ib('save-answer','file','Сохранить ответ в файл',`data-id="${m.id}"`)}${ib('download-answer','download','Скачать ответ',`data-id="${m.id}"`)}${!m.truncated&&/\x60\x60\x60\w+\s+[^\s]+/u.test(m.content)?button('download-project','Скачать файлы ZIP','ghost',`data-id="${m.id}"`):''}${ib('retry-answer','refresh','Повторить ответ')}${m.truncated?'<small>Достигнута максимальная длина ответа</small>':''}</div></article>`:`<article class="message">${m.files?.length?`<div class="message-files">${m.files.map(id=>{const f=state.files.find(x=>x.id===id&&!x.deleted);return f?`<button class="message-file" data-action="preview-file" data-id="${f.id}">${icon(fileIcon(f))}<span class="truncate">${e(f.name)}</span></button>`:''}).join('')}</div>`:''}<div class="message-bubble">${typeof m.quote==='string'&&m.quote?quoteMarkup(m.quote):''}<div>${e(m.content)}</div></div><div class="message-time"><span>${time(m.at)}</span>${ib('copy-message','copy','Скопировать сообщение',`data-id="${m.id}"`)}${ib('edit-message','rename','Изменить сообщение',`data-id="${m.id}"`)}${ib('delete-message','trash','Удалить сообщение',`data-id="${m.id}"`)}</div></article>`;}).join('')}${generation?.chatId===c.id?`<div class="assistant-message" role="status"><div class="assistant-label">Focus</div>${generation.sources?.length?sourcePills({sources:generation.sources,query:generation.query,owner:'pending'}):''}<div class="generating ${generation.phase==='searching'?'web-searching':''}">${generation.phase==='searching'?'Ищу в интернете':generation.phase==='imaging'?'Создаю изображение':'Готовлю ответ'}<span class="typing-dots"><i></i><i></i><i></i></span></div></div>`:c.error?`<div class="request-error" role="alert">${icon('info')}<div>${c.pendingSearch?.sources?.length?sourcePills({...c.pendingSearch,owner:'pending'}):''}<p>${e(c.error)}</p><button class="inline-link" data-action="retry-answer">Повторить запрос</button></div></div>`:c.messages.at(-1)?.role==='user'?`<div class="pending-note">${icon('info')}<span>${apiStatus.configured?'Ответ не получен. Вы можете повторить запрос.':'Запрос сохранён. Модель ещё не подключена.'} <button class="inline-link" data-action="retry-answer">Повторить</button></span></div>`:''}</section>`}
+  return m.role==='assistant'?`<article class="assistant-message"><div class="assistant-label">Focus <span>${e(m.model==='local-calculator'?'Калькулятор':m.model==='local-statistics'?'Статистика':m.model==='local-conversion'?'Конвертер':m.model==='local-csv'?'Анализ CSV':m.model==='local-diff'?'Сравнение файлов':m.model==='local-project-search'?'Поиск по проекту':m.taskMode==='plan'?'План':m.taskMode==='review'?'Ревью кода':MODEL_LABEL)}</span></div>${sourcePills({...m.search,owner:m.id})}${m.search?.failedQueries?.length?`<p class="settings-note">Не удалось выполнить запросов: ${m.search.failedQueries.length}</p>`:''}<div class="markdown">${m.model==='local-project-search'?renderProjectMatches(m):m.model==='local-diff'?'<div class="code-block"><pre><code>'+e(m.content)+'</code></pre></div>':linkCitations(markdown(m.content,m,lastUserContent),m.search)}</div>${m.imageFile&&state.files.some(f=>f.id===m.imageFile&&!f.deleted)?'<figure class="generated-image"><img data-generated-file="'+e(m.imageFile)+'" alt="Сгенерированное изображение" /><button class="btn" data-action="download-file" data-id="'+e(m.imageFile)+'">Скачать изображение</button></figure>':''}<div class="assistant-actions">${ib('copy-message','copy','Скопировать ответ',`data-id="${m.id}"`)}${ib('save-answer','file','Сохранить ответ в файл',`data-id="${m.id}"`)}${ib('download-answer','download','Скачать ответ',`data-id="${m.id}"`)}${ib('office-export','file','Экспорт в Word или PowerPoint',`data-id="${m.id}"`)}${!m.truncated&&/\x60\x60\x60\w+\s+[^\s]+/u.test(m.content)?button('download-project','Скачать файлы ZIP','ghost',`data-id="${m.id}"`):''}${ib('retry-answer','refresh','Повторить ответ')}${m.truncated?'<small>Достигнута максимальная длина ответа</small>':''}</div></article>`:`<article class="message">${m.files?.length?`<div class="message-files">${m.files.map(id=>{const f=state.files.find(x=>x.id===id&&!x.deleted);return f?`<button class="message-file" data-action="preview-file" data-id="${f.id}">${icon(fileIcon(f))}<span class="truncate">${e(f.name)}</span></button>`:''}).join('')}</div>`:''}<div class="message-bubble">${typeof m.quote==='string'&&m.quote?quoteMarkup(m.quote):''}<div>${e(m.content)}</div></div><div class="message-time"><span>${time(m.at)}</span>${ib('copy-message','copy','Скопировать сообщение',`data-id="${m.id}"`)}${ib('edit-message','rename','Изменить сообщение',`data-id="${m.id}"`)}${ib('delete-message','trash','Удалить сообщение',`data-id="${m.id}"`)}</div></article>`;}).join('')}${generation?.chatId===c.id?`<div class="assistant-message" role="status"><div class="assistant-label">Focus</div>${generation.sources?.length?sourcePills({sources:generation.sources,query:generation.query,owner:'pending'}):''}<div class="generating ${generation.phase==='searching'?'web-searching':''}">${generation.phase==='searching'?'Ищу в интернете':generation.phase==='imaging'?'Создаю изображение':generation.forge?'Подготавливаю файлы и предпросмотр':'Готовлю ответ'}<span class="typing-dots"><i></i><i></i><i></i></span></div><div class="stream-text" id="stream-text">${e(generation.text)}</div></div>`:c.backgroundJob?`<div class="pending-note">${icon('clock')}<span>Исследование выполняется в фоне</span>
+ <button class="inline-link" data-action="resume-background">Проверить результат</button>
+ <button class="inline-link" data-action="cancel-background">Остановить</button></div>`:c.error?`<div class="request-error" role="alert">${icon('info')}<div>${c.pendingSearch?.sources?.length?sourcePills({...c.pendingSearch,owner:'pending'}):''}<p>${e(c.error)}</p><button class="inline-link" data-action="retry-answer">Повторить запрос</button></div></div>`:c.messages.at(-1)?.role==='user'?`<div class="pending-note">${icon('info')}<span>${apiStatus.configured?'Ответ не получен. Вы можете повторить запрос.':'Запрос сохранён. Модель ещё не подключена.'} <button class="inline-link" data-action="retry-answer">Повторить</button></span></div>`:''}</section>`}
 
 function composer(){return `<div class="composer-area"><div class="composer-wrap"><form class="composer" id="composer-form"><div id="composer-quote">${ui.quote?quoteMarkup(ui.quote.text,true):''}</div><div class="attachment-list" ${ui.attachments.length?'':'hidden'}>${ui.attachments.map(id=>{const f=state.files.find(x=>x.id===id);return f?`<span class="attachment-chip">${icon(fileIcon(f))}<span class="truncate">${e(f.name)}</span>${ib('remove-attachment','close','Убрать вложение',`data-id="${id}"`)}</span>`:''}).join('')}</div><textarea id="composer-input" rows="2" placeholder="Задача, вопрос или идея…" aria-label="Сообщение" maxlength="100000">${e(ui.draft)}</textarea><div class="composer-bottom"><div class="composer-left">${ib('attach','attach','Прикрепить файлы')}<button class="web-search-toggle ${state.settings.webSearch?'active':''}" type="button" data-action="toggle-web-search" aria-label="Поиск в интернете" aria-pressed="${!!state.settings.webSearch}" title="${apiStatus.searchConfigured?'Искать источники перед ответом':'Поиск ещё не подключён на сервере'}" ${generation?'disabled':''}>${icon('globe')}<span>Поиск</span></button><button class="composer-select" type="button" data-action="model-menu" aria-label="Выбрать модель">${e(MODEL_LABEL)}${icon('down')}</button><button class="composer-select" type="button" data-action="effort-menu" aria-label="Режим ответа">${apiStatus.provider==='openrouter'?'Обычный ответ':effortLabel()}${icon('down')}</button><button class="composer-select project-context" type="button" data-action="context-menu" aria-label="Контекст проекта">${icon('folder')}<span class="truncate">Файлы проекта</span>${icon('down')}</button></div><button class="send" id="send-button" type="${generation?'button':'submit'}" ${generation?'data-action="stop-generation"':''} aria-label="${generation?'Остановить ответ':'Отправить сообщение'}" ${generation||ui.draft.trim()||ui.attachments.length?'':'disabled'}>${generation?'<span class="stop-square"></span>':icon('arrow')}</button></div></form><div class="composer-hint"><span>История сохраняется в этом браузере</span><span class="enter-hint">· ${state.settings.sendOnEnter?'Enter — отправить, Shift + Enter — новая строка':'Ctrl + Enter — отправить'}</span></div></div></div>`}
 function quoteMarkup(text,editable=false){
@@ -262,7 +278,7 @@ function updateComposerQuote(){
  el('composer-input')?.focus({preventScroll:true});
 }
 function effortLabel(){return {fast:'Быстро',balanced:'Вдумчиво',deep:'Подробно'}[state.settings.effort]||'Вдумчиво'}
-function filesPanel(show){const files=visibleFiles();const current=state.files.find(f=>f.id===ui.folder);const rows=files.filter(f=>(f.parent||null)===ui.folder).sort((a,b)=>(a.kind==='folder'?-1:1)-(b.kind==='folder'?-1:1)||(ui.sort==='date'?b.updated-a.updated:a.name.localeCompare(b.name,'ru')));const size=files.reduce((n,f)=>n+(f.size||0),0);return `<aside class="files-panel ${ui.mobileFiles?'mobile-open':''}" aria-label="Файлы проекта" ${show||ui.mobileFiles?'':'hidden'}><div class="files-header"><div class="files-tabs" role="tablist" aria-label="Панель проекта"><button class="tab ${ui.filesTab==='files'?'active':''}" role="tab" aria-selected="${ui.filesTab==='files'}" data-action="files-tab">Файлы</button><button class="tab ${ui.filesTab==='changes'?'active':''}" role="tab" aria-selected="${ui.filesTab==='changes'}" data-action="changes-tab">Изменения</button></div><div style="display:flex">${ib('refresh-files','refresh','Обновить список файлов')}${ib('close-files','close','Закрыть файлы',`class="mobile-only"`)}</div></div>${ui.filesTab==='files'?`<div class="files-toolbar"><div class="file-path">${ib('folder-up','arrow','На уровень выше',!ui.folder?'disabled':'')}<span class="truncate" title="${e(current?.name||'Корень проекта')}">${e(current?.name||'/')}</span></div><div class="file-actions">${ib('create-file','plus','Создать файл')}${ib('create-folder','folder','Создать папку')}${ib('upload','upload','Загрузить файлы')}</div></div><div class="files-body" id="files-dropzone">${rows.length?rows.map(f=>`<div class="file-row">${icon(fileIcon(f))}<button class="file-open" data-action="${f.kind==='folder'?'open-folder':'preview-file'}" data-id="${f.id}"><strong class="truncate">${e(f.name)}</strong><small>${f.kind==='folder'?'Папка':humanSize(f.size||0)}</small></button><button class="icon-btn row-more" data-action="file-menu" data-id="${f.id}" aria-label="Действия с файлом ${e(f.name)}">${icon('more')}</button></div>`).join(''):`<div class="files-empty">${icon('folder','empty-file-icon')}<span>Здесь пока пусто</span><small>Добавьте материалы для работы</small><button data-action="upload">Выбрать файлы</button></div>`}</div><footer class="files-foot"><span>${files.filter(f=>f.kind!=='folder').length} ${plural(files.filter(f=>f.kind!=='folder').length,'файл','файла','файлов')} · ${humanSize(size)}</span><button data-action="sort-files" style="font-size:10px;padding:0;color:var(--muted)">${ui.sort==='name'?'По имени':'По дате'}</button></footer>`:`<div class="files-body"><div class="change-list">${state.changes.filter(c=>c.project===activeProject()?.id).length?`<p class="change-day">История проекта</p>${state.changes.filter(c=>c.project===activeProject()?.id).slice(0,50).map(c=>`<div class="change-item">${e(c.text)}<small>${date(c.at)}, ${time(c.at)}</small></div>`).join('')}`:`<div class="files-empty">${icon('clock')}<span>Изменений пока нет</span><small>Здесь появятся действия с проектом и файлами</small></div>`}</div></div>`}</aside>`}
+function filesPanel(show){const files=visibleFiles();const current=state.files.find(f=>f.id===ui.folder);const rows=files.filter(f=>(f.parent||null)===ui.folder).sort((a,b)=>(a.kind==='folder'?-1:1)-(b.kind==='folder'?-1:1)||(ui.sort==='date'?b.updated-a.updated:a.name.localeCompare(b.name,'ru')));const size=files.reduce((n,f)=>n+(f.size||0),0);return `<aside class="files-panel ${ui.mobileFiles?'mobile-open':''}" aria-label="Файлы проекта" ${show||ui.mobileFiles?'':'hidden'}><div class="files-header"><div class="files-tabs" role="tablist" aria-label="Панель проекта"><button class="tab ${ui.filesTab==='files'?'active':''}" role="tab" aria-selected="${ui.filesTab==='files'}" data-action="files-tab">Файлы</button><button class="tab ${ui.filesTab==='changes'?'active':''}" role="tab" aria-selected="${ui.filesTab==='changes'}" data-action="changes-tab">Изменения</button>${activeChat()?.siteVersion?button('preview-result','Результат','ghost'):''}</div><div style="display:flex">${ib('refresh-files','refresh','Обновить список файлов')}${ib('close-files','close','Закрыть файлы',`class="mobile-only"`)}</div></div>${ui.filesTab==='files'?`<div class="files-toolbar"><div class="file-path">${ib('folder-up','arrow','На уровень выше',!ui.folder?'disabled':'')}<span class="truncate" title="${e(current?.name||'Корень проекта')}">${e(current?.name||'/')}</span></div><div class="file-actions">${ib('create-file','plus','Создать файл')}${ib('create-folder','folder','Создать папку')}${ib('upload','upload','Загрузить файлы')}</div></div><div class="files-body" id="files-dropzone">${rows.length?rows.map(f=>`<div class="file-row">${icon(fileIcon(f))}<button class="file-open" data-action="${f.kind==='folder'?'open-folder':'preview-file'}" data-id="${f.id}"><strong class="truncate">${e(f.name)}</strong><small>${f.kind==='folder'?'Папка':humanSize(f.size||0)}</small></button><button class="icon-btn row-more" data-action="file-menu" data-id="${f.id}" aria-label="Действия с файлом ${e(f.name)}">${icon('more')}</button></div>`).join(''):`<div class="files-empty">${icon('folder','empty-file-icon')}<span>Здесь пока пусто</span><small>Добавьте материалы для работы</small><button data-action="upload">Выбрать файлы</button></div>`}</div><footer class="files-foot"><span>${files.filter(f=>f.kind!=='folder').length} ${plural(files.filter(f=>f.kind!=='folder').length,'файл','файла','файлов')} · ${humanSize(size)}</span><button data-action="sort-files" style="font-size:10px;padding:0;color:var(--muted)">${ui.sort==='name'?'По имени':'По дате'}</button></footer>`:`<div class="files-body"><div class="change-list">${state.changes.filter(c=>c.project===activeProject()?.id).length?`<p class="change-day">История проекта</p>${state.changes.filter(c=>c.project===activeProject()?.id).slice(0,50).map(c=>`<div class="change-item">${e(c.text)}<small>${date(c.at)}, ${time(c.at)}</small></div>`).join('')}`:`<div class="files-empty">${icon('clock')}<span>Изменений пока нет</span><small>Здесь появятся действия с проектом и файлами</small></div>`}</div></div>`}</aside>`}
 function workspaceView(){return `<section class="workspace"><h1>Ваше пространство</h1><p class="workspace-intro">Проекты объединяют диалоги и файлы по задаче</p><div class="section-heading"><h2>Проекты</h2>${button('create-project',`${icon('plus')} Создать проект`,'ghost')}</div>${liveProjects().map(p=>`<article class="workspace-card"><div class="workspace-symbol">${icon('folder')}</div><div class="workspace-details"><h3>${e(p.name)}</h3><p>${e(p.description)||`${state.chats.filter(c=>c.project===p.id&&!c.deleted).length} ${plural(state.chats.filter(c=>c.project===p.id&&!c.deleted).length,'диалог','диалога','диалогов')} · ${state.files.filter(f=>f.project===p.id&&!f.deleted&&f.kind!=='folder').length} ${plural(state.files.filter(f=>f.project===p.id&&!f.deleted&&f.kind!=='folder').length,'файл','файла','файлов')}`}</p></div>${button('open-workspace',`Открыть ${icon('chevron')}`,'primary',`data-id="${p.id}"`)}${ib('project-menu','more','Действия с проектом',`data-id="${p.id}"`)}</article>`).join('')||`<div class="list-empty">${icon('folder')}<h2>Начните с проекта</h2><p>Соберите диалоги и материалы по одной задаче</p>${button('create-project','Создать проект','primary')}</div>`}<p class="settings-note" style="margin-top:32px">Сейчас пространство хранится на этом устройстве. Резервную копию можно скачать в настройках.</p></section>`}
 function trashCount(){return state.projects.filter(p=>p.deleted).length+state.chats.filter(c=>c.deleted&&!state.projects.find(p=>p.id===c.project)?.deleted).length+state.files.filter(f=>f.deleted&&!state.projects.find(p=>p.id===f.project)?.deleted&&!state.files.find(p=>p.id===f.parent)?.deleted).length}
 function collectionView(){const trash=ui.view==='trash';const projects=trash?state.projects.filter(p=>p.deleted):[];const chats=state.chats.filter(c=>trash?c.deleted&&!state.projects.find(p=>p.id===c.project)?.deleted:c.archived&&!c.deleted&&!state.projects.find(p=>p.id===c.project)?.deleted);const files=trash?state.files.filter(f=>f.deleted&&!state.projects.find(p=>p.id===f.project)?.deleted&&!state.files.find(p=>p.id===f.parent)?.deleted):[];const count=projects.length+chats.length+files.length;return `<section class="workspace"><h1>${trash?'Корзина':'Архив диалогов'}</h1><p class="workspace-intro">${trash?'Удалённые материалы можно восстановить':'Завершённые диалоги остаются под рукой'}</p><div class="section-heading"><h2>${count?`${count} ${trash?plural(count,'элемент','элемента','элементов'):plural(count,'диалог','диалога','диалогов')}`:''}</h2>${trash&&count?button('empty-trash','Очистить корзину','ghost'):''}</div>${[...projects.map(p=>({item:p,type:'project',title:p.name,sub:'Проект',ico:'folder'})),...chats.map(c=>({item:c,type:'chat',title:c.title,sub:projectName(c.project),ico:'chat'})),...files.map(f=>({item:f,type:'file',title:f.name,sub:projectName(f.project),ico:fileIcon(f)}))].map(({item,type,title,sub,ico})=>`<div class="collection-item">${icon(ico)}<button class="item-main" data-action="${trash?'restore':'select-chat'}" data-id="${item.id}" data-type="${type}"><strong class="truncate">${e(title)}</strong><small>${e(sub)}</small></button><div class="row-actions">${ib(trash?'restore':'unarchive','restore',trash?'Восстановить':'Вернуть в диалоги',`data-id="${item.id}" data-type="${type}"`)}${ib(trash?'permanent-delete':'trash-chat','trash',trash?'Удалить навсегда':'В корзину',`data-id="${item.id}" data-type="${type}"`)}</div></div>`).join('')||`<div class="list-empty">${icon(trash?'trash':'archive')}<h2>${trash?'Корзина пуста':'В архиве пока пусто'}</h2><p>${trash?'Удалённые проекты, диалоги и файлы появятся здесь':'Архивируйте завершённый диалог через меню рядом с его названием'}</p>${button('new-chat','Начать диалог','ghost')}</div>`}</section>`}
@@ -290,12 +306,12 @@ window.addEventListener('hashchange',()=>{
 function selectProject(id,toggle=false){const p=state.projects.find(p=>p.id===id&&!p.deleted);if(!p)return;const same=id===state.activeProject;if(same&&toggle){ui.collapsed.has(id)?ui.collapsed.delete(id):ui.collapsed.add(id)}else{state.activeProject=id;state.activeChat=null;ui.folder=null;ui.draft='';ui.quote=null;ui.attachments=[];ui.collapsed.delete(id)}ui.view='chat';ui.mobileNav=false;persist();render()}
 function newChat(){if(!activeProject()){projectDialog();return}state.activeChat=null;ui.draft='';ui.quote=null;ui.attachments=[];ui.archive=false;ui.view='chat';ui.mobileNav=false;persist();render();el('composer-input')?.focus()}
 function selectChat(id){const c=state.chats.find(c=>c.id===id&&!c.deleted);if(!c)return;state.activeChat=id;state.activeProject=c.project;ui.archive=!!c.archived;ui.folder=null;ui.draft='';ui.quote=null;ui.attachments=[];ui.view='chat';ui.mobileNav=false;persist();render();el('main-scroll').scrollTop=el('main-scroll').scrollHeight}
-function send(){if(generation){toast('Дождитесь ответа или остановите запрос');return}const content=ui.draft.trim();if(!content&&!ui.attachments.length)return;if(!activeProject()){projectDialog();return}let c=activeChat();if(!c){c={id:uid(),title:(content.replace(/^\/site\s+/iu,'')||'Диалог с файлами').replace(/\s+/g,' ').slice(0,48),project:activeProject().id,created:Date.now(),updated:Date.now(),messages:[],archived:false,deleted:false};state.chats.unshift(c);state.activeChat=c.id;log(`Создан диалог «${c.title}»`)}c.messages.push({id:uid(),content,files:[...ui.attachments],at:Date.now(),role:'user',...(ui.quote?{quote:ui.quote.text}:{}),webSearch:!!state.settings.webSearch});c.updated=Date.now();ui.draft='';ui.quote=null;ui.attachments=[];persist();render();el('main-scroll').scrollTop=el('main-scroll').scrollHeight;el('composer-input')?.focus();requestAnswer(c)}
+function send(){if(activeChat()?.backgroundJob){toast('В этом диалоге уже выполняется исследование');return;}if(generation){toast('Дождитесь ответа или остановите запрос');return}const content=ui.draft.trim();if(!content&&!ui.attachments.length)return;if(!activeProject()){projectDialog();return}let c=activeChat();if(!c){c={id:uid(),title:(content.replace(/^\/site\s+/iu,'')||'Диалог с файлами').replace(/\s+/g,' ').slice(0,48),project:activeProject().id,created:Date.now(),updated:Date.now(),messages:[],archived:false,deleted:false};state.chats.unshift(c);state.activeChat=c.id;log(`Создан диалог «${c.title}»`)}c.messages.push({id:uid(),content,files:[...ui.attachments],at:Date.now(),role:'user',...(ui.quote?{quote:ui.quote.text}:{}),webSearch:!!state.settings.webSearch,...(pendingResearch?{researchPlan:pendingResearch}:{})});pendingResearch=null;c.updated=Date.now();ui.draft='';ui.quote=null;ui.attachments=[];persist();render();el('main-scroll').scrollTop=el('main-scroll').scrollHeight;el('composer-input')?.focus();requestAnswer(c)}
 function closeMenu(){document.querySelector('.menu-popup')?.remove();ui.menu=null}
 function menu(anchor,options){closeMenu();const div=document.createElement('div');div.className='menu-popup';div.role='menu';div.innerHTML=options.map(o=>o.separator?'<div class="menu-separator"></div>':o.label?`<div class="menu-label">${e(o.label)}</div>`:`<button class="menu-option ${o.danger?'danger':''}" role="menuitem" data-action="${o.action}" ${o.id?`data-id="${e(o.id)}"`:''} ${o.type?`data-type="${e(o.type)}"`:''} ${o.value?`data-value="${e(o.value)}"`:''}>${o.icon?icon(o.icon):''}<span>${e(o.text)}</span>${o.checked?icon('check','check'):''}</button>`).join('');document.body.append(div);const r=anchor.getBoundingClientRect(),d=div.getBoundingClientRect();div.style.left=Math.max(8,Math.min(r.left,innerWidth-d.width-8))+'px';div.style.top=(r.bottom+d.height+8>innerHeight?Math.max(8,r.top-d.height-8):r.bottom+8)+'px';ui.menu=div;div.querySelector('button')?.focus()}
 function closeModal(){const d=document.querySelector('dialog');if(d){d.close();d.remove()}for(const u of objectURLs)URL.revokeObjectURL(u);objectURLs=[]}
 function modal(title,body,{wide=false,onSubmit=null}={}){closeModal();closeMenu();const d=document.createElement('dialog');d.className=`dialog ${wide?'wide':''}`;d.setAttribute('aria-label',title);d.innerHTML=`<div class="dialog-header"><h2>${e(title)}</h2>${ib('close-modal','close','Закрыть')}</div><div class="dialog-body">${body}</div>`;el('overlay-root').append(d);d.showModal();d.addEventListener('click',ev=>{if(ev.target===d)closeModal()});d.addEventListener('cancel',()=>{setTimeout(closeModal,0)});if(onSubmit)d.querySelector('form')?.addEventListener('submit',ev=>{ev.preventDefault();onSubmit(new FormData(ev.target),ev.target)});return d}
-function projectDialog(id){const p=state.projects.find(p=>p.id===id);modal(p?'Настройки проекта':'Новый проект',`<form><p class="dialog-description">Объедините диалоги и файлы по одной задаче</p><div class="form-field"><label for="project-name">Название</label><input id="project-name" name="name" placeholder="Например, запуск продукта" value="${e(p?.name||'')}" maxlength="70" required autofocus /></div><div class="form-field"><label for="project-description">Описание <span style="color:var(--muted);font-weight:400">· необязательно</span></label><textarea id="project-description" name="description" rows="3" placeholder="Для чего этот проект" maxlength="300">${e(p?.description||'')}</textarea></div><p class="error-text" id="form-error" hidden></p><div class="dialog-footer">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">${p?'Сохранить':'Создать проект'}</button></div></form>`,{onSubmit:(data)=>{const name=data.get('name').trim();if(!name)return;if(liveProjects().some(x=>x.name.toLowerCase()===name.toLowerCase()&&x.id!==id)){el('form-error').textContent='Проект с таким названием уже существует';el('form-error').hidden=false;return}if(p){p.name=name;p.description=data.get('description').trim();log(`Обновлён проект «${name}»`,p.id)}else{const np={id:uid(),name,description:data.get('description').trim(),created:Date.now(),deleted:false};state.projects.push(np);state.activeProject=np.id;state.activeChat=null;ui.folder=null;ui.draft='';ui.attachments=[];ui.view='chat';ui.archive=false;ui.mobileNav=false;log(`Создан проект «${name}»`,np.id)}persist();closeModal();render();toast(p?'Проект обновлён':'Проект создан')}})}
+function projectDialog(id){const p=state.projects.find(p=>p.id===id);modal(p?'Настройки проекта':'Новый проект',`<form><p class="dialog-description">Объедините диалоги и файлы по одной задаче</p><div class="form-field"><label for="project-name">Название</label><input id="project-name" name="name" placeholder="Например, запуск продукта" value="${e(p?.name||'')}" maxlength="70" required autofocus /></div><div class="form-field"><label for="project-description">Описание <span style="color:var(--muted);font-weight:400">· необязательно</span></label><textarea id="project-description" name="description" rows="3" placeholder="Для чего этот проект" maxlength="300">${e(p?.description||'')}</textarea></div><div class="form-field"><label for="project-instructions">Инструкции для всех диалогов</label><textarea id="project-instructions" name="instructions" rows="3" maxlength="4000" placeholder="Например, отвечай кратко и используй данные проекта">${e(p?.instructions||'')}</textarea></div><p class="error-text" id="form-error" hidden></p><div class="dialog-footer">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">${p?'Сохранить':'Создать проект'}</button></div></form>`,{onSubmit:(data)=>{const name=data.get('name').trim();if(!name)return;if(liveProjects().some(x=>x.name.toLowerCase()===name.toLowerCase()&&x.id!==id)){el('form-error').textContent='Проект с таким названием уже существует';el('form-error').hidden=false;return}if(p){p.name=name;p.description=data.get('description').trim();p.instructions=String(data.get('instructions')||'').trim();log(`Обновлён проект «${name}»`,p.id)}else{const np={id:uid(),name,description:data.get('description').trim(),instructions:String(data.get('instructions')||'').trim(),created:Date.now(),deleted:false};state.projects.push(np);state.activeProject=np.id;state.activeChat=null;ui.folder=null;ui.draft='';ui.attachments=[];ui.view='chat';ui.archive=false;ui.mobileNav=false;log(`Создан проект «${name}»`,np.id)}persist();closeModal();render();toast(p?'Проект обновлён':'Проект создан')}})}
 function renameDialog(type,id){const item=type==='chat'?state.chats.find(x=>x.id===id):state.files.find(x=>x.id===id);if(!item)return;const old=type==='chat'?item.title:item.name;modal('Переименовать',`<form><div class="form-field"><label for="rename-name">Название</label><input id="rename-name" name="name" value="${e(old)}" maxlength="120" required autofocus /></div><p class="error-text" id="form-error" hidden></p><div class="dialog-footer">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">Сохранить</button></div></form>`,{onSubmit:data=>{const name=data.get('name').trim();if(!name)return;if(type==='file'&&state.files.some(f=>f.id!==id&&f.project===item.project&&(f.parent||null)===(item.parent||null)&&!f.deleted&&f.name===name)){el('form-error').textContent='В этой папке уже есть элемент с таким названием';el('form-error').hidden=false;return}item[type==='chat'?'title':'name']=name;item.updated=Date.now();log(`Переименован ${type==='chat'?'диалог':'файл'} «${old}»`,item.project);persist();closeModal();render()}})}
 function confirm(title,text,action,label='Подтвердить',danger=false){modal(title,`<p class="dialog-description">${e(text)}</p><div class="dialog-footer">${button('close-modal','Отмена','ghost')}<button id="confirm-button" class="btn ${danger?'danger':'primary'}">${e(label)}</button></div>`);el('confirm-button').onclick=async()=>{try{await action();closeModal();persist();render()}catch(err){toast('Не удалось выполнить действие. Попробуйте ещё раз.')}}}
 function descendants(id){const ids=new Set([id]);let n=-1;while(n!==ids.size){n=ids.size;state.files.forEach(f=>{if(ids.has(f.parent))ids.add(f.id)})}return ids}
@@ -351,7 +367,7 @@ async function previewFile(id){const f=state.files.find(x=>x.id===id&&!x.deleted
 async function editFile(id){const f=state.files.find(x=>x.id===id),blob=await getBlob(id);if(!f||!blob)return;const text=await blob.text();modal(f.name,`<form><div class="form-field"><label for="editor-text">Содержимое файла</label><textarea id="editor-text" class="file-editor" name="content" maxlength="2000000" spellcheck="false">${e(text)}</textarea></div><p class="error-text" id="form-error" hidden></p><div class="dialog-footer">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">Сохранить изменения</button></div></form>`,{wide:true,onSubmit:async(data,form)=>{form.querySelector('[type=submit]').disabled=true;try{const b=new Blob([data.get('content')],{type:f.type||'text/plain'});await putBlob(id,b);f.size=b.size;f.updated=Date.now();log(`Изменён файл «${f.name}»`,f.project);persist();closeModal();render();toast('Изменения сохранены')}catch{form.querySelector('[type=submit]').disabled=false;el('form-error').textContent='Не удалось сохранить файл';el('form-error').hidden=false}}})}
 function searchDialog(){modal('Поиск по пространству',`<div class="search-input-wrap">${icon('search')}<input id="search-input" aria-label="Поиск диалогов и проектов" placeholder="Название проекта или текст диалога" autocomplete="off" autofocus /></div><div class="search-results" id="search-results"></div>`);searchResults('');el('search-input').oninput=ev=>searchResults(ev.target.value)}
 function searchResults(q){q=q.toLocaleLowerCase('ru').trim();const projects=liveProjects().filter(p=>!q||p.name.toLocaleLowerCase('ru').includes(q));const chats=state.chats.filter(c=>!c.deleted&&!state.projects.find(p=>p.id===c.project)?.deleted&&(!q||[c.title,...c.messages.map(m=>m.content)].join(' ').toLocaleLowerCase('ru').includes(q)));const rows=[...projects.map(p=>({id:p.id,action:'search-project',title:p.name,sub:'Проект',ico:'folder'})),...chats.map(c=>({id:c.id,action:'search-chat',title:c.title,sub:`${projectName(c.project)}${c.archived?' · Архив':''}`,ico:'chat'}))].slice(0,30);el('search-results').innerHTML=rows.map(r=>`<button class="search-result" data-action="${r.action}" data-id="${r.id}">${icon(r.ico)}<span><strong class="truncate">${e(r.title)}</strong><small class="truncate">${e(r.sub)}</small></span></button>`).join('')||'<div class="search-empty">Ничего не найдено. Попробуйте другое слово.</div>'}
-function settingsDialog(){modal('Настройки',`<form id="settings-form">${account?`<div class="settings-section"><h3>Аккаунт Focus</h3><p class="settings-note">${e(account.email)}</p><div class="form-field"><label for="account-name">Имя в аккаунте</label><input id="account-name" name="accountName" value="${e(account.name||'')}" maxlength="80" autocomplete="name" /></div>${button('logout','Выйти из аккаунта','ghost','type="button"')}</div>`:''}<div class="settings-section"><h3>Ваше пространство</h3><div class="form-field"><label for="settings-name">Название</label><input id="settings-name" name="name" value="${e(state.settings.name)}" maxlength="60" required /></div><div class="form-field" style="margin-bottom:0"><label for="settings-theme">Оформление</label><select name="theme" id="settings-theme">${[['light','Светлое'],['dark','Тёмное'],['system','Как на устройстве']].map(([v,l])=>`<option value="${v}" ${state.settings.theme===v?'selected':''}>${l}</option>`).join('')}</select></div><div class="setting-row"><div>Отправлять по Enter<p>Shift + Enter добавляет новую строку</p></div><button class="switch" type="button" role="switch" aria-label="Отправлять по Enter" aria-checked="${state.settings.sendOnEnter}" data-action="toggle-enter"></button></div></div><div class="settings-section"><h3>Данные</h3><p class="settings-note" style="margin-bottom:16px">История и файлы сохраняются только в этом браузере. Для переноса на другое устройство скачайте резервную копию.</p><div class="settings-buttons">${button('export-backup',`${icon('download')} Скачать копию`,'','type="button"')}${button('import-backup',`${icon('upload')} Восстановить`,'','type="button"')}</div></div><div class="settings-section"><h3>Подключение модели</h3><p class="settings-note">${e(MODEL_LABEL)} · ${apiStatus.configured?'подключена':'не настроена'}. Запросы проходят через сервер приложения. Ключ API не хранится в браузере. Текст диалога и поддерживаемые вложения передаются провайдеру модели для ответа. В бесплатном режиме режимы глубины ответа не применяются.</p></div><p class="settings-note">Focus · первая версия<br>Дизайн по референсам и <a href="https://github.com/heydamir/unslop" target="_blank" rel="noopener noreferrer">Unslop</a> — Damir Sokolovsky, CC BY 4.0</p><div class="dialog-footer" style="margin-top:24px">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">Сохранить</button></div></form>`,{onSubmit:saveSettings})}
+function settingsDialog(){modal('Настройки',`<form id="settings-form">${account?`<div class="settings-section"><h3>Аккаунт Focus</h3><p class="settings-note">${e(account.email)}</p><div class="form-field"><label for="account-name">Имя в аккаунте</label><input id="account-name" name="accountName" value="${e(account.name||'')}" maxlength="80" autocomplete="name" /></div>${button('cloud-workspace','Синхронизация пространства','','type="button"')} ${button('logout','Выйти из аккаунта','ghost','type="button"')}</div>`:''}<div class="settings-section"><h3>Ваше пространство</h3><div class="form-field"><label for="settings-name">Название</label><input id="settings-name" name="name" value="${e(state.settings.name)}" maxlength="60" required /></div><div class="form-field" style="margin-bottom:0"><label for="settings-theme">Оформление</label><select name="theme" id="settings-theme">${[['light','Светлое'],['dark','Тёмное'],['system','Как на устройстве']].map(([v,l])=>`<option value="${v}" ${state.settings.theme===v?'selected':''}>${l}</option>`).join('')}</select></div><div class="setting-row"><div>Отправлять по Enter<p>Shift + Enter добавляет новую строку</p></div><button class="switch" type="button" role="switch" aria-label="Отправлять по Enter" aria-checked="${state.settings.sendOnEnter}" data-action="toggle-enter"></button></div></div><div class="settings-section"><h3>Данные</h3><p class="settings-note" style="margin-bottom:16px">История и файлы сохраняются только в этом браузере. Для переноса на другое устройство скачайте резервную копию.</p><div class="settings-buttons">${button('export-backup',`${icon('download')} Скачать копию`,'','type="button"')}${button('import-backup',`${icon('upload')} Восстановить`,'','type="button"')}</div></div><div class="settings-section"><h3>Подключение модели</h3><p class="settings-note">${e(MODEL_LABEL)} · ${apiStatus.configured?'подключена':'не настроена'}. Запросы проходят через сервер приложения. Ключ API не хранится в браузере. Текст диалога и поддерживаемые вложения передаются провайдеру модели для ответа. В бесплатном режиме режимы глубины ответа не применяются.</p></div><p class="settings-note">Focus · первая версия<br>Дизайн по референсам и <a href="https://github.com/heydamir/unslop" target="_blank" rel="noopener noreferrer">Unslop</a> — Damir Sokolovsky, CC BY 4.0</p><div class="dialog-footer" style="margin-top:24px">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">Сохранить</button></div></form>`,{onSubmit:saveSettings})}
 async function updateAccount(path,body){
  const response=await fetch('/api/auth/'+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
  const result=await response.json();
@@ -415,6 +431,52 @@ case 'site-starter':{
  break;
 }
 case 'studio-open-site':openStudioSite(id);break;
+case 'site-versions':await showSiteVersions(id||activeChat()?.id);break;
+case 'site-version-open':{
+ const chat=state.chats.find(item=>item.id===id);
+ const selection=findWebsite(chat?.messages.find(item=>item.id===t.dataset.version));
+ if(selection){closeModal();chat.siteVersion=selection.messageId;selectChat(id);setPreview(selection);}
+ break;
+}
+case 'site-version-diff':showSiteDiff(id,t.dataset.version);break;
+case 'preview-files':{
+ setPreview(null);
+ state.settings.showFiles=true;
+ if(innerWidth<960)ui.mobileFiles=true;
+ render();
+ break;
+}
+case 'preview-result':{
+ const chat=activeChat();
+ const selection=findWebsite(chat?.messages.find(message=>message.id===chat.siteVersion));
+ if(selection)setPreview(selection);
+ break;
+}
+case 'preview-sources':{
+ const chat=activeChat();
+ const search=chat?.messages.findLast(message=>message.search?.sources?.length)?.search;
+ if(search)modal('Источники диалога',sourcesDialog(search));
+ else toast('В этом диалоге пока нет источников');
+ break;
+}
+case 'preview-edit-section':{
+ if(!mountedPreview||mountedPreview.pending)break;
+ mountedPreview.selecting=!mountedPreview.selecting;
+ t.setAttribute('aria-pressed',String(mountedPreview.selecting));
+ mountedPreview.frame.contentWindow.postMessage({type:'focus-preview-select',id:mountedPreview.id,active:mountedPreview.selecting},'*');
+ if(mountedPreview.selecting)toast('Нажмите на блок сайта');
+ break;
+}
+case 'site-publish':await publishVersion(id,t.dataset.version);break;
+case 'site-unpublish':removePublication(id);break;
+case 'site-preview-zip':{
+ const artifact=previewArtifact(activeChat());
+ if(artifact)download(projectZip([{name:'index.html',content:artifact.code}]),'site.zip');
+ break;
+}
+case 'research-plan':researchDialog();break;
+case 'cloud-workspace':await cloudWorkspace();break;
+case 'office-export':officeExport(id);break;
 case 'studio-download-site':openStudioSite(id,true);break;
 case 'studio-tool':{
  const item=TOOL_STARTERS[Number(id)];
@@ -522,7 +584,24 @@ case 'toggle-enter':t.setAttribute('aria-checked',t.getAttribute('aria-checked')
 case 'export-backup':await exportBackup();break;
 case 'import-backup':el('import-input').value='';el('import-input').click();break;
 case 'close-modal':closeModal();break;
-case 'stop-generation':if(generation){generation.controller.abort()}break;
+case 'stop-generation':
+ if(generation?.backgroundJob){
+  try{await workspaceAPI('jobs',{action:'cancel',id:generation.backgroundJob});}catch(error){toast(error.message);}
+ }else if(generation)generation.controller.abort();
+ break;
+case 'resume-background':{
+ const chat=activeChat();
+ if(chat?.backgroundJob)void recoverJob(chat);
+ break;
+}
+case 'cancel-background':{
+ const chat=activeChat();
+ if(chat?.backgroundJob){
+  try{await workspaceAPI('jobs',{action:'cancel',id:chat.backgroundJob});void recoverJob(chat);}
+  catch(error){toast(error.message);}
+ }
+ break;
+}
 case 'retry-answer':{const c=activeChat();if(c&&!generation){const lastUser=c.messages.findLastIndex(m=>m.role==='user');if(lastUser>=0){c.messages=c.messages.slice(0,lastUser+1);persist();requestAnswer(c)}}break;}
 case 'save-answer':{const m=activeChat()?.messages.find(x=>x.id===id);if(m){const fId=uid(),blob=new Blob([answerMarkdown(m)],{type:'text/markdown;charset=utf-8'});await putBlob(fId,blob);let name=(activeChat().title.slice(0,40).replace(/[\\/:*?"<>|]/g,'')||'Ответ')+'.md',n=1;while(fileExists(name))name='Ответ ('+(n++)+').md';state.files.push({id:fId,project:state.activeProject,parent:ui.folder,name,kind:'file',type:'text/markdown',size:blob.size,created:Date.now(),updated:Date.now(),deleted:false});log(`Сохранён ответ «${name}»`);persist();render();toast('Ответ сохранён в файлы проекта')}break;}
 case 'copy-code':{const block=codeBlockAction(t);if(block)await copy(block.code);break;}
@@ -562,6 +641,7 @@ document.addEventListener('submit',event=>{
  if(event.target.id==='composer-form'){event.preventDefault();send();}
  if(event.target.id==='site-studio-form'){event.preventDefault();startStudioSite();}
  if(event.target.id==='image-studio-form'){event.preventDefault();void generateStudioImage();}
+ if(event.target.id==='tables-form'){event.preventDefault();void compareUploads(event.target);}
 });
 document.addEventListener('input',event=>{
  const input=event.target;
@@ -641,11 +721,18 @@ function syncPreviewPanel(artifact,reload=false){
   <header class="site-preview-header">
    <div class="site-preview-title"><strong>Предпросмотр</strong><span class="truncate">${e(artifact.filename)}</span></div>
    <div class="site-preview-actions">
+    ${button('site-versions','Версии','ghost')}
+    ${button('site-preview-zip','ZIP','ghost')}
     ${button('resize-preview',expanded?'Свернуть':'На весь экран','ghost',`aria-pressed="${expanded}"`)}
     ${ib('reload-preview','refresh','Перезапустить предпросмотр')}
     ${ib('close-preview','close','Закрыть предпросмотр')}
    </div>
   </header>
+  <nav class="preview-tools" aria-label="Действия с результатом">
+   ${button('preview-edit-section','Выбрать блок','ghost','aria-pressed="false"')}
+   ${button('preview-files','Файлы','ghost')}
+   ${button('preview-sources','Источники','ghost')}
+  </nav>
   <iframe title="Предпросмотр" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>
  </aside>`;
  const frame=root.querySelector('iframe');
@@ -655,6 +742,19 @@ function syncPreviewPanel(artifact,reload=false){
 }
 window.addEventListener('message',event=>{
  const current=mountedPreview;
+ if(current?.selecting&&event.source===current.frame.contentWindow&&event.origin==='null'&&
+    event.data?.type==='focus-preview-selection'&&event.data.id===current.id){
+  current.selecting=false;
+  el('preview-root').querySelector('[data-action=preview-edit-section]')?.setAttribute('aria-pressed','false');
+  const caption=typeof event.data.caption==='string'?event.data.caption.slice(0,180):'';
+  const label=typeof event.data.label==='string'?event.data.label.slice(0,80):'блок';
+  ui.draft='Измени в этом сайте блок «'+(caption||label)+'»: ';
+  if(innerWidth<960)setPreview(null);
+  else if(el('composer-input'))el('composer-input').value=ui.draft;
+  if(el('send-button'))el('send-button').disabled=false;
+  el('composer-input')?.focus();
+  return;
+ }
  if(!current?.pending||event.source!==current.frame.contentWindow||event.origin!=='null'||
     event.data?.type!=='focus-preview-ready'||event.data.id!==current.id||event.ports.length!==1)return;
  current.pending=false;
@@ -852,7 +952,8 @@ async function requestAnswer(c){
  const taskMode=action.task?.mode||(codeFollowUp?'code':null);
  const explicitSearch=action.web;
  const previousImage=latestImage(c.messages);
- const priorWebsite=previewArtifact(c)||previewArtifact(c,findWebsite(recentAnswer));
+ const preferredVersion=c.messages.find(message=>message.id===c.siteVersion);
+ const priorWebsite=previewArtifact(c)||previewArtifact(c,findWebsite(preferredVersion))||previewArtifact(c,findWebsite(recentAnswer));
  const revisionPhrases=action.phrases||[{visible:action.input}];
  const revision=priorWebsite&&!action.nativeProject&&!action.locals&&!action.splitActions&&!localSkill&&!explicitSearch&&!action.image&&(!taskMode||taskMode==='code')&&revisionPhrases.some(({visible})=>
   isSiteRevision(visible)&&(!/(?:изображени|картинк|фотографи|постер|обложк)/iu.test(visible)||/(?:сайт|страниц|секци|шапк|футер)/iu.test(visible)));
@@ -866,8 +967,10 @@ async function requestAnswer(c){
  const codeMode=taskMode==='code'||website;
  const forge=forgeIntent(action.input,{previewKind,taskMode,codeFollowUp});
  const imageRequest=website||taskMode||localSkill||explicitSearch?null:action.image||(contextualImage&&imageIntent(contextualImage.input,true));
- const withSearch=!action.splitActions&&!action.locals&&(!!lastUser?.webSearch||explicitSearch)&&!localSkill&&!imageRequest&&!website;
- generation={chatId:c.id,controller,phase:imageRequest?'imaging':withSearch?'searching':'answering',forge:!!forge};
+ const researchPlan=lastUser?.researchPlan;
+ const background=!!account&&researchPlan?.background;
+ const withSearch=!action.splitActions&&!action.locals&&(!!lastUser?.webSearch||explicitSearch||researchPlan?.sources==='web')&&researchPlan?.sources!=='files'&&!localSkill&&!imageRequest&&!website;
+ generation={chatId:c.id,controller,text:'',phase:imageRequest?'imaging':withSearch?'searching':'answering',forge:!!forge};
  const refresh=()=>{if(ui.view==='chat'&&state.activeChat===c.id){render();const scroll=el('main-scroll');if(scroll)scroll.scrollTop=scroll.scrollHeight}};
  refresh();
  try{
@@ -888,16 +991,16 @@ async function requestAnswer(c){
    return;
   }
   let searchId;
-  if(withSearch){
-   const query=explicitSearch?searchQuery([{role:'user',content:action.input}]):searchQuery(c.messages);
+  if(withSearch&&!background){
+   const query=researchPlan?.question||(explicitSearch?searchQuery([{role:'user',content:action.input}]):searchQuery(c.messages));
    if(!query)throw new Error('Для поиска добавьте текст вопроса.');
    generation.query=query;
-   const response=await fetch('/api/search',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({query}),signal:controller.signal});
+   const response=await fetch('/api/search',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({query,...(researchPlan?{queries:researchPlan.queries}:{})}),signal:controller.signal});
    if(response.status===401&&account){location.replace('/login');return;}
    let research;try{research=await response.json()}catch{throw new Error('Не удалось прочитать результаты поиска.')}
    if(!response.ok)throw new Error(research.error||'Поиск не выполнен. Попробуйте позже.');
    searchId=research.searchId;
-   c.pendingSearch={query:research.query,sources:research.sources,searchedAt:research.searchedAt};
+   c.pendingSearch={query:research.query,sources:research.sources,searchedAt:research.searchedAt,queries:research.queries,failedQueries:research.failedQueries};
    generation.sources=research.sources;generation.phase='answering';persist();refresh();
   }
   const projectFiles=localSkill||action.locals||imageRequest?[]:projectTextFiles(c.project).filter(file=>file.size<100000);
@@ -912,14 +1015,51 @@ async function requestAnswer(c){
    ?[{role:'user',content:lastUser.content,...(lastUser.quote?{quote:lastUser.quote}:{}),...(fileSkill?{attachments:await attachmentPayload(lastUser.files||[])}:{})}]
    :await buildChatContext(c.messages,projectFiles,attachmentPayload,
     updating?{name:'Текущая версия предпросмотра — '+priorWebsite.filename,text:priorWebsite.code}:null);
+  const instructions=state.projects.find(item=>item.id===c.project)?.instructions;
+  if(instructions&&!localSkill&&!imageRequest)messages.at(-1).projectInstructions=instructions;
+  if(researchPlan?.sources==='files'&&!messages.at(-1)?.attachments?.length){
+   throw new Error('Добавь материалы в проект для исследования по файлам.');
+  }
   const codeTargets=codeMode?await Promise.all((messages.at(-1)?.attachments||[])
    .filter(file=>lastUser.files?.includes(file.id)&&typeof file.text==='string')
    .map(async file=>({id:file.id,name:file.name,hash:file.truncated?null:await codeHash(file.text)}))):[];
-  const headers={'content-type':'application/json'};
-  const response=await fetch('/api/chat',{method:'POST',headers,body:JSON.stringify({messages,...(website?{sitePreview:true,previewKind}:{}),...(codeFollowUp?{codeContext:true}:{}),...(forge?{forgeMode:true,forgeKind:forge.kind}:{}),...(reference?{imageReference:reference}:{}),effort:state.settings.effort,...(searchId?{searchId}:{})}),signal:controller.signal});
+  const input={messages,...(website?{sitePreview:true,previewKind}:{}),...(codeFollowUp?{codeContext:true}:{}),...(forge?{forgeMode:true,forgeKind:forge.kind}:{}),...(reference?{imageReference:reference}:{}),effort:state.settings.effort,...(searchId?{searchId}:{})};
+  let data;
+  if(background){
+   const jobId=uid();
+   c.backgroundJob=jobId;
+   generation.backgroundJob=jobId;
+   persist();
+   try{
+    await workspaceAPI('jobs',{action:'start',id:jobId,input,
+     ...(withSearch?{research:{query:researchPlan.question,queries:researchPlan.queries}}:{})});
+   }catch(error){delete c.backgroundJob;throw error;}
+   data=await pollJob(jobId,controller.signal);
+   delete c.backgroundJob;
+   if(data.error)throw new Error(data.error);
+  }else{
+   const headers={'content-type':'application/json',...(!website&&!imageRequest&&!localSkill?{accept:'text/event-stream'}:{})};
+  const response=await fetch('/api/chat',{method:'POST',headers,body:JSON.stringify(input),signal:controller.signal});
   if(response.status===401&&account){location.replace('/login');return;}
-  let data;try{data=await response.json()}catch{throw new Error('Сервер вернул некорректный ответ. Попробуйте ещё раз.')}
+  if(response.ok&&response.headers.get('content-type')?.includes('text/event-stream')){
+   for await(const event of eventStream(response.body)){
+    const value=JSON.parse(event);
+    if(value.error)throw new Error(value.error);
+    if(value.result)data=value.result;
+    if(value.delta){
+     generation.text+=value.delta;
+     const node=el('stream-text'),scroll=el('main-scroll');
+     const follow=scroll&&scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<120;
+     if(node)node.textContent=generation.text;
+     if(follow)scroll.scrollTop=scroll.scrollHeight;
+    }
+   }
+   if(!data)throw new Error('Поток завершился без ответа.');
+  }else{
+   try{data=await response.json()}catch{throw new Error('Сервер вернул некорректный ответ. Попробуйте ещё раз.')}
+  }
   if(!response.ok)throw new Error(data.error||'Не удалось получить ответ');
+  }
   if(!data.text)throw new Error('Получен пустой ответ');
   const imageFile=data.image?await saveGeneratedImage(data.image,c.project):null;
   const answer={id:uid(),role:'assistant',...(website?{siteMode:true,previewKind}:{}),...(taskMode?{taskMode}:{}),...(codeMode?{codeMode,codeTargets}:{}),...(imageFile?{imageFile}:{}),content:data.text,at:Date.now(),model:data.model||apiStatus.model||'Модель',usage:data.usage,truncated:!!data.truncated,...(data.search?{search:data.search}:{})};
@@ -930,7 +1070,7 @@ async function requestAnswer(c){
    answer.forge=forgeReport(data.text,{kind:forge.kind,truncated:!!data.truncated,previewReady:!!nextPreview,checkpoint});
   }
   c.messages.push(answer);
-  if(nextPreview&&(innerWidth>=960||c.preview))c.preview=nextPreview;
+  if(nextPreview){c.preview=nextPreview;c.siteVersion=nextPreview.messageId;}
   c.pendingSearch=null;c.updated=Date.now();if(data.provider!=='local'&&data.provider!=='image')apiStatus.configured=true;
  }catch(err){c.error=err.name==='AbortError'?'Запрос остановлен. Его можно повторить.':err.message||'Не удалось получить ответ';}
  finally{
@@ -950,9 +1090,14 @@ async function boot(){
   }
   selectStorageScope(account?.id);
   state=readState();
+  if(account)try{
+   cloudRevision=Number(localStorage.getItem('focus.cloud-revision.'+account.id))||null;
+   cloudAuto=localStorage.getItem('focus.cloud-auto.'+account.id)==='1';
+  }catch{}
   ready=true;
   ui.view=studioRoute()||'chat';
   render();
+  if(account)for(const chat of state.chats.filter(item=>item.backgroundJob&&!item.deleted))void recoverJob(chat);
   fetch('/api/status').then(r=>r.json()).then(d=>{apiStatus=d;render()}).catch(()=>{});
   const oldImageCode=account?savedImagePass():null;
   if(oldImageCode)void updateAccount('subscription',{code:oldImageCode}).then(()=>{
@@ -965,6 +1110,248 @@ async function boot(){
 }
 window.addEventListener('storage',event=>{if(event.key===AUTH_EVENT_KEY)location.reload();});
 window.addEventListener('pageshow',event=>{if(event.persisted&&account)location.reload();});
+
+
+
+function tablesView(){
+ return `<section class="studio">
+  <header class="studio-hero"><h1>Сверка таблиц</h1><p>Сравни две выгрузки CSV или первые листы XLSX по общему столбцу.</p></header>
+  <form class="studio-panel studio-form focus-form" id="tables-form">
+   <div class="form-field"><label for="table-before">Исходная выгрузка</label><input id="table-before" name="before" type="file" accept=".csv,.xlsx" required></div>
+   <div class="form-field"><label for="table-after">Новая выгрузка</label><input id="table-after" name="after" type="file" accept=".csv,.xlsx" required></div>
+   <div class="form-field"><label for="table-key">Ключевой столбец</label><input id="table-key" name="key" value="id" maxlength="100" required></div>
+   <button class="studio-primary" type="submit">Сравнить</button>
+  </form>
+  <section class="studio-section" id="table-result" aria-live="polite"></section>
+ </section>`;
+}
+async function compareUploads(form){
+ const submit=form.querySelector('button[type="submit"]');
+ const result=el('table-result');
+ submit.disabled=true;
+ result.textContent='Читаю таблицы…';
+ try{
+  const values=new FormData(form);
+  const [before,after]=await Promise.all([openTable(values.get('before')),openTable(values.get('after'))]);
+  const comparison=compareTables(before,after,String(values.get('key')).trim());
+  result.innerHTML=`<div class="studio-panel"><h2>Результат сверки</h2>
+   <dl class="table-totals">
+    <div><dt>Добавлено</dt><dd>${comparison.added}</dd></div>
+    <div><dt>Удалено</dt><dd>${comparison.removed}</dd></div>
+    <div><dt>Изменено</dt><dd>${comparison.modified}</dd></div>
+    <div><dt>Совпало</dt><dd>${comparison.matched}</dd></div>
+   </dl><button class="studio-primary" type="button">Скачать XLSX</button></div>`;
+  result.querySelector('button').onclick=()=>{
+   try{download(createWorkbook(comparison.sheets),'focus-сверка.xlsx');}catch(error){toast(error.message);}
+  };
+ }catch(error){result.textContent=error.message;}
+ finally{submit.disabled=false;}
+}
+
+async function showSiteVersions(id){
+ const chat=state.chats.find(item=>item.id===id&&!item.deleted);
+ if(!chat)return;
+ const versions=chat.messages.filter(message=>findWebsite(message));
+ let pages=[];
+ if(account){
+  try{({pages}=await workspaceAPI('publications'));}
+  catch(error){toast(error.message);}
+ }
+ modal('Версии сайта',versions.length?`<ul class="version-list">${versions.map((message,index)=>{
+  const page=pages.find(item=>item.chatId===id&&item.version===message.id);
+  return `<li><div><strong>Версия ${index+1}</strong><small>${e(date(message.at))} · ${e(time(message.at))}${chat.siteVersion===message.id?' · Текущая':''}</small></div>
+   <div class="version-actions">${button('site-version-open','Открыть','',`data-id="${e(id)}" data-version="${e(message.id)}"`)}${index?button('site-version-diff','Что изменилось','ghost',`data-id="${e(id)}" data-version="${e(message.id)}"`):''}
+   ${page?`<a class="btn" href="/p/${e(page.id)}" target="_blank" rel="noopener noreferrer">Публичная ссылка</a>
+    ${button('site-unpublish','Снять с публикации','ghost',`data-id="${e(page.id)}" data-chat="${e(id)}"`)}`
+    :account?button('site-publish','Опубликовать','ghost',`data-id="${e(id)}" data-version="${e(message.id)}"`):''}</div></li>`;
+ }).reverse().join('')}</ul>`:'<p>Пока нет готовых версий.</p>',{wide:true});
+}
+async function publishVersion(id,version){
+ const chat=state.chats.find(item=>item.id===id&&!item.deleted);
+ const selection=findWebsite(chat?.messages.find(item=>item.id===version));
+ const artifact=selection&&previewArtifact(chat,selection);
+ if(!artifact)return;
+ confirm('Опубликовать эту версию?','Сайт сможет открыть любой человек со ссылкой.',async()=>{
+  try{
+   const {path}=await workspaceAPI('publications',{action:'create',chatId:id,version,title:chat.title.slice(0,120),html:artifact.code});
+   const url=new URL(path,location.origin);
+   setTimeout(()=>modal('Версия опубликована',`<p class="dialog-description">Ссылка на выбранную версию</p><a href="${e(url.href)}" target="_blank" rel="noopener noreferrer">${e(url.href)}</a>`),0);
+  }catch(error){toast(error.message);}
+ },'Опубликовать');
+}
+function removePublication(id){
+ confirm('Снять версию с публикации?','По этой ссылке сайт больше не откроется.',async()=>{
+  try{await workspaceAPI('publications',{action:'remove',id});toast('Публикация снята');}
+  catch(error){toast(error.message);}
+ },'Снять');
+}
+function officeExport(id){
+ const chat=activeChat();
+ const message=chat?.messages.find(item=>item.id===id&&item.role==='assistant');
+ if(!message)return;
+ const title=chat.title.replace(/[\\/:*?"<>|]/g,'').slice(0,70)||'Focus';
+ const dialog=modal('Экспорт ответа',`<div class="version-actions"><button class="btn" type="button" data-format="docx">Документ Word</button>
+  <button class="btn" type="button" data-format="pptx">Презентация PowerPoint</button></div>`);
+ for(const control of dialog.querySelectorAll('[data-format]'))control.onclick=()=>{
+  try{
+   const format=control.dataset.format;
+   download(format==='docx'?createDocument(title,answerMarkdown(message)):createSlides(title,answerMarkdown(message)),title+'.'+format);
+  }catch(error){toast(error.message);}
+ };
+}
+function researchDialog(){
+ modal('Исследовать тему',`<form class="focus-form">
+  <div class="form-field"><label for="research-topic">Вопрос исследования</label><textarea id="research-topic" name="topic" maxlength="400" required>${e(ui.draft)}</textarea></div>
+  <div class="form-field"><label for="research-sources">Источники</label><select id="research-sources" name="sources">
+   <option value="web">Интернет и файлы проекта</option><option value="files">Только файлы проекта</option>
+  </select></div>
+  <div class="form-field"><label for="research-queries">Дополнительные запросы, до двух</label>
+   <textarea id="research-queries" name="queries" maxlength="900" rows="2" placeholder="По одному на строку. Можно оставить пустым"></textarea>
+  </div>
+  ${account?'<label><input name="background" type="checkbox" checked> Продолжать в фоне после закрытия вкладки</label>':''}
+  <button class="btn primary" type="submit">Начать исследование</button>
+ </form>`,{onSubmit(data){
+  if(generation){toast('Дождитесь текущего ответа');return;}
+  const question=String(data.get('topic')).trim();
+  const sources=data.get('sources');
+  if(!question)return;
+  if(sources==='web'&&!apiStatus.searchConfigured){toast('Веб-поиск ещё не подключён');return;}
+  const custom=String(data.get('queries')).split(/\n/u).map(value=>value.trim()).filter(Boolean).slice(0,2);
+  const additional=custom.length?custom:[question+' первоисточники',question+' ограничения и противоречия'];
+  pendingResearch={question,sources,queries:additional,background:data.has('background')};
+  ui.draft=(sources==='files'?'/evidence ':'')+question;
+  closeModal();
+  send();
+ }});
+}
+
+async function cloudWorkspace(){
+ if(!account)return;
+ if(generation||studio.imageController){toast('Дождитесь завершения текущей задачи');return;}
+ try{
+  const remote=await workspaceAPI('workspace');
+  const stale=remote.revision>0&&cloudRevision!==remote.revision;
+  const panel=modal('Синхронизация пространства',`<p class="dialog-description">${remote.revision
+   ?'Копия в аккаунте обновлена '+date(remote.updated)+'.'
+   :'В аккаунте пока нет копии. Можно перенести в него проекты из этого браузера.'}</p>
+   ${stale?'<p class="settings-note">Сначала загрузите актуальную копию. Локальную историю можно сохранить кнопкой резервного копирования.</p>':''}
+   <p><label><input id="workspace-auto" type="checkbox" ${cloudAuto?'checked':''} ${stale?'disabled':''}> Автоматически сохранять изменения с этого устройства</label></p>
+   <div class="version-actions"><button class="btn" type="button" id="workspace-backup">Скачать резервную копию</button>
+   ${remote.revision?'<button class="btn" type="button" id="workspace-pull">Загрузить из аккаунта</button>':''}
+   <button class="btn primary" type="button" id="workspace-push" ${stale?'disabled':''}>Сохранить в аккаунт</button></div>`);
+  panel.querySelector('#workspace-backup').onclick=exportBackup;
+  panel.querySelector('#workspace-auto').onchange=event=>{
+   setCloudAuto(event.currentTarget.checked);
+   if(cloudAuto)scheduleCloudSave();
+  };
+  panel.querySelector('#workspace-push').onclick=async event=>{
+   const control=event.currentTarget;
+   control.disabled=true;
+   clearTimeout(cloudTimer);
+   if(cloudSaving){control.disabled=false;toast('Сохранение уже выполняется');return;}
+   cloudSaving=true;
+   try{
+    const snapshot=await snapshotWorkspace(state,getBlob);
+    const saved=await workspaceAPI('workspace',{revision:cloudRevision??remote.revision,snapshot});
+    setCloudRevision(saved.revision);
+    toast('Пространство сохранено в аккаунте');
+    closeModal();
+   }catch(error){toast(error.message);}
+   finally{cloudSaving=false;control.disabled=false;}
+  };
+  const pull=panel.querySelector('#workspace-pull');
+  if(pull)pull.onclick=()=>confirm('Загрузить пространство из аккаунта?','Диалоги и файлы в этом браузере будут заменены сохранённой копией.',async()=>{
+   try{
+    const latest=await workspaceAPI('workspace');
+    if(!validBackup(latest.snapshot))throw new Error('Копия недоступна.');
+    const restored=await restoreWorkspace(latest.snapshot,putBlob);
+    const next={...fresh(),...restored,settings:{...fresh().settings,...restored.settings}};
+    writeState(next);
+    state=next;
+    setCloudRevision(latest.revision);
+    Object.assign(ui,{view:'chat',draft:'',quote:null,attachments:[],folder:null});
+    render();
+    toast('Пространство загружено');
+   }catch(error){toast(error.message);}
+  },'Загрузить');
+ }catch(error){toast(error.message);}
+}
+
+function setCloudRevision(revision){
+ cloudRevision=revision;
+ try{localStorage.setItem('focus.cloud-revision.'+account.id,String(revision));}catch{}
+}
+async function pollJob(id,signal){
+ for(let attempt=0;attempt<100;attempt++){
+  signal?.throwIfAborted();
+  const job=await workspaceAPI('jobs?id='+encodeURIComponent(id));
+  if(job.state==='done')return job.result;
+  if(job.state==='failed')return job.result||{error:'Фоновая задача завершилась ошибкой.'};
+  if(job.state==='cancelled')return {error:'Исследование остановлено.'};
+  if(job.state==='interrupted')return {error:'Сервер перезапустился. Запусти исследование ещё раз.'};
+  await new Promise(resolve=>setTimeout(resolve,2000));
+ }
+ throw new Error('Задача ещё выполняется. Можно проверить результат позже.');
+}
+const recoveringJobs=new Set();
+async function recoverJob(chat){
+ const id=chat.backgroundJob;
+ if(!id||recoveringJobs.has(id)||generation?.backgroundJob===id)return;
+ recoveringJobs.add(id);
+ try{
+  const result=await pollJob(id);
+  if(chat.backgroundJob!==id)return;
+  if(result.text)chat.messages.push({id,role:'assistant',content:result.text,at:Date.now(),model:result.model,
+   truncated:!!result.truncated,...(result.search?{search:result.search}:{})});
+  else chat.error=result.error;
+  delete chat.backgroundJob;
+  chat.updated=Date.now();
+  persist();
+  if(ui.view==='chat'&&activeChat()?.id===chat.id)render();
+ }catch(error){
+  if(error.status===404){delete chat.backgroundJob;chat.error=error.message;persist();if(activeChat()?.id===chat.id)render();}
+  else if(activeChat()?.id===chat.id)toast(error.message);
+ }finally{recoveringJobs.delete(id);}
+}
+
 boot();
 
+function showSiteDiff(id,version){
+ const chat=state.chats.find(item=>item.id===id&&!item.deleted);
+ const versions=chat?.messages.filter(message=>findWebsite(message))||[];
+ const index=versions.findIndex(message=>message.id===version);
+ if(index<=0)return;
+ const previous=previewArtifact(chat,findWebsite(versions[index-1]));
+ const current=previewArtifact(chat,findWebsite(versions[index]));
+ try{
+  const diff=compareText(previous.code,current.code,80);
+  modal('Что изменилось',`<p class="dialog-description">Добавлено строк ${diff.added} · Удалено строк ${diff.removed}</p>
+   <pre class="version-diff">${e(diff.changes.map(change=>(change.type==='added'?'+ ':'− ')+change.line+' '+change.text).join('\n')||'Версии совпадают')}</pre>`,{wide:true});
+ }catch(error){toast(error.message);}
+}
 
+function setCloudAuto(enabled){
+ cloudAuto=enabled;
+ if(!enabled)clearTimeout(cloudTimer);
+ try{localStorage.setItem('focus.cloud-auto.'+account.id,enabled?'1':'0');}catch{}
+}
+function scheduleCloudSave(){
+ if(!cloudAuto||!account)return;
+ clearTimeout(cloudTimer);
+ cloudTimer=setTimeout(async()=>{
+  if(!cloudAuto||!account)return;
+  if(cloudSaving){scheduleCloudSave();return;}
+  cloudSaving=true;
+  const revision=localRevision;
+  const expected=cloudRevision??0;
+  try{
+   const snapshot=await snapshotWorkspace(state,getBlob);
+   if(revision!==localRevision||!cloudAuto)return;
+   const saved=await workspaceAPI('workspace',{revision:expected,snapshot});
+   setCloudRevision(saved.revision);
+  }catch(error){
+   setCloudAuto(false);
+   toast(error.status===409?'Изменения есть на другом устройстве. Откройте синхронизацию в настройках.':error.message);
+  }finally{cloudSaving=false;}
+ },1800);
+}
