@@ -41,5 +41,5 @@ star:'<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2
 command:'<path d="M9 7V5a2 2 0 1 0-2 2h10a2 2 0 1 0-2-2v14a2 2 0 1 0 2-2H7a2 2 0 1 0 2 2V7z"/>',
 };
 export function icon(name,cls=''){return `<svg class="icon ${cls}" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]||paths.file}</svg>`}
-export const mark=`<svg class="focus-mark" width="56" height="56" viewBox="0 0 64 64" fill="none" aria-hidden="true"><circle cx="32" cy="32" r="23" stroke="currentColor" stroke-width="7"/><path d="M48.3 15.7A23 23 0 0 1 55 32" stroke="#9c805e" stroke-width="7"/><circle cx="55" cy="32" r="5.5" fill="#9c805e" stroke="var(--surface)" stroke-width="3"/></svg>`;
+export const mark=`<svg class="focus-mark" width="56" height="56" viewBox="0 0 64 64" fill="none" aria-hidden="true"><circle cx="32" cy="32" r="23" stroke="currentColor" stroke-width="7"/><path d="M48.3 15.7A23 23 0 0 1 55 32" stroke="var(--focus-accent)" stroke-width="7"/><circle cx="55" cy="32" r="5.5" fill="var(--focus-accent)" stroke="var(--surface)" stroke-width="3"/></svg>`;
 

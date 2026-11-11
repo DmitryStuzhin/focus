@@ -399,3 +399,55 @@
 [data-theme=dark] .focus-product:hover,
 [data-theme=dark] .focus-product.active { border-color: #4b9294; background: #183033; }
 @media (prefers-reduced-motion: reduce) { .focus-product { transition: none; } }
+
+/* Light mode keeps the graphite/teal identity without looking washed out. */
+[data-theme=light] .main {
+ background:
+  radial-gradient(ellipse 72% 50% at 96% 0%, #82c4c326, transparent 64%),
+  linear-gradient(180deg,#f8fbfb 0%,#f1f6f5 100%);
+}
+[data-theme=light] .topbar {
+ border-bottom-color: #c8d9d8;
+ background: #f9fcfbd9;
+ backdrop-filter: blur(18px);
+}
+[data-theme=light] .sidebar {
+ border-right-color: #c8d9d8;
+ background: linear-gradient(180deg,#edf4f3 0%,#e7f0ef 100%);
+}
+[data-theme=light] .composer {
+ border-color: #bcd0cf;
+ background: #fbfdfde8;
+ box-shadow: 0 16px 42px #355f5b14;
+}
+[data-theme=light] .workspace-card,
+[data-theme=light] .file-row,
+[data-theme=light] .change-item,
+[data-theme=light] .focus-product {
+ border-color: #c5d7d6;
+ background: linear-gradient(145deg,#ffffff 0%,#f1f7f6 100%);
+ box-shadow: 0 9px 24px #315c5812;
+}
+[data-theme=light] .focus-product:hover,
+[data-theme=light] .focus-product.active,
+[data-theme=light] .file-row:hover {
+ border-color: #5f999a;
+ background: #e3efee;
+}
+[data-theme=light] .focus-product-icon,
+[data-theme=light] .file-row > .icon,
+[data-theme=light] .workspace-symbol {
+ border-color: #b9d1d0;
+ background: #e0eeee;
+ color: #317b7d;
+}
+[data-theme=light] .files-panel {
+ border-left-color: #c8d9d8;
+ background: linear-gradient(180deg,#f6faf9,#edf4f3);
+}
+[data-theme=light] .files-header { border-bottom-color: #c8d9d8; background: #f8fbfbd9; }
+[data-theme=light] .files-tabs,
+[data-theme=light] .files-toolbar { border: 1px solid #c5d7d6; background: #edf5f4; }
+[data-theme=light] .files-tabs .tab.active { color: #fff; background: #317b7d; }
+[data-theme=light] .btn.primary,
+[data-theme=light] .send { border-color: #286466; background: #286466; color: #f5fbfb; }
