@@ -1,5 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {STUDIO_LABELS,renderFocusCode,renderFocusForge} from '../public/studios.js';
 
 const e=value=>String(value).replace(/[&<>"']/g,'');
@@ -15,4 +16,14 @@ test('Focus Code and Focus Forge are visible standalone studio tabs',()=>{
  assert.match(forge,/id="forge-studio-form"/);
  assert.match(forge,/Контрольные точки/);
  assert.match(forge,/data-action="open-forge-checkpoint"/);
+});
+
+test('Code and Forge live only in the top product switcher',()=>{
+ const source=readFileSync(new URL('../public/app.js',import.meta.url),'utf8');
+ const workspaceTools=source.slice(source.indexOf('function workspaceTools'),source.indexOf('function workspaceView'));
+ assert.doesNotMatch(workspaceTools,/Focus Code|Focus Forge/);
+ assert.match(source,/case 'product-menu':menu/);
+ assert.match(source,/text:'Focus Code'/);
+ assert.match(source,/text:'Focus Forge'/);
+ assert.match(source,/product-menu-popup/);
 });
