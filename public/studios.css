@@ -290,3 +290,35 @@
 .focus-start .suggestion > .icon { border-radius: 6px; }
 .studio-primary,
 .studio-form textarea { border-radius: 6px; }
+
+[data-theme="light"] .studio-hero,
+[data-theme="light"] .workspace-heading {
+ border-color: #bfd3d2;
+ background:
+  radial-gradient(ellipse at 100% 0%, #5dadad2b, transparent 46%),
+  linear-gradient(135deg,#f7fbfa 0%,#e8f2f1 100%);
+ box-shadow: 0 18px 44px #315c5817;
+}
+[data-theme="light"] .studio-panel,
+[data-theme="light"] .studio-card,
+[data-theme="light"] .workspace-tool,
+[data-theme="light"] .focus-start .suggestion {
+ border-color: #c5d7d6;
+ background: linear-gradient(145deg,#ffffff 0%,#f0f6f5 100%);
+ box-shadow: 0 12px 30px #315c5812;
+}
+[data-theme="light"] .studio-tag {
+ border-color: #b7d0cf;
+ background: #dceceb;
+ color: #286a6c;
+}
+[data-theme="light"] .studio-hero-mark,
+[data-theme="light"] .workspace-tool-icon,
+[data-theme="light"] .focus-start .suggestion > .icon {
+ border-color: #b7d0cf;
+ background: #e0eeee;
+ color: #317b7d;
+}
+[data-theme="light"] .studio-card:hover,
+[data-theme="light"] .workspace-tool:hover,
+[data-theme="light"] .focus-start .suggestion:hover { border-color: #579394; background: #e8f2f1; }
