@@ -333,72 +333,22 @@
 .change-item { border-radius: 8px; }
 .file-row > .icon { border-radius: 6px; }
 
-/* Focus Code and Focus Forge are first-class products, not ordinary sidebar rows. */
-.focus-products {
- display: grid;
- gap: 6px;
- margin: 14px 12px 4px;
- padding: 12px 0;
- border-top: 1px solid var(--line);
- border-bottom: 1px solid var(--line);
+/* Product switcher mirrors the compact ChatGPT/Codex selector. */
+.product-switcher {
+ min-width: 0;
+ max-width: 190px;
+ padding: 7px 8px;
+ border-radius: 7px;
+ gap: 7px;
 }
-.focus-products-label {
- padding: 0 4px 4px;
- color: var(--muted);
- font-size: 10px;
- font-weight: 700;
- letter-spacing: .12em;
- text-transform: uppercase;
-}
-.focus-product {
- display: grid;
- grid-template-columns: 36px minmax(0,1fr) 14px;
- align-items: center;
- gap: 10px;
- min-height: 58px;
- padding: 8px;
- border: 1px solid var(--line);
- border-radius: 8px;
- color: var(--text);
- background: color-mix(in srgb,var(--surface),var(--raised) 30%);
- text-decoration: none;
- transition: border-color .16s var(--ease),background .16s var(--ease),transform .16s var(--ease);
-}
-.focus-product:hover {
- transform: translateY(-1px);
- border-color: var(--accent);
- background: var(--raised);
-}
-.focus-product.active {
- border-color: var(--accent);
- background: var(--accent-soft);
- box-shadow: inset 2px 0 var(--accent);
-}
-.focus-product-icon {
- display: grid;
- place-items: center;
- width: 36px;
- height: 36px;
- border: 1px solid var(--line);
- border-radius: 6px;
- color: var(--accent);
- background: var(--surface);
-}
-.focus-product-copy { min-width: 0; }
-.focus-product-copy strong,
-.focus-product-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.focus-product-copy strong { font-size: 12px; font-weight: 650; }
-.focus-product-copy small { margin-top: 3px; color: var(--muted); font-size: 9px; }
-.focus-product > .icon { width: 14px; height: 14px; color: var(--muted); }
+.product-switcher:hover { background: var(--raised); }
+.product-switcher span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.product-switcher > .icon { width: 13px; height: 13px; color: var(--muted); }
+.menu-option-copy { display: grid; gap: 3px; min-width: 0; flex: 1; text-align: left; }
+.menu-option-copy > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-option-copy small { color: var(--muted); font-size: 10px; font-weight: 400; line-height: 1.35; }
+.product-switcher + .icon-btn { margin-left: auto; }
 .studio-links { padding-top: 4px; }
-[data-theme=dark] .focus-product {
- border-color: #263f43;
- background: linear-gradient(145deg,#142124,#0e1719 82%);
-}
-[data-theme=dark] .focus-product-icon { border-color: #31575b; background: #193033; color: #7fc0c2; }
-[data-theme=dark] .focus-product:hover,
-[data-theme=dark] .focus-product.active { border-color: #4b9294; background: #183033; }
-@media (prefers-reduced-motion: reduce) { .focus-product { transition: none; } }
 
 /* Light mode keeps the graphite/teal identity without looking washed out. */
 [data-theme=light] .main {
@@ -422,19 +372,15 @@
 }
 [data-theme=light] .workspace-card,
 [data-theme=light] .file-row,
-[data-theme=light] .change-item,
-[data-theme=light] .focus-product {
+[data-theme=light] .change-item {
  border-color: #c5d7d6;
  background: linear-gradient(145deg,#ffffff 0%,#f1f7f6 100%);
  box-shadow: 0 9px 24px #315c5812;
 }
-[data-theme=light] .focus-product:hover,
-[data-theme=light] .focus-product.active,
 [data-theme=light] .file-row:hover {
  border-color: #5f999a;
  background: #e3efee;
 }
-[data-theme=light] .focus-product-icon,
 [data-theme=light] .file-row > .icon,
 [data-theme=light] .workspace-symbol {
  border-color: #b9d1d0;
