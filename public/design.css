@@ -19,19 +19,19 @@
 }
 
 [data-theme="dark"] {
- --focus-canvas: #080d0f;
- --focus-surface: #0d1416;
- --focus-inset: #152326;
- --focus-text: #f1f5f5;
- --focus-secondary: #adc1c2;
- --focus-muted: #7f9698;
- --focus-line: #263c40;
- --focus-accent: #4b9294;
- --focus-selection: #183235;
- --focus-action: #43888a;
- --focus-action-ink: #f4fafa;
+ --focus-canvas: #090d0f;
+ --focus-surface: #0c1113;
+ --focus-inset: #151a1c;
+ --focus-text: #eeece7;
+ --focus-secondary: #aaa9a4;
+ --focus-muted: #737a79;
+ --focus-line: #242b2d;
+ --focus-accent: #ad9265;
+ --focus-selection: #1a2022;
+ --focus-action: #252c2e;
+ --focus-action-ink: #d9ddda;
  --focus-danger: #f2a29a;
- --focus-glow: #63babc2b;
+ --focus-glow: #ad926514;
  color-scheme: dark;
 }
 

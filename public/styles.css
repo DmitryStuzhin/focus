@@ -496,3 +496,48 @@
  border-radius: 0;
  background: transparent;
 }
+
+/* Near-black reference palette: depth comes from lines, not bright gradients. */
+[data-theme=dark] .main {
+ background: #0c1113;
+ animation: none;
+}
+[data-theme=dark] .topbar {
+ border-bottom-color: #242b2d;
+ background: #0c1113e8;
+}
+[data-theme=dark] .sidebar {
+ border-right-color: #242b2d;
+ background: #090d0f;
+}
+[data-theme=dark] .composer {
+ border-color: #252d2f;
+ background: #14191b;
+ box-shadow: 0 16px 44px #0006;
+}
+[data-theme=dark] .composer:focus-within {
+ border-color: #4c4c46;
+ box-shadow: 0 16px 44px #0007;
+}
+[data-theme=dark] .workspace-card {
+ border-color: #252d2f;
+ background: #111719;
+ box-shadow: none;
+}
+[data-theme=dark] .workspace-symbol { background: #1a2022; color: #ad9265; }
+[data-theme=dark] .files-panel {
+ border-left-color: #242b2d;
+ background: #090e10;
+}
+[data-theme=dark] .files-header,
+[data-theme=dark] .files-foot { border-color: #242b2d; background: #090e10; }
+[data-theme=dark] .files-tabs,
+[data-theme=dark] .files-toolbar { border-radius: 0; background: transparent; }
+[data-theme=dark] .files-tabs .tab.active { color: #eeece7; background: #1a2022; box-shadow: none; }
+[data-theme=dark] .file-row,
+[data-theme=dark] .change-item { border-color: #202729; background: transparent; box-shadow: none; }
+[data-theme=dark] .file-row:hover { transform: none; border-color: #2b3335; background: #151a1c; }
+[data-theme=dark] .file-row > .icon { border: 0; background: transparent; color: #737a79; }
+[data-theme=dark] .focus-start .suggestion { border: 0; background: transparent; box-shadow: none; }
+[data-theme=dark] .focus-start .suggestion > .icon { border: 0; background: transparent; color: #737a79; }
+[data-theme=dark] .focus-start .suggestion:hover { border: 0; background: #151a1c; }
