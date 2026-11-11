@@ -451,3 +451,48 @@
 [data-theme=light] .files-tabs .tab.active { color: #fff; background: #317b7d; }
 [data-theme=light] .btn.primary,
 [data-theme=light] .send { border-color: #286466; background: #286466; color: #f5fbfb; }
+
+/* Reference file rail: quiet rows and controls, without stacked floating cards. */
+.files-tabs,
+.files-toolbar {
+ margin: 0;
+ border: 0;
+ border-radius: 0;
+ background: transparent;
+}
+.files-toolbar { padding: 8px 12px 10px; border-bottom: 1px solid var(--line); }
+.file-row {
+ min-height: 46px;
+ margin: 0;
+ padding: 8px 4px;
+ border: 0;
+ border-bottom: 1px solid color-mix(in srgb,var(--line),transparent 38%);
+ border-radius: 0;
+ background: transparent;
+ box-shadow: none;
+ transform: none;
+}
+.file-row:hover { transform: none; border-color: var(--line); background: var(--raised); }
+.file-row > .icon {
+ width: 18px;
+ height: 18px;
+ padding: 0;
+ border: 0;
+ border-radius: 0;
+ background: transparent;
+ color: var(--muted);
+}
+.files-empty {
+ margin: 0;
+ border: 0;
+ border-radius: 0;
+ background: transparent;
+}
+.change-item {
+ margin: 0 0 0 4px;
+ padding: 0 0 24px 20px;
+ border: 0;
+ border-left: 1px solid var(--line);
+ border-radius: 0;
+ background: transparent;
+}
