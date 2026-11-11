@@ -5,7 +5,8 @@ import {forgeIntent,forgeReport,namedCodeFiles} from '../public/forge.js';
 test('Forge starts for build and coding work without a slash command',()=>{
  assert.equal(forgeIntent('Сделай залипательную игру на телефон',{previewKind:'game'}).kind,'game');
  assert.equal(forgeIntent('Почини этот код',{taskMode:'code'}).kind,'code');
- assert.equal(forgeIntent('Собери готовый проект бота для Telegram').kind,'code');
+ assert.equal(forgeIntent('/code Focus Forge — собери готовый проект',{taskMode:'code'}).kind,'project');
+ assert.equal(forgeIntent('Собери готовый проект бота для Telegram').kind,'project');
  assert.equal(forgeIntent('Расскажи про архитектуру нейросетей'),null);
 });
 

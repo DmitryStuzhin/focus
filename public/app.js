@@ -13,7 +13,7 @@ import {buildChatContext,searchQuery,MAX_QUOTE_LENGTH} from './chat-context.js';
 import {bindQuoteSelection} from './quote-selection.js';
 import {sourcePills,sourcesDialog,linkCitations} from './search-ui.js';
 import {inlineMarkdown,answerTable,answerChart,prefersJsonCode} from './answer-format.js';
-import {STUDIO_LABELS,SITE_STARTERS,IMAGE_STARTERS,TOOL_STARTERS,renderSites,renderImages,renderSkills} from './studios.js';
+import {STUDIO_LABELS,SITE_STARTERS,IMAGE_STARTERS,TOOL_STARTERS,CODE_STARTERS,FORGE_STARTERS,renderSites,renderImages,renderSkills,renderFocusCode,renderFocusForge} from './studios.js';
 import {icon,mark} from './icons.js';
 import {uid,readState,writeState,fresh,putBlob,getBlob,deleteBlob,validBackup,selectStorageScope,AUTH_EVENT_KEY} from './store.js';
 import {forgeIntent,forgeReport,namedCodeFiles} from './forge.js';
@@ -26,7 +26,7 @@ const imagePassKey=()=>account?"focus-image-pass."+account.id:"focus-image-pass"
 const savedImagePass=()=>isSecureContext?sessionStorage.getItem(imagePassKey()):null;
 const hasImageAccess=()=>account?account.subscriptionUntil>Date.now()||!!savedImagePass():!!savedImagePass();
 let ui={view:'chat',archive:false,filesTab:'files',folder:null,collapsed:new Set(),sidebarClosed:false,mobileNav:false,mobileFiles:false,draft:'',quote:null,attachments:[],menu:null,sort:'name'};
-const studio={siteBrief:'',image:{brief:'',mode:'free',ratio:'1:1',style:'',reference:null,favorites:false},imageError:'',imageController:null};
+const studio={siteBrief:'',codeBrief:'',forgeBrief:'',image:{brief:'',mode:'free',ratio:'1:1',style:'',reference:null,favorites:false},imageError:'',imageController:null};
 const studioRoute=()=>{const view=location.hash.slice(1);return Object.hasOwn(STUDIO_LABELS,view)?view:null};
 let toastTimer,uploadAttach=false,objectURLs=[],generation=null,apiStatus={configured:false,model:'',label:MODEL_LABEL};
 const e=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -109,7 +109,7 @@ function render(){
 }
 function sidebar(){
  return `<aside class="sidebar ${ui.mobileNav?'mobile-open':''}" aria-label="Навигация" ${(innerWidth<640&&!ui.mobileNav)||(innerWidth>=640&&ui.sidebarClosed)?'inert':''}><div class="brand-row"><button class="brand focus-brand" data-action="workspace" aria-label="Focus — рабочее пространство"><img src="/favicon.svg" alt="" width="24" height="24">Focus</button>${ib('toggle-sidebar','panel','Свернуть навигацию')}</div>
- <nav class="nav-group"><button class="nav-row new-chat" data-action="new-chat">${icon('compose')}<span>Новый диалог</span><kbd class="keycap">⌘ N</kbd></button><button class="nav-row" data-action="search">${icon('search')}<span>Поиск</span><kbd class="keycap">⌘ K</kbd></button><button class="nav-row ${ui.view==='workspace'?'active':''}" data-action="workspace">${icon('grid')}<span>Рабочее пространство</span></button>${Object.entries(STUDIO_LABELS).map(([view,label])=>`<a class="nav-row studio-nav ${ui.view===view?'active':''}" href="#${view}" data-action="studio-view" data-id="${view}" ${ui.view===view?'aria-current="page"':''}>${icon({sites:'globe',images:'image',tables:'table',skills:'command'}[view])}<span>${label}</span></a>`).join('')}</nav>
+ <nav class="nav-group"><button class="nav-row new-chat" data-action="new-chat">${icon('compose')}<span>Новый диалог</span><kbd class="keycap">⌘ N</kbd></button><button class="nav-row" data-action="search">${icon('search')}<span>Поиск</span><kbd class="keycap">⌘ K</kbd></button><button class="nav-row ${ui.view==='workspace'?'active':''}" data-action="workspace">${icon('grid')}<span>Рабочее пространство</span></button>${Object.entries(STUDIO_LABELS).map(([view,label])=>`<a class="nav-row studio-nav ${ui.view===view?'active':''}" href="#${view}" data-action="studio-view" data-id="${view}" ${ui.view===view?'aria-current="page"':''}>${icon({code:'code',forge:'check',sites:'globe',images:'image',tables:'table',skills:'command'}[view])}<span>${label}</span></a>`).join('')}</nav>
  <div class="projects-heading"><span>Проекты</span>${ib('create-project','plus','Создать проект')}</div>
  <div class="sidebar-tabs" role="tablist" aria-label="Состояние диалогов"><button class="tab ${!ui.archive?'active':''}" role="tab" aria-selected="${!ui.archive}" data-action="tab-dialogs">Диалоги</button><button class="tab ${ui.archive?'active':''}" role="tab" aria-selected="${ui.archive}" data-action="tab-archive">Архив</button></div>
  <nav class="project-tree" aria-label="Проекты и диалоги">${liveProjects().map(p=>{const chats=state.chats.filter(c=>c.project===p.id&&!c.deleted&&!!c.archived===ui.archive).sort((a,b)=>b.updated-a.updated);return `<div class="project-row ${p.id===state.activeProject?'active':''}"><button class="project-link" data-action="select-project" data-id="${p.id}">${icon('chevron',`caret ${ui.collapsed.has(p.id)?'':'open'}`)}${icon('folder')}<span class="truncate">${e(p.name)}</span></button><button class="icon-btn row-more" data-action="project-menu" data-id="${p.id}" aria-label="Действия с проектом ${e(p.name)}">${icon('more')}</button></div>${ui.collapsed.has(p.id)?'':`<div class="chat-list">${chats.map(c=>`<div class="chat-row ${c.id===state.activeChat&&ui.view==='chat'?'active':''}"><button class="chat-link truncate" data-action="select-chat" data-id="${c.id}">${e(c.title)}</button><button class="icon-btn row-more" data-action="chat-menu" data-id="${c.id}" aria-label="Действия с диалогом ${e(c.title)}">${icon('more')}</button></div>`).join('')}</div>`}`}).join('')}${liveProjects().length?'':`<p class="empty-nav">Создайте проект, чтобы начать</p>`}</nav>
@@ -142,11 +142,31 @@ function studioImages(){
   .map(file=>({...file,prompt:file.imagePrompt||prompts.get(file.id)}));
 }
 
+function studioCodeRuns(){
+ return state.chats.filter(chat=>!chat.deleted&&state.projects.some(project=>project.id===chat.project&&!project.deleted)&&chat.messages.some(message=>message.role==='assistant'&&message.codeMode))
+  .sort((a,b)=>b.updated-a.updated).slice(0,12)
+  .map(chat=>({id:chat.id,title:chat.title,project:projectName(chat.project),updated:date(chat.updated)}));
+}
+
+function studioForgeCheckpoints(){
+ const project=activeProject();if(!project)return [];
+ const root=state.files.find(file=>file.project===project.id&&!file.deleted&&file.kind==='folder'&&!file.parent&&['Focus Forge','Guzan Forge'].includes(file.name));
+ if(!root)return [];
+ const folders=state.files.filter(file=>file.project===project.id&&!file.deleted&&file.kind==='folder'&&file.parent===root.id);
+ return folders.sort((a,b)=>b.created-a.created).map(folder=>{
+  const ids=descendants(folder.id);
+  const files=state.files.filter(file=>!file.deleted&&file.kind==='file'&&ids.has(file.id)).length;
+  return {id:folder.id,name:folder.name,files,updated:`${date(folder.created)}, ${time(folder.created)}`};
+ });
+}
+
 function mainView(){
  const project=activeProject()?.name;
  switch(ui.view){
   case 'chat':return chatView();
   case 'workspace':return workspaceView();
+  case 'code':return renderFocusCode({e,project,brief:studio.codeBrief,runs:studioCodeRuns()});
+  case 'forge':return renderFocusForge({e,project,brief:studio.forgeBrief,checkpoints:studioForgeCheckpoints()});
   case 'sites':return renderSites({e,project,brief:studio.siteBrief,sites:studioSites(),busy:!!generation,canPublish:!!account});
   case 'images':{
    const files=studioImages();
@@ -186,6 +206,18 @@ function startStudioSite(){
  if(ui.view!=='chat')return;
  studio.siteBrief='';
  ui.draft='/site '+brief;
+ send();
+}
+
+function startStudioTask(mode){
+ if(generation){toast('Дождитесь ответа или остановите запрос');return;}
+ const key=mode==='forge'?'forgeBrief':'codeBrief';
+ const brief=studio[key].trim();
+ if(!brief)return;
+ newChat();
+ if(ui.view!=='chat')return;
+ studio[key]='';
+ ui.draft='/code '+(mode==='forge'?'Focus Forge — собери готовый проект и доведи задачу до проверяемого результата. ':'')+brief;
  send();
 }
 
@@ -259,7 +291,10 @@ function chatView(){const c=activeChat();if(!c||!c.messages.length)return `<sect
   <button class="suggestion" data-action="studio-view" data-id="tables">${icon('table')}<span>Сверить таблицы<small>Изменения между двумя выгрузками</small></span></button>
   <button class="suggestion" data-action="research-plan">${icon('search')}<span>Исследовать тему<small>Поиск с источниками</small></span></button>
   <button class="suggestion" data-action="studio-view" data-id="images">${icon('image')}<span>Создать изображение<small>Генерация и правки</small></span></button>
- </div><button class="inline-link focus-code-shortcut" data-action="prompt" data-prompt="Напиши код для ">Написать код</button></div></section>`;
+ </div><div class="version-actions focus-code-shortcut">
+  <button class="inline-link" data-action="prompt" data-prompt="Напиши код для ">Написать код</button>
+  <button class="inline-link" data-action="prompt" data-prompt="Составь план для ">Продумать план</button>
+ </div></div></section>`;
  let lastUserContent='';
  return `<section class="messages" aria-label="Сообщения диалога">${c.messages.map(m=>{
   if(m.role==='user')lastUserContent=m.content;
@@ -436,6 +471,17 @@ case 'site-starter':{
  if(item){studio.siteBrief=item.prompt;el('site-brief').value=item.prompt;el('site-brief').focus();}
  break;
 }
+case 'code-starter':{
+ const item=CODE_STARTERS[Number(id)];
+ if(item){studio.codeBrief=item.prompt;el('code-brief').value=item.prompt;el('code-brief').focus();}
+ break;
+}
+case 'forge-starter':{
+ const item=FORGE_STARTERS[Number(id)];
+ if(item){studio.forgeBrief=item.prompt;el('forge-brief').value=item.prompt;el('forge-brief').focus();}
+ break;
+}
+case 'studio-open-chat':selectChat(id);break;
 case 'studio-open-site':openStudioSite(id);break;
 case 'site-versions':await showSiteVersions(id||activeChat()?.id);break;
 case 'site-version-open':{
@@ -571,7 +617,7 @@ case 'rename-file':renameDialog('file',id);break;
 case 'trash-file':trashFile(id);break;
 case 'attach-existing':if(!ui.attachments.includes(id))ui.attachments.push(id);render();el('composer-input')?.focus();break;
 case 'preview-file':await previewFile(id);break;
-case 'open-forge-checkpoint':if(state.files.some(file=>file.id===id&&!file.deleted&&file.kind==='folder')){ui.folder=id;ui.filesTab='files';state.settings.showFiles=true;if(innerWidth<960)ui.mobileFiles=true;setPreview(null);persist();render()}break;
+case 'open-forge-checkpoint':if(state.files.some(file=>file.id===id&&!file.deleted&&file.kind==='folder')){ui.folder=id;ui.filesTab='files';ui.view='chat';state.settings.showFiles=true;const chat=activeChat();if(chat)chat.preview=null;if(studioRoute())history.replaceState(null,'',location.pathname+location.search);if(innerWidth<960)ui.mobileFiles=true;persist();render()}break;
 case 'download-file':await downloadFile(id);break;
 case 'edit-file':await editFile(id);break;
 case 'settings':settingsDialog();break;
@@ -645,6 +691,8 @@ document.addEventListener('change',event=>{
 });
 document.addEventListener('submit',event=>{
  if(event.target.id==='composer-form'){event.preventDefault();send();}
+ if(event.target.id==='code-studio-form'){event.preventDefault();startStudioTask('code');}
+ if(event.target.id==='forge-studio-form'){event.preventDefault();startStudioTask('forge');}
  if(event.target.id==='site-studio-form'){event.preventDefault();startStudioSite();}
  if(event.target.id==='image-studio-form'){event.preventDefault();void generateStudioImage();}
  if(event.target.id==='tables-form'){event.preventDefault();void compareUploads(event.target);}
@@ -652,6 +700,8 @@ document.addEventListener('submit',event=>{
 document.addEventListener('input',event=>{
  const input=event.target;
  if(input.id==='composer-input'){ui.draft=input.value;el('send-button').disabled=!generation&&!ui.draft.trim()&&!ui.attachments.length;resizeComposer();}
+ if(input.id==='code-brief')studio.codeBrief=input.value;
+ if(input.id==='forge-brief')studio.forgeBrief=input.value;
  if(input.id==='site-brief')studio.siteBrief=input.value;
  if(input.id==='image-brief')studio.image.brief=input.value;
 });

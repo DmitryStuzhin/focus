@@ -1,6 +1,16 @@
 import {icon} from './icons.js';
 
-export const STUDIO_LABELS={sites:'Сайты',images:'Изображения',tables:'Таблицы',skills:'Скиллы'};
+export const STUDIO_LABELS={code:'Focus Code',forge:'Focus Forge',sites:'Сайты',images:'Изображения',tables:'Таблицы',skills:'Скиллы'};
+export const CODE_STARTERS=[
+ {title:'Создать проект',icon:'plus',prompt:'Создай готовый многофайловый проект: '},
+ {title:'Исправить ошибку',icon:'check',prompt:'Найди причину ошибки, исправь код и верни полные изменённые файлы: '},
+ {title:'Провести ревью',icon:'search',prompt:'Проведи ревью кода, найди ошибки и предложи конкретные исправления: '},
+];
+export const FORGE_STARTERS=[
+ {title:'Веб-приложение',icon:'globe',prompt:'Собери готовое веб-приложение с рабочим интерфейсом, обработкой ошибок, README и проверяемыми критериями: '},
+ {title:'Мобильная игра',icon:'grid',prompt:'Собери готовую мобильную браузерную игру с управлением для телефона, прогрессом, перезапуском и инструкцией: '},
+ {title:'Сервис или бот',icon:'command',prompt:'Собери готовый многофайловый сервис или бота, добавь конфигурацию, обработку ошибок, тесты и README: '},
+];
 export const SITE_STARTERS=[
  {title:'Лендинг',icon:'globe',prompt:'Лендинг для небольшого бренда. Первый экран с ясным предложением, блок преимуществ, отзывы и призыв к действию.'},
  {title:'Портфолио',icon:'grid',prompt:'Портфолио специалиста. Короткое вступление, сетка избранных работ, информация обо мне и контакты.'},
@@ -27,6 +37,38 @@ export const TOOL_STARTERS=[
 
 function hero(title,description){
  return `<header class="studio-hero"><h1>${title}</h1><p>${description}</p></header>`;
+}
+
+export function renderFocusCode({e,brief,project,runs=[]}){
+ return `<section class="studio">
+  ${hero('Focus Code','Создание, исправление и ревью настоящих многофайловых проектов в отдельном режиме программирования.')}
+  <form class="studio-panel studio-form" id="code-studio-form">
+   <div class="studio-panel-head"><h2>Задача для Focus Code</h2>${project?`<span class="studio-tag">${icon('folder')}${e(project)}</span>`:''}</div>
+   <label for="code-brief">Что нужно написать или исправить?</label>
+   <textarea id="code-brief" name="brief" rows="5" maxlength="20000" required placeholder="Например, создай Telegram-бота на Python с базой данных, тестами и инструкцией запуска…">${e(brief)}</textarea>
+   <div class="studio-form-bottom"><div class="studio-chips">${CODE_STARTERS.map((item,index)=>`<button type="button" data-action="code-starter" data-id="${index}">${icon(item.icon)}${item.title}</button>`).join('')}</div>
+   <button class="studio-primary" type="submit">${icon('code')} Запустить Focus Code</button></div>
+  </form>
+  <section class="studio-section" aria-labelledby="focus-code-runs"><div class="studio-section-head"><h2 id="focus-code-runs">Последние задачи</h2><span>${runs.length}</span></div>
+   ${runs.length?`<div class="studio-list">${runs.map(run=>`<article class="studio-card studio-tool-card"><span class="studio-tool-icon">${icon('code')}</span><div class="studio-tool-description"><h3>${e(run.title)}</h3><p>${e(run.project)} · ${e(run.updated)}</p></div><button class="studio-secondary" type="button" data-action="studio-open-chat" data-id="${e(run.id)}">Открыть ${icon('chevron')}</button></article>`).join('')}</div>`:`<div class="studio-empty">${icon('code')}<p>Здесь появятся задачи, выполненные через Focus Code.</p></div>`}
+  </section>
+ </section>`;
+}
+
+export function renderFocusForge({e,brief,project,checkpoints=[]}){
+ return `<section class="studio">
+  ${hero('Focus Forge','От идеи до собранного проекта: файлы, самопроверка, предпросмотр и отдельные контрольные точки.')}
+  <form class="studio-panel studio-form" id="forge-studio-form">
+   <div class="studio-panel-head"><h2>Новая сборка</h2>${project?`<span class="studio-tag">${icon('folder')}${e(project)}</span>`:''}</div>
+   <label for="forge-brief">Какой готовый результат собрать?</label>
+   <textarea id="forge-brief" name="brief" rows="5" maxlength="20000" required placeholder="Например, собери приложение учёта расходов с категориями, графиками, экспортом данных и мобильным интерфейсом…">${e(brief)}</textarea>
+   <div class="studio-form-bottom"><div class="studio-chips">${FORGE_STARTERS.map((item,index)=>`<button type="button" data-action="forge-starter" data-id="${index}">${icon(item.icon)}${item.title}</button>`).join('')}</div>
+   <button class="studio-primary" type="submit">${icon('check')} Собрать проект</button></div>
+  </form>
+  <section class="studio-section" aria-labelledby="focus-forge-checkpoints"><div class="studio-section-head"><h2 id="focus-forge-checkpoints">Контрольные точки</h2><span>${checkpoints.length}</span></div>
+   ${checkpoints.length?`<div class="studio-list">${checkpoints.map(item=>`<article class="studio-card studio-tool-card"><span class="studio-tool-icon">${icon('folder')}</span><div class="studio-tool-description"><h3>${e(item.name)}</h3><p>${item.files} ${item.files===1?'файл':'файлов'} · ${e(item.updated)}</p></div><button class="studio-secondary" type="button" data-action="open-forge-checkpoint" data-id="${e(item.id)}">Открыть ${icon('chevron')}</button></article>`).join('')}</div>`:`<div class="studio-empty">${icon('folder')}<p>После первой сборки здесь появятся сохранённые версии проекта.</p></div>`}
+  </section>
+ </section>`;
 }
 
 export function renderSites({e,brief,project,sites,busy,canPublish}){
