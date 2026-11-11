@@ -141,59 +141,42 @@
 .version-diff { max-height: 56dvh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .focus-code-shortcut { margin-top: 16px; }
 
-/* Welcome actions are one coherent card system — no orphaned text links. */
+/* Welcome actions follow the restrained, borderless layout from the reference. */
 .focus-start {
  grid-template-columns: repeat(2,minmax(0,1fr));
- gap: 10px;
- padding-top: 0;
- border-top: 0;
+ gap: 4px 28px;
+ padding-top: 12px;
+ border-top: 1px solid var(--line);
 }
 .focus-start .suggestion {
- position: relative;
- min-height: 76px;
- gap: 12px;
- padding: 14px;
- border: 1px solid var(--line);
- border-radius: 15px;
- background: color-mix(in srgb,var(--surface),var(--raised) 24%);
- box-shadow: 0 10px 28px #0002, inset 0 1px #ffffff08;
- transition: transform .18s var(--focus-ease),border-color .18s var(--focus-ease),background .18s var(--focus-ease);
+ min-height: 50px;
+ gap: 10px;
+ padding: 7px 6px;
+ border: 0;
+ border-radius: 4px;
+ background: transparent;
+ box-shadow: none;
 }
 .focus-start .suggestion > .icon {
- width: 34px;
- height: 34px;
- padding: 8px;
- border: 1px solid var(--line);
- border-radius: 10px;
- background: var(--raised);
- color: var(--accent);
+ width: 17px;
+ height: 17px;
+ padding: 0;
+ border: 0;
+ border-radius: 0;
+ background: transparent;
+ color: var(--muted);
 }
-.focus-start .suggestion span { min-width: 0; color: var(--text); font-weight: 600; }
+.focus-start .suggestion span { min-width: 0; color: var(--secondary); font-weight: 500; }
 .focus-start .suggestion small { font-weight: 400; line-height: 1.35; }
 .focus-start .suggestion:hover {
- transform: translateY(-2px);
- border-color: var(--accent);
+ transform: none;
+ color: var(--text);
  background: var(--raised);
-}
-[data-theme=dark] .focus-start .suggestion {
- border-color: #263f43;
- background: linear-gradient(145deg,#142124 0%,#0e1719 82%);
- box-shadow: 0 12px 34px #0004, inset 0 1px #d7ffff08;
-}
-[data-theme=dark] .focus-start .suggestion > .icon {
- border-color: #31575b;
- background: #193033;
- color: #7fc0c2;
-}
-[data-theme=dark] .focus-start .suggestion:hover {
- border-color: #4b9294;
- background: linear-gradient(145deg,#183033 0%,#101b1d 82%);
 }
 @media (max-width: 639px) {
  .focus-start { grid-template-columns: 1fr; }
- .focus-start .suggestion { min-height: 68px; padding: 12px; }
+ .focus-start .suggestion { min-height: 46px; padding: 6px 4px; }
 }
-@media (prefers-reduced-motion: reduce) { .focus-start .suggestion { transition: none; } }
 
 /* Studio hierarchy uses the same accessible palette as chat and sign-in. */
 .studio-hero { padding: 24px; border: 1px solid var(--line); border-radius: 20px; background: radial-gradient(ellipse at 100% 0%, var(--focus-glow), transparent 35%), linear-gradient(120deg, var(--focus-selection), var(--focus-surface) 90%); }
@@ -283,11 +266,9 @@
 .studio-panel,
 .studio-card,
 .workspace-heading,
-.workspace-tool,
-.focus-start .suggestion { border-radius: 8px; }
+.workspace-tool { border-radius: 8px; }
 .studio-hero-mark,
-.workspace-tool-icon,
-.focus-start .suggestion > .icon { border-radius: 6px; }
+.workspace-tool-icon { border-radius: 6px; }
 .studio-primary,
 .studio-form textarea { border-radius: 6px; }
 
@@ -301,8 +282,7 @@
 }
 [data-theme="light"] .studio-panel,
 [data-theme="light"] .studio-card,
-[data-theme="light"] .workspace-tool,
-[data-theme="light"] .focus-start .suggestion {
+[data-theme="light"] .workspace-tool {
  border-color: #c5d7d6;
  background: linear-gradient(145deg,#ffffff 0%,#f0f6f5 100%);
  box-shadow: 0 12px 30px #315c5812;
@@ -313,12 +293,10 @@
  color: #286a6c;
 }
 [data-theme="light"] .studio-hero-mark,
-[data-theme="light"] .workspace-tool-icon,
-[data-theme="light"] .focus-start .suggestion > .icon {
+[data-theme="light"] .workspace-tool-icon {
  border-color: #b7d0cf;
  background: #e0eeee;
  color: #317b7d;
 }
 [data-theme="light"] .studio-card:hover,
-[data-theme="light"] .workspace-tool:hover,
-[data-theme="light"] .focus-start .suggestion:hover { border-color: #579394; background: #e8f2f1; }
+[data-theme="light"] .workspace-tool:hover { border-color: #579394; background: #e8f2f1; }
