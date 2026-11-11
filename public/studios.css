@@ -277,3 +277,16 @@
 [data-theme="dark"] .studio-primary:hover:not(:disabled) { background: #559b9d; }
 [data-theme="dark"] .studio-card:hover,
 [data-theme="dark"] .workspace-tool:hover { border-color: #4b9294; }
+
+/* Reference geometry: crisp product plaques without inflated pill-like corners. */
+.studio-hero,
+.studio-panel,
+.studio-card,
+.workspace-heading,
+.workspace-tool,
+.focus-start .suggestion { border-radius: 8px; }
+.studio-hero-mark,
+.workspace-tool-icon,
+.focus-start .suggestion > .icon { border-radius: 6px; }
+.studio-primary,
+.studio-form textarea { border-radius: 6px; }
