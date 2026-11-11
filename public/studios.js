@@ -35,8 +35,10 @@ export const TOOL_STARTERS=[
  {title:'Проверить код',icon:'code',description:'Разбор ошибок и конкретные предложения по правкам.',prompt:'Проверь код: '},
 ];
 
+const HERO_ICONS={'Focus Code':'code','Focus Forge':'check','Сайты':'globe','Изображения':'image','Скиллы':'command'};
 function hero(title,description){
- return `<header class="studio-hero"><h1>${title}</h1><p>${description}</p></header>`;
+ const heroIcon=HERO_ICONS[title]||'grid';
+ return `<header class="studio-hero"><span class="studio-hero-mark" aria-hidden="true">${icon(heroIcon)}</span><div class="studio-hero-copy"><span class="studio-kicker">Рабочая студия</span><h1>${title}</h1><p>${description}</p></div><span class="studio-live"><i></i> Готово к работе</span></header>`;
 }
 
 export function renderFocusCode({e,brief,project,runs=[]}){
