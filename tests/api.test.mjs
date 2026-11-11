@@ -682,3 +682,25 @@ test('a cut-off OpenRouter answer continues once and keeps the original if conti
 });
 
 
+
+test('Cloudflare quota is recognized on forbidden responses without retrying',async()=>{
+ let calls=0;
+ const r=await chat(req({messages:[{role:'user',content:'/image cat'}]}),{CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'cf'},async()=>{calls++;return Response.json({errors:[{code:4006,message:'daily free allocation of 10,000 neurons'}]},{status:403})});
+ assert.equal(r.status,429);assert.equal((await r.json()).code,'image_daily_quota');assert.equal(calls,1);
+});
+test('Cloudflare unavailable model falls back preserving image and prompt',async()=>{
+ for(const status of [404,503]){
+  const calls=[],imageReference={mimeType:'image/png',data:'iVBORw0KGgo=',width:1024,height:1024};
+  const r=await chat(req({messages:[{role:'user',content:'Добавь закат'}],imageReference}),{CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'cf'},async(url,{body})=>{
+   calls.push({url,prompt:body.get('prompt'),image:await body.get('input_image_0').text()});
+   return calls.length===1?Response.json({errors:[]},{status}):Response.json({result:{image:imageReference.data}});
+  });
+  assert.equal(r.status,200);assert.equal(calls.length,2);assert.match(calls[1].url,/klein-4b$/);assert.equal(calls[0].prompt,calls[1].prompt);assert.equal(calls[0].image,calls[1].image);
+ }
+});
+test('Cloudflare permanent errors expose safe diagnostics and never retry',async()=>{
+ for(const status of [400,401,403,413,422,500]){
+  let calls=0;const r=await chat(req({messages:[{role:'user',content:'/image cat'}]}),{CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'cf'},async()=>{calls++;return Response.json({errors:[{code:9999,message:'private-provider-secret'}]},{status})});
+  const data=await r.json();assert.equal(calls,1);assert.equal(data.providerStatus,status);assert.equal(data.providerCode,9999);assert.ok(!JSON.stringify(data).includes('private-provider-secret'));
+ }
+});

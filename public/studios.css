@@ -132,7 +132,7 @@
 .focus-code-shortcut { margin-top: 16px; }
 
 /* Studio hierarchy uses the same accessible palette as chat and sign-in. */
-.studio-hero { padding: 24px; border: 1px solid var(--line); border-radius: 20px; background: linear-gradient(120deg, var(--focus-selection), var(--focus-surface) 80%); }
+.studio-hero { padding: 24px; border: 1px solid var(--line); border-radius: 20px; background: radial-gradient(ellipse at 100% 0%, var(--focus-glow), transparent 35%), linear-gradient(120deg, var(--focus-selection), var(--focus-surface) 90%); }
 .studio-tag { padding: 6px 10px; border: 1px solid var(--focus-line); border-radius: 999px; background: var(--focus-selection); color: var(--focus-accent); }
 .studio-panel { box-shadow: 0 8px 32px #00000006; }
 .studio-card { transition: border-color .18s ease; }
@@ -140,3 +140,11 @@
 .studio-primary:focus-visible, .studio-chips button:focus-visible, .studio-secondary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 @media (max-width: 639px) { .studio-hero { padding: 20px 16px; } }
 @media (prefers-reduced-motion: reduce) { .studio-card { transition: none; } }
+
+.studio-hero { position: relative; overflow: hidden; }
+.studio-panel { border-radius: 20px; }
+.studio-form textarea { border-radius: 12px; padding: 16px; min-height: 128px; }
+.studio-chips { gap: 8px; }
+.studio-chips button { border-radius: 999px; padding-inline: 12px; }
+.studio-card-body { padding: 20px; }
+.studio-primary { border-radius: 12px; }

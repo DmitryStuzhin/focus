@@ -3,33 +3,35 @@
  --focus-font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
  --focus-mono: ui-monospace, "SFMono-Regular", Consolas, monospace;
  --focus-ease: cubic-bezier(.22, 1, .36, 1);
- --focus-canvas: #f4f7f8;
+ --focus-canvas: #f7f6f4;
  --focus-surface: #fff;
- --focus-inset: #eaf0f2;
- --focus-text: #17272e;
- --focus-secondary: #465e69;
- --focus-muted: #596f79;
- --focus-line: #d6e2e6;
- --focus-accent: #087c79;
- --focus-selection: #def3ef;
- --focus-action: #086b68;
- --focus-action-ink: #ffffff;
+ --focus-inset: #f0eeeb;
+ --focus-text: #252421;
+ --focus-secondary: #57554f;
+ --focus-muted: #6b6860;
+ --focus-line: #e4e0da;
+ --focus-accent: #80552e;
+ --focus-selection: #f2e9df;
+ --focus-action: #3b3128;
+ --focus-action-ink: #fffaf4;
  --focus-danger: #a43c36;
+ --focus-glow: #72bcb033;
 }
 
 [data-theme="dark"] {
- --focus-canvas: #10191e;
- --focus-surface: #16232a;
- --focus-inset: #20313a;
- --focus-text: #edf6f7;
- --focus-secondary: #bdd0d8;
- --focus-muted: #91aab5;
- --focus-line: #304650;
- --focus-accent: #73dfcb;
- --focus-selection: #1c3b3a;
- --focus-action: #8de8d5;
- --focus-action-ink: #102e2a;
+ --focus-canvas: #161615;
+ --focus-surface: #1d1d1b;
+ --focus-inset: #282725;
+ --focus-text: #f1eee8;
+ --focus-secondary: #c4bfb6;
+ --focus-muted: #a39d93;
+ --focus-line: #363430;
+ --focus-accent: #e1b383;
+ --focus-selection: #332b23;
+ --focus-action: #ead9c7;
+ --focus-action-ink: #282019;
  --focus-danger: #f2a29a;
+ --focus-glow: #73dfcb18;
  color-scheme: dark;
 }
 

@@ -555,8 +555,9 @@ async function generateImage(prompt,request,env,fetcher,reference=null,preset=nu
     }
     return json({error:'OpenAI не смог обработать запрос на изображение.',code:'image_provider'},502);
    }
-   if(response.status!==429)break;
-   const errorBody=await response.json().catch(()=>null);
+   if(response.ok)break;
+   if(!cloudflare&&response.status!==429)break;
+   const errorBody=await response.clone().json().catch(()=>null);
    const errors=Array.isArray(errorBody?.errors)?errorBody.errors:[];
    const codes=errors.map(error=>Number(error?.code)).filter(n=>Number.isInteger(n)&&n>0);
    // REST can wrap both quota and capacity errors in code 4006.
@@ -564,6 +565,23 @@ async function generateImage(prompt,request,env,fetcher,reference=null,preset=nu
     typeof error.message==='string'&&/daily free allocation|daily (?:neuron )?quota|10,?000 neurons/i.test(error.message));
    const quota=cloudflare&&(codes.includes(3036)||wrappedQuota);
    if(quota)return json({error:'Дневная бесплатная квота Cloudflare закончилась. Она обновится в 00:00 UTC (03:00 МСК). Повторные попытки до сброса не помогут.',code:'image_daily_quota'},429);
+   if(cloudflare&&response.status!==429){
+    // Only switch after an explicit unavailable-model/capacity rejection.
+    // Never retry authentication, policy, malformed requests or ambiguous 5xx.
+    if(attempt<2&&model===CLOUDFLARE_IMAGE_MODEL&&(response.status===404||response.status===503)){
+     model=CLOUDFLARE_FALLBACK_MODEL;
+     continue;
+    }
+    const status=response.status;
+    const providerCode=codes[0];
+    const error=status===401||status===403?'Cloudflare отклонил доступ к генерации. Проверьте права API-токена Workers AI и доступ аккаунта к модели.'
+     :status===400||status===422?'Cloudflare не принял описание или исходное изображение. Попробуйте сократить описание; для правки выберите другое исходное изображение.'
+     :status===404?'Модели изображений недоступны для этого аккаунта Cloudflare.'
+     :status===413?'Исходное изображение слишком большое для сервиса генерации.'
+     :status===503?'Модели изображений сейчас перегружены. Попробуйте позже.'
+     :'Cloudflare не смог завершить генерацию. Повторите позже.';
+    return json({error:error+' HTTP '+status+'.'+(providerCode?' Код Cloudflare: '+providerCode+'.':''),code:'image_provider',providerStatus:status,...(providerCode?{providerCode}:{})},502);
+   }
    const retryHeader=response.headers.get('retry-after');
    const seconds=retryHeader===null?null:Number(retryHeader);
    const retryMs=retryHeader===null?1000*(attempt+1):Number.isFinite(seconds)?Math.max(0,seconds*1000):Math.max(0,Date.parse(retryHeader)-Date.now());
