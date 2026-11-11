@@ -25,3 +25,15 @@ test('Forge evidence distinguishes a ready preview from an incomplete answer',()
  assert.equal(broken.status,'needs_work');
  assert.ok(broken.checks.some(item=>item.status==='fail'));
 });
+
+
+test('Forge flags conflicting files, invalid manifests and empty deliverables',()=>{
+ const text='```json package.json\n{broken}\n```\n```js src/app.js\n// TODO implement\n```\n```js src/app.js\n\n```';
+ const report=forgeReport(text,{kind:'code'});
+ assert.equal(report.status,'needs_work');
+ for(const id of ['duplicates','empty','json'])assert.equal(report.checks.find(item=>item.id===id)?.status,'fail');
+ assert.equal(report.checks.find(item=>item.id==='unfinished')?.status,'warn');
+ assert.equal(forgeReport('Готово',{kind:'code'}).status,'needs_work');
+ const valid=forgeReport('```json package.json\n{"scripts":{"test":"node --test"}}\n```',{kind:'code'});
+ assert.equal(valid.status,'ready');
+});

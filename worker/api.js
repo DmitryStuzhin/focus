@@ -106,7 +106,9 @@ const INTERACTIVE_GUIDANCE={
 const FORGE_GUIDANCE='\nРежим Focus Forge. Пользователь ждёт готовый проверяемый результат, а не советы или обещания. Сначала молча сформулируй критерии готовности из запроса, затем создай артефакт. Проведи внутреннюю проверку полноты: все запрошенные функции, согласованность файлов и путей, обработка ошибок, мобильный сценарий и команды запуска. Исправь обнаруженные противоречия до ответа. В конце кратко перечисли, что подготовлено, и отдельно укажи, что проверено анализом, а что требует реального запуска. Никогда не утверждай, что запускал команды, тесты, сборку или публикацию, если среда действительно этого не делала.';
 function chatSystem(env,research,taskMode,siteMode,forgeMode=false){
  const guidance=TASK_GUIDANCE[taskMode];
- return SYSTEM+capabilityInstructions(env,modelConfig(env).configured)+'\n'+ANSWER_FORMAT+(research?RESEARCH_GUIDANCE:'')+(guidance?'\n'+guidance:'')+(taskMode==='code'||siteMode||forgeMode?FORGE_GUIDANCE:'')+(siteMode?'\n'+SITE_GUIDANCE+(INTERACTIVE_GUIDANCE[siteMode]?'\n'+INTERACTIVE_GUIDANCE[siteMode]+' В изолированном предпросмотре сетевые запросы и localStorage недоступны.':''):'');
+ const understanding='\nОпредели намерение по всему запросу и контексту, включая отрицания и уточнения. Отличай просьбу реализовать от вопроса как это работает. Последнее уточнение меняет только указанную часть задачи. Не повторяй уже решённые вопросы. При достаточных данных сразу выполняй; при критическом пробеле задай один точный вопрос. Начни ответ с полезного результата. Подстраивай объём под сложность; избегай пустых вступлений. Проверяй вычисления, не выдумывай источники и версии API.';
+ const engineering='\nFocus Code: сначала определи входы, выходы и критерии приёмки. Соблюдай существующий стек и публичные интерфейсы. Верни совместимые полные файлы, конфигурацию и тесты ключевых сценариев, включая ошибки и пустые значения. Не храни секреты в исходниках. Для асинхронных операций предусмотрены отмена, ошибки и повторный запуск без дублирования обработчиков. Для интерфейса реализуй реальные действия кнопок и состояния загрузки. README должен соответствовать выданным файлам. Укажи оставшиеся ограничения, не называй прототип готовым production-продуктом.';
+ return SYSTEM+capabilityInstructions(env,modelConfig(env).configured)+'\n'+ANSWER_FORMAT+understanding+(research?RESEARCH_GUIDANCE:'')+(guidance?'\n'+guidance:'')+(taskMode==='code'||siteMode||forgeMode?FORGE_GUIDANCE+engineering:'')+(siteMode?'\n'+SITE_GUIDANCE+(INTERACTIVE_GUIDANCE[siteMode]?'\n'+INTERACTIVE_GUIDANCE[siteMode]+' В изолированном предпросмотре сетевые запросы и localStorage недоступны.':''):'');
 }
 function sourcePart(file,numberLines){
  const name=String(file.name).slice(0,150);
@@ -451,8 +453,8 @@ function localSkill(intent,attachments=[]){
 
 const DESIGN_IMAGE_MODEL='@cf/leonardo/lucid-origin';
 const OPENAI_IMAGE_MODEL='gpt-image-2.5-sunburst';
-const CLOUDFLARE_IMAGE_MODEL='@cf/black-forest-labs/flux-2-klein-4b';
-const CLOUDFLARE_FALLBACK_MODEL='@cf/black-forest-labs/flux-2-klein-9b';
+const CLOUDFLARE_IMAGE_MODEL='@cf/black-forest-labs/flux-2-klein-9b';
+const CLOUDFLARE_FALLBACK_MODEL='@cf/black-forest-labs/flux-2-klein-4b';
 const IMAGE_SIZES=new Map([
  ['1:1',[1024,1024]],
  ['16:9',[1280,720]],

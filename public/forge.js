@@ -34,7 +34,15 @@ export function forgeReport(text,{kind='project',truncated=false,previewReady=fa
    const interactive=/<script(?:\s|>)[\s\S]*?(?:addEventListener|onclick\s*=|onpointer|requestAnimationFrame)/iu.test(document);
    checks.push(check('interactive','Интерактивность',interactive?'pass':'warn',interactive?'Найдена логика взаимодействия.':'Автоматическая проверка не нашла обработчики взаимодействия.'));
   }
- }else checks.push(check('files','Файлы проекта',files.length?'pass':'warn',files.length?`Подготовлено файлов: ${files.length}.`:'Именованные файлы в ответе не найдены.'));
+ }else checks.push(check('files','Файлы проекта',files.length?'pass':'fail',files.length?`Подготовлено файлов: ${files.length}.`:'Именованные файлы в ответе не найдены.'));
+ const duplicates=files.filter((file,index)=>files.findIndex(other=>other.name===file.name)!==index);
+ if(duplicates.length)checks.push(check('duplicates','Уникальность путей','fail',`Повторяются пути: ${[...new Set(duplicates.map(file=>file.name))].join(', ')}. Уточните итоговую версию файлов.`));
+ const empty=files.filter(file=>!file.content.trim());
+ if(empty.length)checks.push(check('empty','Содержимое файлов','fail',`Пустые файлы: ${empty.map(file=>file.name).join(', ')}.`));
+ const invalidJSON=files.filter(file=>/\.json$/iu.test(file.name)&&file.content.trim()).filter(file=>{try{JSON.parse(file.content);return false;}catch{return true;}});
+ if(invalidJSON.length)checks.push(check('json','Синтаксис JSON','fail',`Некорректный JSON: ${invalidJSON.map(file=>file.name).join(', ')}.`));
+ const unfinished=files.filter(file=>/(?:TODO|FIXME|YOUR_API_KEY|вставьте (?:код|реализацию) здесь)/u.test(file.content));
+ if(unfinished.length)checks.push(check('unfinished','Места для доработки','warn',`Проверьте заглушки или настройки: ${unfinished.map(file=>file.name).join(', ')}.`));
  if(checkpoint)checks.push(check('checkpoint','Контрольная точка','pass',`Сохранено файлов: ${checkpoint.count}.`));
  const failed=checks.some(item=>item.status==='fail');
  return {version:1,kind,status:failed?'needs_work':'ready',checks,files:files.map(file=>file.name),checkpoint,limitation:'Код проверен структурно. Команды сборки и тесты на сервере не запускались.'};

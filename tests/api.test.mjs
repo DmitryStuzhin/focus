@@ -121,7 +121,7 @@ test('Cloudflare image generation uses its own token and returns the generated i
   return Response.json({success:true,result:{image:png}});
  });
  assert.equal(r.status,200);
- assert.equal(sent.url,'https://api.cloudflare.com/client/v4/accounts/'+account+'/ai/run/@cf/black-forest-labs/flux-2-klein-4b');
+ assert.equal(sent.url,'https://api.cloudflare.com/client/v4/accounts/'+account+'/ai/run/@cf/black-forest-labs/flux-2-klein-9b');
  assert.equal(sent.options.headers.authorization,'Bearer cloudflare');
  assert.ok(sent.options.body instanceof FormData);
  assert.equal(sent.options.headers['content-type'],undefined);
@@ -177,7 +177,7 @@ test('natural image format selects phone and YouTube dimensions',async()=>{
 
 test('natural image request uses the image provider without a chat model',async()=>{
  const r=await chat(req({messages:[{role:'user',content:'Нарисуй кота'}]}),{CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'cf'},async(url,options)=>{
-  assert.ok(url.endsWith('/flux-2-klein-4b'));assert.equal(options.body.get('prompt'),'Нарисуй кота');assert.equal(options.body.get('input_image_0'),null);
+  assert.ok(url.endsWith('/flux-2-klein-9b'));assert.equal(options.body.get('prompt'),'Нарисуй кота');assert.equal(options.body.get('input_image_0'),null);
   return Response.json({result:{image:'iVBORw0KGgo='}});
  });assert.equal(r.status,200);
 });
@@ -207,14 +207,14 @@ test('Cloudflare capacity rejection switches to Klein and preserves the edit',as
  });
  assert.equal(r.status,200);
  assert.equal(calls.length,2);
- assert.match(calls[0].url,/cloudflare.com.*flux-2-klein-4b$/);
- assert.match(calls[1].url,/cloudflare.com.*flux-2-klein-9b$/);
+ assert.match(calls[0].url,/cloudflare.com.*flux-2-klein-9b$/);
+ assert.match(calls[1].url,/cloudflare.com.*flux-2-klein-4b$/);
  assert.equal(calls[0].steps,null);
  assert.equal(calls[1].steps,null);
  assert.equal(calls[1].width,'1280');
  assert.match(calls[1].prompt,/Добавь закат/);
  assert.equal(calls[1].ref,calls[0].ref);
- assert.match((await r.json()).model,/flux-2-klein-9b$/);
+ assert.match((await r.json()).model,/flux-2-klein-4b$/);
 });
 test('wrapped quota and long retry delays stop without repeated provider calls',async()=>{
  for(const [body,headers,code] of [[{errors:[{code:'3036'}]},{},'image_daily_quota'],[{errors:[{code:4006,message:'AiError: you have used up your daily free allocation of 10,000 neurons'}]},{},'image_daily_quota'],[{errors:[]},{'retry-after':'60'},'image_rate_limit']]){
@@ -260,7 +260,7 @@ test('public callers and expired image passes cannot spend the OpenAI key',async
  const env={...imageSubscription,FOCUS_OPENAI_IMAGE_API_KEY:'paid',CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'free'};
  const input={messages:[{role:'user',content:'/image кот'}],subscription:true};
  const guest=await chat(req(input),env,async(url,options)=>{
-  assert.match(url,/api.cloudflare.com.*flux-2-klein-4b$/);
+  assert.match(url,/api.cloudflare.com.*flux-2-klein-9b$/);
   assert.equal(options.headers.authorization,'Bearer free');
   return Response.json({result:{image:'iVBORw0KGgo='}});
  });
@@ -294,7 +294,7 @@ test('a studio image edit sends the selected reference and preserves its format 
  const imageReference={mimeType:'image/png',data:'iVBORw0KGgo=',width:1280,height:720};
  const input={messages:[{role:'user',content:'/image-edit серый фон'}],imageReference};
  const result=await chat(req(input),env,async(url,{body})=>{
-  assert.match(url,/flux-2-klein-4b$/u);
+  assert.match(url,/flux-2-klein-9b$/u);
   assert.match(body.get('prompt'),/серый фон$/u);
   assert.equal(body.get('input_image_0').type,'image/png');
   assert.equal(body.get('width'),'1280');
