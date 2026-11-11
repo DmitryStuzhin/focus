@@ -189,3 +189,51 @@ export function createSlides(title,text){
  }
  return officeZip(root,parts,'presentationml.presentation');
 }
+
+export const officeFilename=name=>/\.(?:docx|pptx|xlsx)$/iu.test(name);
+
+export async function officeText(file){
+ const extension=file.name.toLowerCase().split('.').at(-1);
+ const limit=100000;
+ let text='',clipped=false;
+ const append=line=>{
+  const remaining=limit-text.length;
+  if(line.length+1>remaining)clipped=true;
+  text+=(line+'\n').slice(0,remaining);
+ };
+ if(extension==='xlsx'){
+  for(const row of await openTable(file)){
+   append(row.map(value=>value.replace(/[\t\r\n]+/gu,' ')).join('\t'));
+   if(clipped)break;
+  }
+ }else if(extension==='docx'){
+  const part=await readZip(file);
+  const doc=await part('word/document.xml');
+  if(!doc)throw new Error('В документе отсутствует основной текст.');
+  for(const paragraph of descendants(doc,'p')){
+   append(descendants(paragraph,'t').map(node=>node.textContent).join(''));
+   if(clipped)break;
+  }
+ }else if(extension==='pptx'){
+  const part=await readZip(file);
+  const [presentation,rels]=await Promise.all([part('ppt/presentation.xml'),part('ppt/_rels/presentation.xml.rels')]);
+  if(!presentation||!rels)throw new Error('В презентации отсутствует список слайдов.');
+  const targets=new Map(descendants(rels,'Relationship').map(node=>[node.getAttribute('Id'),node.getAttribute('Target')]));
+  const ids=descendants(presentation,'sldId');
+  for(const [index,id] of ids.slice(0,100).entries()){
+   const target=targets.get(id.getAttributeNS(REL,'id'));
+   const path=target?.startsWith('/')?target.slice(1):'ppt/'+target;
+   if(!/^ppt\/slides\/[A-Za-z0-9_.-]+\.xml$/u.test(path))throw new Error('Некорректная ссылка на слайд.');
+   const slide=await part(path);
+   if(!slide)throw new Error('Слайд отсутствует в архиве презентации.');
+   append('Слайд '+(index+1));
+   for(const paragraph of descendants(slide,'p')){
+    append(descendants(paragraph,'t').map(node=>node.textContent).join(''));
+    if(clipped)break;
+   }
+   if(clipped)break;
+  }
+  clipped||=ids.length>100;
+ }else throw new Error('Формат файла не поддерживается.');
+ return {text:text.trimEnd(),truncated:clipped};
+}

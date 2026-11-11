@@ -1,6 +1,6 @@
 import {eventStream} from './event-stream.js';
 import {workspaceAPI,snapshotWorkspace,restoreWorkspace} from './workspace-features.js';
-import {openTable,createWorkbook,createDocument,createSlides} from './office.js';
+import {openTable,createWorkbook,createDocument,createSlides,officeFilename,officeText} from './office.js';
 import {compareTables} from './tabular.js';
 import {projectFiles,projectZip} from './project-bundle.js';
 import {resolveAction,SPLIT_ACTIONS} from './action-phrases.js';
@@ -119,7 +119,7 @@ function studioSites(){
  const projects=new Set(liveProjects().map(project=>project.id));
  return state.chats.filter(chat=>!chat.deleted&&projects.has(chat.project)).flatMap(chat=>{
   const preferred=chat.messages.find(message=>message.id===chat.siteVersion);
-  const message=findWebsite(preferred)?preferred:chat.messages.findLast(message=>message.role==='assistant'&&(!message.previewKind||message.previewKind==='site')&&findWebsite(message));
+  const message=findWebsite(preferred)&&(!preferred.previewKind||preferred.previewKind==='site')?preferred:chat.messages.findLast(message=>message.role==='assistant'&&(!message.previewKind||message.previewKind==='site')&&findWebsite(message));
   const selection=findWebsite(message);
   return selection?[{id:chat.id,title:chat.title.replace(/^\/site\s+/iu,''),project:projectName(chat.project),updated:date(chat.updated),at:chat.updated,selection}]:[];
  }).sort((a,b)=>b.at-a.at);
@@ -333,12 +333,18 @@ function isText(f){return f.type?.startsWith('text/')||/\.(md|txt|csv|json|html?
 function projectTextFiles(projectId){
  const files=state.files.filter(file=>file.project===projectId&&!file.deleted);
  const folders=new Map(files.filter(file=>file.kind==='folder').map(file=>[file.id,file]));
- return files.filter(file=>file.kind==='file'&&isText(file)).map(file=>({...file,path:projectPath(file,folders)}))
+ return files.filter(file=>file.kind==='file'&&(isText(file)||officeFilename(file.name))).map(file=>({...file,path:projectPath(file,folders)}))
   .filter(file=>!/(?:^|\/)(?:node_modules|\.git)(?:\/|$)|(?:^|\/)(?:\.env(?:\.[^/]+)?|\.npmrc|\.pypirc|\.netrc|id_rsa|id_ed25519|[^/]+\.(?:pem|key|p12))$/iu.test(file.path));
 }
 async function readProjectText(id){
+ const file=state.files.find(item=>item.id===id&&!item.deleted);
  const blob=await getBlob(id);
- return blob&&blob.size<=500000?blob.text():null;
+ if(!file||!blob)return null;
+ if(officeFilename(file.name)){
+  try{return (await officeText(new File([blob],file.name))).text;}
+  catch{return null;}
+ }
+ return blob.size<=500000?blob.text():null;
 }
 function renderProjectMatches(message){
  const data=message.projectSearch;
@@ -936,7 +942,42 @@ function markdown(text,message,request=''){
  if(message?.forge)out+=forgeCard(message.forge);
  return out;
 }
-async function attachmentPayload(ids){const result=[];let bytes=0;for(const id of [...new Set(ids)]){const f=state.files.find(f=>f.id===id&&!f.deleted&&f.kind!=='folder');if(!f)continue;const blob=await getBlob(id);if(!blob)continue;if(isText(f)&&blob.size<500000){result.push({id,name:f.name,text:await blob.text()})}else if(['image/png','image/jpeg','image/webp','application/pdf'].includes(f.type)&&blob.size<5*1048576&&bytes+blob.size<6*1048576){bytes+=blob.size;const data=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result.split(',')[1]);r.onerror=reject;r.readAsDataURL(blob)});result.push({name:f.name,mimeType:f.type,data})}else if(ids.includes(id)){toast(`«${f.name}» сохранён, но не передан модели: используйте текст, PDF или изображение до 5 МБ`)}}return result}
+async function attachmentPayload(ids){
+ const result=[];
+ let bytes=0;
+ for(const id of [...new Set(ids)]){
+  const file=state.files.find(item=>item.id===id&&!item.deleted&&item.kind==='file');
+  if(!file)continue;
+  const blob=await getBlob(id);
+  if(!blob)continue;
+  if(isText(file)&&blob.size<500000){
+   result.push({id,name:file.name,text:await blob.text()});
+   continue;
+  }
+  if(officeFilename(file.name)){
+   try{
+    const extracted=await officeText(new File([blob],file.name));
+    if(extracted.text)result.push({id,name:file.name,...extracted});
+    else toast('В файле «'+file.name+'» нет текста для анализа');
+   }catch(error){toast('«'+file.name+'» — '+error.message);}
+   continue;
+  }
+  if(['image/png','image/jpeg','image/webp','application/pdf'].includes(file.type)&&
+     blob.size<5*1048576&&bytes+blob.size<6*1048576){
+   bytes+=blob.size;
+   const data=await new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=()=>resolve(reader.result.split(',')[1]);
+    reader.onerror=reject;
+    reader.readAsDataURL(blob);
+   });
+   result.push({name:file.name,mimeType:file.type,data});
+   continue;
+  }
+  toast('«'+file.name+'» сохранён в проекте. Для анализа прикрепите текст, офисный файл, PDF или изображение до 5 МБ.');
+ }
+ return result;
+}
 async function requestAnswer(c){
  if(generation)return;
  c.error=null;c.pendingSearch=null;
@@ -1219,7 +1260,7 @@ function researchDialog(){
   const custom=String(data.get('queries')).split(/\n/u).map(value=>value.trim()).filter(Boolean).slice(0,2);
   const additional=custom.length?custom:[question+' первоисточники',question+' ограничения и противоречия'];
   pendingResearch={question,sources,queries:additional,background:data.has('background')};
-  ui.draft=(sources==='files'?'/evidence ':'')+question;
+  ui.draft='/evidence '+question;
   closeModal();
   send();
  }});
