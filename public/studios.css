@@ -109,6 +109,28 @@
  .studio-grid, .studio-models { grid-template-columns: minmax(0, 1fr); }
 }
 
+.focus-start { margin-top: 24px; }
+.focus-start .suggestion { align-items: flex-start; min-height: 56px; padding: 8px; }
+.focus-start small, .version-list small { display: block; margin-top: 4px; color: var(--muted); }
+.focus-form input[type=file] { max-width: 100%; }
+.table-totals { display: grid; grid-template-columns: repeat(auto-fit,minmax(100px,1fr)); gap: 12px; }
+.table-totals dt { color: var(--secondary); font-size: 13px; }
+.table-totals dd { margin: 4px 0 0; font-size: 24px; font-variant-numeric: tabular-nums; }
+.version-list { list-style: none; padding: 0; margin: 0; }
+.version-list li { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.version-list li:first-child { padding-top: 0; }
+.version-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.version-actions .btn { text-decoration: none; }
+@media (max-width: 639px) {
+ .site-preview-header { flex-wrap: wrap; padding-block: 8px; }
+}
+.stream-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; }
+.stream-text:not(:empty) { margin-top: 12px; }
+.preview-tools { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 12px; border-bottom: 1px solid var(--line); }
+.preview-tools .btn[aria-pressed=true] { background: var(--accent-soft); }
+.version-diff { max-height: 56dvh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.focus-code-shortcut { margin-top: 16px; }
+
 /* Studio hierarchy uses the same accessible palette as chat and sign-in. */
 .studio-hero { padding: 24px; border: 1px solid var(--line); border-radius: 20px; background: linear-gradient(120deg, var(--focus-selection), var(--focus-surface) 80%); }
 .studio-tag { padding: 6px 10px; border: 1px solid var(--focus-line); border-radius: 999px; background: var(--focus-selection); color: var(--focus-accent); }

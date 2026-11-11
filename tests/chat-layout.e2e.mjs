@@ -410,6 +410,35 @@ try{
  await chartPage.close();
  console.log('A phone renders an SVG chart with inspectable values, a Markdown table and a callout');
 
+ const officePage=await browser.newPage({viewport:{width:390,height:844}});
+ await officePage.goto('http://127.0.0.1:'+server.address().port+'/#tables');
+ await officePage.getByRole('heading',{name:'Сверка таблиц'}).waitFor();
+ const office=await officePage.evaluate(async()=>{
+  const {createWorkbook,createDocument,createSlides,openTable,officeText}=await import('/office.js');
+  const workbook=createWorkbook([{name:'Товары',rows:[['id','price'],['001','10']]}]);
+  return {
+   rows:await openTable(new File([workbook],'fixture.xlsx')),
+   workbook:Array.from(new Uint8Array(await workbook.arrayBuffer())),
+   word:(await officeText(new File([createDocument('Сводка','Пункт & данные')],'fixture.docx'))).text,
+   slides:(await officeText(new File([createSlides('Слайды','# Раздел\nСодержимое')],'fixture.pptx'))).text
+  };
+ });
+ assert.deepEqual(office.rows,[['id','price'],['001','10']]);
+ assert.match(office.word,/Пункт & данные/u);
+ assert.match(office.slides,/Слайд 1\nРаздел\nСодержимое/u);
+ await officePage.locator('#table-before').setInputFiles({name:'before.xlsx',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:Buffer.from(office.workbook)});
+ await officePage.locator('#table-after').setInputFiles({name:'after.csv',mimeType:'text/csv',buffer:Buffer.from('id;price\n001;11\n002;20')});
+ await officePage.getByRole('button',{name:'Сравнить',exact:true}).click();
+ await officePage.getByRole('heading',{name:'Результат сверки'}).waitFor();
+ assert.equal(await officePage.locator('.table-totals dd').allTextContents().then(values=>values.join(',')),'1,0,1,0');
+ const downloaded=officePage.waitForEvent('download');
+ await officePage.getByRole('button',{name:'Скачать XLSX'}).click();
+ assert.match((await downloaded).suggestedFilename(),/\.xlsx$/u);
+ assert.equal(await officePage.evaluate(()=>document.documentElement.scrollWidth),390);
+ await officePage.close();
+ console.log('Office attachments and XLSX comparison work on a phone');
+
+
 }finally{
  if(browser)await browser.close();
  await new Promise(resolve=>server.close(resolve));
