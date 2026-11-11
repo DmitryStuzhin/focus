@@ -218,3 +218,108 @@
  to { background-position: 72% 18%,18% 82%,0 0; }
 }
 @media (prefers-reduced-motion: reduce) { [data-theme=dark] .main { animation: none; } }
+
+/* File rail: useful assets should read as inviting cards, not a utility dump. */
+[data-theme=dark] .files-panel {
+ background:
+  radial-gradient(ellipse 95% 34% at 100% 0%, #63babc17, transparent 72%),
+  linear-gradient(180deg, #0d1517 0%, #091012 100%);
+ border-left-color: #263c40;
+}
+[data-theme=dark] .files-header {
+ border-bottom-color: #263c40;
+ background: #0d1517d9;
+ backdrop-filter: blur(18px);
+}
+[data-theme=dark] .files-tabs {
+ gap: 3px;
+ padding: 3px;
+ border: 1px solid #263f43;
+ border-radius: 12px;
+ background: #091113b8;
+}
+[data-theme=dark] .files-tabs .tab {
+ min-width: 82px;
+ border-radius: 8px;
+ text-align: center;
+}
+[data-theme=dark] .files-tabs .tab.active {
+ color: #f1f5f5;
+ background: linear-gradient(135deg, #315f62, #23474a);
+ box-shadow: inset 0 1px #aef2f21c, 0 5px 16px #0004;
+}
+[data-theme=dark] .files-toolbar {
+ margin: 12px 12px 8px;
+ padding: 9px 10px;
+ border: 1px solid #263f43;
+ border-radius: 12px;
+ background: #111d1fbd;
+}
+[data-theme=dark] .file-actions .icon-btn {
+ width: 30px;
+ height: 30px;
+ border: 1px solid transparent;
+ border-radius: 8px;
+}
+[data-theme=dark] .file-actions .icon-btn:hover {
+ border-color: #31575b;
+ background: #193033;
+ color: #91c3c5;
+}
+[data-theme=dark] .files-body { padding: 4px 12px 14px; }
+[data-theme=dark] .file-row {
+ min-height: 62px;
+ margin-bottom: 8px;
+ padding: 10px;
+ border: 1px solid #243b3f;
+ border-radius: 14px;
+ background: linear-gradient(145deg, #142124 0%, #0e1719 82%);
+ box-shadow: 0 9px 26px #0003, inset 0 1px #d7ffff08;
+ transition: transform .18s var(--ease), border-color .18s var(--ease), background .18s var(--ease);
+}
+[data-theme=dark] .file-row:hover {
+ transform: translateY(-2px);
+ border-color: #4b9294;
+ background: linear-gradient(145deg, #183033 0%, #101b1d 82%);
+}
+[data-theme=dark] .file-row > .icon {
+ width: 36px;
+ height: 36px;
+ padding: 9px;
+ border: 1px solid #31575b;
+ border-radius: 11px;
+ background: #193033;
+ color: #7fc0c2;
+}
+[data-theme=dark] .file-open strong {
+ color: #edf4f4;
+ font-size: 12px;
+ font-weight: 600;
+}
+[data-theme=dark] .file-open small { color: #7f9698; }
+[data-theme=dark] .files-empty {
+ margin: 8px 0;
+ padding: 48px 18px;
+ border: 1px dashed #315055;
+ border-radius: 16px;
+ background: #10202380;
+}
+[data-theme=dark] .empty-file-icon { color: #6eafb1; }
+[data-theme=dark] .files-foot {
+ border-top-color: #263c40;
+ background: #0a1113cc;
+}
+[data-theme=dark] .change-item {
+ margin: 0 0 8px;
+ padding: 13px 12px 13px 34px;
+ border: 1px solid #243b3f;
+ border-radius: 12px;
+ background: #111d1f;
+}
+[data-theme=dark] .change-item::before {
+ left: 15px;
+ top: 18px;
+ background: #63babc;
+ box-shadow: 0 0 10px #63babc80;
+}
+@media (prefers-reduced-motion: reduce) { [data-theme=dark] .file-row { transition: none; } }
