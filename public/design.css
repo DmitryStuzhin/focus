@@ -19,19 +19,19 @@
 }
 
 [data-theme="dark"] {
- --focus-canvas: #161615;
- --focus-surface: #1d1d1b;
- --focus-inset: #282725;
- --focus-text: #f1eee8;
- --focus-secondary: #c4bfb6;
- --focus-muted: #a39d93;
- --focus-line: #363430;
- --focus-accent: #e1b383;
- --focus-selection: #332b23;
- --focus-action: #ead9c7;
- --focus-action-ink: #282019;
+ --focus-canvas: #090c0d;
+ --focus-surface: #0f1315;
+ --focus-inset: #171d20;
+ --focus-text: #f2eee8;
+ --focus-secondary: #c4c0ba;
+ --focus-muted: #8e9493;
+ --focus-line: #252d30;
+ --focus-accent: #d6a878;
+ --focus-selection: #29221c;
+ --focus-action: #e2c3a3;
+ --focus-action-ink: #211a15;
  --focus-danger: #f2a29a;
- --focus-glow: #73dfcb18;
+ --focus-glow: #4dd9c52b;
  color-scheme: dark;
 }
 
