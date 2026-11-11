@@ -1,11 +1,12 @@
 name: Check Focus
 on:
   push:
+    branches: [main]
   pull_request:
 permissions:
   contents: read
 concurrency:
-  group: focus-ci-${{ github.ref }}
+  group: focus-ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
   check:
