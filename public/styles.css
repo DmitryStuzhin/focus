@@ -323,3 +323,12 @@
  box-shadow: 0 0 10px #63babc80;
 }
 @media (prefers-reduced-motion: reduce) { [data-theme=dark] .file-row { transition: none; } }
+
+/* Keep utility plaques aligned with the same strict geometry as the studios. */
+.workspace-card,
+.files-tabs,
+.files-toolbar,
+.file-row,
+.files-empty,
+.change-item { border-radius: 8px; }
+.file-row > .icon { border-radius: 6px; }
