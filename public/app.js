@@ -298,8 +298,9 @@ function chatView(){const c=activeChat();if(!c||!c.messages.length)return `<sect
   <button class="suggestion" data-action="studio-view" data-id="tables">${icon('table')}<span>Сверить таблицы<small>Изменения между двумя выгрузками</small></span></button>
   <button class="suggestion" data-action="research-plan">${icon('search')}<span>Исследовать тему<small>Поиск с источниками</small></span></button>
   <button class="suggestion" data-action="studio-view" data-id="images">${icon('image')}<span>Создать изображение<small>Генерация и правки</small></span></button>
-  <button class="suggestion" aria-label="Написать код" data-action="prompt" data-prompt="Напиши код для ">${icon('code')}<span>Написать код<small>Focus Code и файлы проекта</small></span></button>
-  <button class="suggestion" aria-label="Продумать план" data-action="prompt" data-prompt="Составь план для ">${icon('plan')}<span>Продумать план<small>Шаги и проверяемый результат</small></span></button>
+ </div><div class="version-actions focus-code-shortcut">
+  <button class="inline-link" aria-label="Написать код" data-action="prompt" data-prompt="Напиши код для ">Написать код</button>
+  <button class="inline-link" aria-label="Продумать план" data-action="prompt" data-prompt="Составь план для ">Продумать план</button>
  </div></div></section>`;
  let lastUserContent='';
  return `<section class="messages" aria-label="Сообщения диалога">${c.messages.map(m=>{
