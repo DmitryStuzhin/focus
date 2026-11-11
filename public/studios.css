@@ -171,3 +171,55 @@
 .workspace-tool > .icon { color: var(--muted); width: 15px; height: 15px; }
 @media (max-width: 639px) { .workspace-heading { padding: 22px 18px; } .workspace-tools { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { .workspace-tool { transition: none; } }
+
+/* A single graphite/teal language for every Focus studio plaque. */
+[data-theme="dark"] .studio-hero,
+[data-theme="dark"] .workspace-heading {
+ border-color: #29484c;
+ background:
+  radial-gradient(ellipse at 100% 0%, #63babc24, transparent 44%),
+  linear-gradient(135deg, #152629 0%, #0d1517 72%);
+ box-shadow: 0 22px 64px #0007, inset 0 1px #b8f4f40a;
+}
+[data-theme="dark"] .studio-panel,
+[data-theme="dark"] .studio-card,
+[data-theme="dark"] .workspace-tool {
+ border-color: #263f43;
+ background: linear-gradient(145deg, #142124 0%, #0e1618 78%);
+ box-shadow: 0 16px 42px #0005, inset 0 1px #d7ffff08;
+}
+[data-theme="dark"] .studio-panel::before {
+ border-color: #294247;
+ background:
+  radial-gradient(circle at 18px 17px,#c96d67 0 4px,transparent 4.5px),
+  radial-gradient(circle at 34px 17px,#b9965e 0 4px,transparent 4.5px),
+  radial-gradient(circle at 50px 17px,#4b9294 0 4px,transparent 4.5px),
+  linear-gradient(180deg,#17272a,#111b1d);
+}
+[data-theme="dark"] .studio-tag {
+ border-color: #31575b;
+ background: #173033;
+ color: #91c3c5;
+}
+[data-theme="dark"] .studio-hero-mark,
+[data-theme="dark"] .workspace-tool-icon {
+ border-color: #31575b;
+ background: #193033;
+ color: #72b8ba;
+}
+[data-theme="dark"] .studio-model,
+[data-theme="dark"] .studio-form textarea,
+[data-theme="dark"] .studio-format select,
+[data-theme="dark"] .studio-reference {
+ border-color: #263f43;
+ background: #0f191b;
+}
+[data-theme="dark"] .studio-primary {
+ border-color: #559b9d;
+ background: #43888a;
+ color: #f4fafa;
+ box-shadow: 0 8px 24px #2d747633;
+}
+[data-theme="dark"] .studio-primary:hover:not(:disabled) { background: #559b9d; }
+[data-theme="dark"] .studio-card:hover,
+[data-theme="dark"] .workspace-tool:hover { border-color: #4b9294; }
