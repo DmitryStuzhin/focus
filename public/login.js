@@ -32,11 +32,11 @@ for(const [value,label] of Object.entries(goals)){
 function screen(stage){
  const registering=mode==='register';
  const screens=[
-  [registering?'Создай аккаунт Focus':'Войди в Focus',registering
-   ?'Укажи почту, чтобы подтвердить её кодом из письма.'
-   :'Укажи почту. Мы отправим код для входа.'],
-  ['Проверь почту','Введи шестизначный код из письма, отправленного на '+email+'.'],
-  ['Расскажи о себе','Ответы помогут Focus учитывать твои задачи в будущем.'],
+  [registering?'Регистрация в Focus':'Вход в Focus',registering
+   ?'Укажите почту, чтобы подтвердить её кодом из письма.'
+   :'Укажите почту. Мы отправим код для входа.'],
+  ['Проверьте почту','Введите шестизначный код из письма, отправленного на '+email+'.'],
+  ['Расскажите о себе','Укажите, для каких задач вы планируете использовать Focus.'],
  ];
  [title.textContent,intro.textContent]=screens[stage];
  step.textContent='Шаг '+(stage+1)+' из '+(registering?3:2);
@@ -92,7 +92,7 @@ async function request(path,data){
  });
  const result=await response.json().catch(()=>null);
  if(!response.ok||!result){
-  const err=new Error(result?.error||'Что-то пошло не так. Попробуй ещё раз.');
+  const err=new Error(result?.error||'Что-то пошло не так. Попробуйте ещё раз.');
   err.retry=Number(response.headers.get('retry-after'))||0;
   err.code=result?.code;
   throw err;
@@ -165,7 +165,7 @@ profileForm.addEventListener('submit',async event=>{
  const fields=new FormData(profileForm);
  const selected=fields.getAll('goals');
  if(!selected.length){
-  notice('Выбери, для чего тебе нужен Focus.');
+  notice('Выберите, для чего вам нужен Focus.');
   profileForm.querySelector('[name="goals"]').focus();
   return;
  }
@@ -202,7 +202,7 @@ async function start(){
   step.hidden=true;
   document.querySelector('#guest').hidden=false;
  }catch{
-  intro.textContent='Не удалось подключиться к Focus. Проверь соединение и обнови страницу.';
+  intro.textContent='Не удалось подключиться к Focus. Проверьте соединение и обновите страницу.';
  }
 }
 window.addEventListener('storage',event=>{if(event.key===AUTH_EVENT_KEY)location.reload();});

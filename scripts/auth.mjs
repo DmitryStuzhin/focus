@@ -29,12 +29,12 @@ function registrationProfile(body){
  const name = value => typeof value==='string' ? value.trim().normalize('NFC') : '';
  const firstName=name(body.firstName),lastName=name(body.lastName);
  const validName = value => value.length<=39&&/\p{L}/u.test(value)&&!/[\p{Cc}\p{Cf}]/u.test(value);
- if(!validName(firstName)||!validName(lastName))return 'Укажи имя и фамилию (до 39 символов в каждом поле).';
+ if(!validName(firstName)||!validName(lastName))return 'Укажите имя и фамилию (до 39 символов в каждом поле).';
  const {ageGroup,role,goals:selected}=body;
- if(typeof ageGroup!=='string'||!Object.hasOwn(ages,ageGroup))return 'Выбери свою возрастную группу.';
- if(typeof role!=='string'||!Object.hasOwn(roles,role))return 'Выбери, чем ты занимаешься.';
+ if(typeof ageGroup!=='string'||!Object.hasOwn(ages,ageGroup))return 'Выберите свою возрастную группу.';
+ if(typeof role!=='string'||!Object.hasOwn(roles,role))return 'Выберите, чем ты занимаешься.';
  if(!Array.isArray(selected)||!selected.length||selected.length>Object.keys(goals).length||
-  selected.some(value=>typeof value!=='string'||!Object.hasOwn(goals,value)))return 'Выбери, для чего тебе нужен Focus.';
+  selected.some(value=>typeof value!=='string'||!Object.hasOwn(goals,value)))return 'Выберите, для чего вам нужен Focus.';
  return {firstName,lastName,ageGroup,role,goals:[...new Set(selected)]};
 }
 
@@ -154,16 +154,16 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
   }
   if(retryAt>now){
    const seconds=Math.ceil((retryAt-now)/1000);
-   return error('Слишком много попыток. Попробуй позже.',429,{'retry-after':String(seconds)});
+   return error('Слишком много попыток. Попробуйте позже.',429,{'retry-after':String(seconds)});
   }
   return null;
  }
 
  async function requestCode(body,ip,now){
   const email = normalizeEmail(body.email);
-  if(!email)return error('Укажи корректный адрес электронной почты.',400);
+  if(!email)return error('Укажите корректный адрес электронной почты.',400);
   const intent=body.intent??'login';
-  if(intent!=='login'&&intent!=='register')return error('Выбери вход или регистрацию.',400);
+  if(intent!=='login'&&intent!=='register')return error('Выберите вход или регистрацию.',400);
   const emailKey = digest(email);
   const id = nonce();
   const code = String(randomInt(0,1_000_000)).padStart(6,'0');
@@ -199,7 +199,7 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
    });
    const diagnostic=failure instanceof MailDeliveryError?failure.message:'Unknown mailer error.';
    console.error('Focus auth: mail delivery request failed. '+diagnostic.replaceAll('\n',' '));
-   return json({error:'Не удалось отправить письмо. Попробуй через минуту.',code:'mail_delivery_failed'},503);
+   return json({error:'Не удалось отправить письмо. Попробуйте через минуту.',code:'mail_delivery_failed'},503);
   }
   markSent.run(id);
   return json({challenge:id,resendAfter:60});
@@ -208,30 +208,30 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
  function verifyCode(body,ip,secure,now,agent){
   const {challenge:id,code} = body;
   if(typeof id!=='string'||!/^[A-Za-z0-9_-]{43}$/u.test(id)||typeof code!=='string'||!/^\d{6}$/u.test(code)){
-   return error('Введи шестизначный код из письма.',400);
+   return error('Введите шестизначный код из письма.',400);
   }
   return transaction(db,()=>{
    const limit = checkLimits([['verify-ip',ip,15*MINUTE,50]],now);
    if(limit)return limit;
    record.run('verify-ip',ip,now);
    const entry = challengeById.get(id);
-   if(!entry||entry.expires<=now||entry.attempts>=5)return error('Этот код больше не действует. Запроси новый.',400);
+   if(!entry||entry.expires<=now||entry.attempts>=5)return error('Этот код больше не действует. Запросите новый.',400);
    const emailKey=digest(entry.email);
    const emailLimit=checkLimits([['verify-email',emailKey,15*MINUTE,10]],now);
    if(emailLimit)return emailLimit;
    if(!timingSafeEqual(Buffer.from(entry.hash,'hex'),codeHash(id,code))){
     record.run('verify-email',emailKey,now);
     failAttempt.run(id);
-    return error(entry.attempts===4?'Попытки закончились. Запроси новый код.':'Код не совпал. Проверь письмо.',400);
+    return error(entry.attempts===4?'Попытки закончились. Запросите новый код.':'Код не совпал. Проверьте письмо.',400);
    }
    deleteChallenge.run(id);
    const user = userByEmail.get(entry.email);
    if(user?.blocked)return error('Доступ к аккаунту ограничен.',403);
    if(entry.intent==='login'){
-    if(!user)return json({error:'У этой почты ещё нет аккаунта. Выбери регистрацию.',code:'registration_required'},404);
+    if(!user)return json({error:'У этой почты ещё нет аккаунта. Выберите регистрацию.',code:'registration_required'},404);
     return openSession(user,secure,now,agent);
    }
-   if(user)return json({error:'У этой почты уже есть аккаунт. Выбери вход.',code:'account_exists'},409);
+   if(user)return json({error:'У этой почты уже есть аккаунт. Выберите вход.',code:'account_exists'},409);
    const registrationToken=nonce();
    insertRegistration.run(digest(registrationToken),entry.email,now+REGISTRATION_TTL);
    return json({registrationToken});
@@ -250,7 +250,7 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
  }
 
  function deleteAccount(user,token,body,now,secure){
-  if(normalizeEmail(body.email)!==user.email||body.confirm!==true)return error('Подтверди удаление аккаунта.',400);
+  if(normalizeEmail(body.email)!==user.email||body.confirm!==true)return error('Подтвердите удаление аккаунта.',400);
   return transaction(db,()=>{
    if(!userBySession.get(token,now))return error('Сессия завершена.',401);
    if(adminEmail)sql('DELETE FROM admin_login_audit WHERE session IN (SELECT token FROM sessions WHERE user_id=?)').run(user.id);
@@ -270,7 +270,7 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
 
  function register(body,secure,now,agent){
   const {registrationToken}=body;
-  const expired=()=>json({error:'Подтверди почту новым кодом, чтобы завершить регистрацию.',code:'registration_expired'},400);
+  const expired=()=>json({error:'Подтвердите почту новым кодом, чтобы завершить регистрацию.',code:'registration_expired'},400);
   if(typeof registrationToken!=='string'||!/^[A-Za-z0-9_-]{43}$/u.test(registrationToken))return expired();
   const profile=registrationProfile(body);
   if(typeof profile==='string')return error(profile,400);
@@ -279,7 +279,7 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
    const entry=registrationByToken.get(hash,now);
    if(!entry)return expired();
    deleteRegistration.run(hash);
-   if(userByEmail.get(entry.email))return json({error:'У этой почты уже есть аккаунт. Выбери вход.',code:'account_exists'},409);
+   if(userByEmail.get(entry.email))return json({error:'У этой почты уже есть аккаунт. Выберите вход.',code:'account_exists'},409);
    const id=nonce();
    insertUser.run(id,entry.email,profile.firstName+' '+profile.lastName,now);
    accounts.saveOnboarding(id,profile,now);
@@ -324,7 +324,7 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
      return null;
     }
     if((path==='/'||path==='/index.html')&&['GET','HEAD'].includes(request.method))return redirect('/login');
-    return path.startsWith('/api/')?error('Войди в Focus, чтобы продолжить.',401):null;
+    return path.startsWith('/api/')?error('Войдите в Focus, чтобы продолжить.',401):null;
    }
    if(!['/api/auth/request','/api/auth/verify','/api/auth/register','/api/auth/logout','/api/auth/profile','/api/auth/subscription','/api/auth/delete'].includes(path))return error('Страница не найдена.',404);
    if(request.method!=='POST')return error('Метод не поддерживается.',405);
@@ -339,10 +339,10 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
    if(path==='/api/auth/request')return requestCode(body,client,now);
    if(path==='/api/auth/verify')return verifyCode(body,client,secure,now,request.headers.get('user-agent'));
    if(path==='/api/auth/register')return register(body,secure,now,request.headers.get('user-agent'));
-   if(!user)return error('Войди в Focus, чтобы продолжить.',401);
+   if(!user)return error('Войдите в Focus, чтобы продолжить.',401);
    if(path==='/api/auth/delete')return deleteAccount(user,token,body,now,secure);
    if(path==='/api/auth/profile'){
-    if(typeof body.name!=='string'||body.name.trim().length>80||/[\p{Cc}\p{Cf}]/u.test(body.name))return error('Укажи имя длиной до 80 символов.',400);
+    if(typeof body.name!=='string'||body.name.trim().length>80||/[\p{Cc}\p{Cf}]/u.test(body.name))return error('Укажите имя длиной до 80 символов.',400);
     user.name=body.name.trim();
     setName.run(user.name,user.id);
    }else{
