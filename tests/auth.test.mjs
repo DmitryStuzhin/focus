@@ -224,3 +224,24 @@ test('resends revoke previous codes and guessing is limited across challenges an
   assert.equal((await s.post(path,{challenge,code:sent.at(-1).code})).status,200);
  }finally{await s.close();}
 });
+
+test('account deletion revokes sessions and removes cloud content',async()=>{
+ const sent=[];
+ const s=await start(loginEnv,{mailer:async mail=>sent.push(mail)});
+ try{
+  const email='delete@example.com';
+  const {challenge}=await (await s.post('/api/auth/request',{email,intent:'register'})).json();
+  const {registrationToken}=await (await s.post('/api/auth/verify',{challenge,code:sent[0].code})).json();
+  const created=await s.post('/api/auth/register',{...profile,registrationToken});
+  const cookie=created.headers.get('set-cookie').split(';')[0];
+  const page=await s.post('/api/publications',{action:'create',chatId:'chat',version:'version',title:'Sample',html:'<html></html>'},{cookie});
+  const {path}=await page.json();
+  assert.equal((await s.get(path)).status,200);
+  assert.equal((await s.post('/api/auth/delete',{email,confirm:false},{cookie})).status,400);
+  const deleted=await s.post('/api/auth/delete',{email,confirm:true},{cookie});
+  assert.equal(deleted.status,200);
+  assert.match(deleted.headers.get('set-cookie'),/Max-Age=0/);
+  assert.equal((await s.get('/api/chat',cookie)).status,401);
+  assert.equal((await s.get(path)).status,404);
+ }finally{await s.close();}
+});

@@ -116,6 +116,7 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
  const touchSession = sql('UPDATE sessions SET last_seen=? WHERE token=? AND (last_seen IS NULL OR last_seen<?)');
  const userBySession = sql(`SELECT users.id,users.email,users.name,users.subscription_until
   FROM sessions JOIN users ON users.id=sessions.user_id WHERE token=? AND expires>? AND ended IS NULL AND users.blocked=0`);
+ const userExists=sql('SELECT 1 FROM users WHERE id=?');
  const setName = sql('UPDATE users SET name=? WHERE id=?');
  const codeHash = (id,code) => createHmac('sha256',secret).update(id+':'+code).digest();
  const isAdmin = user => !!adminEmail&&user?.email===adminEmail;
@@ -248,6 +249,24 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
   });
  }
 
+ function deleteAccount(user,token,body,now,secure){
+  if(normalizeEmail(body.email)!==user.email||body.confirm!==true)return error('Подтверди удаление аккаунта.',400);
+  return transaction(db,()=>{
+   if(!userBySession.get(token,now))return error('Сессия завершена.',401);
+   if(adminEmail)sql('DELETE FROM admin_login_audit WHERE session IN (SELECT token FROM sessions WHERE user_id=?)').run(user.id);
+   for(const table of ['sessions','account_activity','account_onboarding','image_claims','workspaces','published_pages','focus_jobs']){
+    sql(`DELETE FROM ${table} WHERE user_id=?`).run(user.id);
+   }
+   sql('DELETE FROM provider_budget WHERE owner=?').run('user:'+user.id);
+   sql('DELETE FROM auth_events WHERE identity IN (?,?)').run(digest(user.email),digest(user.id));
+   sql('DELETE FROM challenges WHERE email=?').run(user.email);
+   sql('DELETE FROM registration_tokens WHERE email=?').run(user.email);
+   sql('DELETE FROM users WHERE id=?').run(user.id);
+   jobs.abortAccount(user.id);
+   return json({ok:true},200,{'set-cookie':cookie('',secure,0)});
+  });
+ }
+
  function register(body,secure,now,agent){
   const {registrationToken}=body;
   const expired=()=>json({error:'Подтверди почту новым кодом, чтобы завершить регистрацию.',code:'registration_expired'},400);
@@ -306,7 +325,7 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
     if((path==='/'||path==='/index.html')&&['GET','HEAD'].includes(request.method))return redirect('/login');
     return path.startsWith('/api/')?error('Войди в Focus, чтобы продолжить.',401):null;
    }
-   if(!['/api/auth/request','/api/auth/verify','/api/auth/register','/api/auth/logout','/api/auth/profile','/api/auth/subscription'].includes(path))return error('Страница не найдена.',404);
+   if(!['/api/auth/request','/api/auth/verify','/api/auth/register','/api/auth/logout','/api/auth/profile','/api/auth/subscription','/api/auth/delete'].includes(path))return error('Страница не найдена.',404);
    if(request.method!=='POST')return error('Метод не поддерживается.',405);
    if(request.headers.get('origin')!==url.origin)return error('Запрос отклонён.',403);
    if(!secure&&!['localhost','127.0.0.1','[::1]'].includes(url.hostname))return error('Для входа требуется HTTPS.',403);
@@ -320,6 +339,7 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
    if(path==='/api/auth/verify')return verifyCode(body,client,secure,now,request.headers.get('user-agent'));
    if(path==='/api/auth/register')return register(body,secure,now,request.headers.get('user-agent'));
    if(!user)return error('Войди в Focus, чтобы продолжить.',401);
+   if(path==='/api/auth/delete')return deleteAccount(user,token,body,now,secure);
    if(path==='/api/auth/profile'){
     if(typeof body.name!=='string'||body.name.trim().length>80||/[\p{Cc}\p{Cf}]/u.test(body.name))return error('Укажи имя длиной до 80 символов.',400);
     user.name=body.name.trim();
@@ -330,8 +350,8 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
    }
    return json({user:sessionProfile(user,now)});
   },
-  reserveProvider,
-  record(id,kind,ok){accounts.record(id,kind,ok,clock());},
+  reserveProvider(id,request){return userExists.get(id)?reserveProvider(id,request):'unconfigured';},
+  record(id,kind,ok){if(userExists.get(id))accounts.record(id,kind,ok,clock());},
   close(){jobs.close();db.close();},
  };
 }
