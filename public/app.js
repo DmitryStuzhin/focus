@@ -552,6 +552,33 @@ async function editFile(id){const f=state.files.find(x=>x.id===id),blob=await ge
 let searchWorker,searchRevision=0,searchQueue=Promise.resolve();
 const searchVersions=new Map();
 
+const paletteCommands=[
+ ['new-chat','Новый диалог','Ctrl / ⌘ + N'],
+ ['create-project','Создать проект',''],
+ ['search','Поиск проектов, диалогов и файлов','Ctrl / ⌘ + K'],
+ ['settings','Настройки',''],
+ ['stop-generation','Остановить ответ','Ctrl / ⌘ + Shift + .'],
+ ['shortcuts','Горячие клавиши','?'],
+];
+function commandPalette(){
+ const projectActions=liveProjects().map(project=>['search-project',project.name,'Проект',project.id]);
+ modal('Команды Focus',`<label for="palette-query">Найти действие</label><input id="palette-query" type="search" autofocus><div id="palette-items" class="search-results"></div>`);
+ const input=el('palette-query'),list=el('palette-items');
+ const update=()=>{
+  const query=input.value.toLocaleLowerCase('ru').trim();
+  list.innerHTML=[...paletteCommands,...projectActions].filter(([,label])=>label.toLocaleLowerCase('ru').includes(query))
+   .map(([action,label,keys,id])=>`<button type="button" class="search-result" data-action="palette-run" data-command="${action}" data-id="${e(id??'')}"><span><strong>${e(label)}</strong><small>${e(keys)}</small></span></button>`).join('')||'<p>Действия не найдены.</p>';
+ };
+ input.addEventListener('input',update);
+ input.addEventListener('keydown',event=>{
+  if(event.key==='ArrowDown'){event.preventDefault();list.querySelector('button')?.focus();}
+  if(event.key==='Enter'){event.preventDefault();list.querySelector('button')?.click();}
+ });
+ update();
+}
+function shortcutDialog(){
+ modal('Горячие клавиши',`<dl>${paletteCommands.filter(([, ,keys])=>keys).map(([,label,keys])=>`<dt>${e(keys)}</dt><dd>${e(label)}</dd>`).join('')}<dt>Ctrl / ⌘ + Enter</dt><dd>Отправить сообщение</dd></dl>`);
+}
 function searchDialog(){
  modal('Поиск по пространству',`<div class="search-input-wrap">${icon('search')}<input id="search-input" aria-label="Поиск диалогов, проектов и файлов" placeholder="Название или текст" autocomplete="off" autofocus /></div><div class="search-results" id="search-results" aria-live="polite"></div>`);
  searchResults('');
@@ -791,6 +818,8 @@ case 'select-project':selectProject(id,true);break;
 case 'open-workspace':selectProject(id);break;
 case 'select-chat':selectChat(id);break;
 case 'search':searchDialog();break;
+case 'shortcuts':shortcutDialog();break;
+case 'palette-run':{const action=t.dataset.command;closeModal();await handleAction(action,t);break;}
 case 'open-project-match':await openProjectMatch(id,Number(t.dataset.match));break;
 case 'search-project':closeModal();selectProject(id);break;
 case 'search-chat':closeModal();selectChat(id);break;
@@ -1053,7 +1082,7 @@ document.addEventListener('input',event=>{
  if(input.id==='site-brief')studio.siteBrief=input.value;
  if(input.id==='image-brief')studio.image.brief=input.value;
 });
-document.addEventListener('keydown',ev=>{if(!ready)return;if(ev.key==='Escape'){if(hideSelectionAction()){ev.preventDefault();return}closeMenu();if(activeChat()?.preview&&ui.view==='chat'){setPreview(null);return}if(ui.mobileNav||ui.mobileFiles){ui.mobileNav=false;ui.mobileFiles=false;render()}}if((ev.metaKey||ev.ctrlKey)&&ev.key.toLowerCase()==='k'){ev.preventDefault();searchDialog()}if((ev.metaKey||ev.ctrlKey)&&ev.key.toLowerCase()==='n'){ev.preventDefault();closeModal();newChat()}if(ev.target.id==='composer-input'&&ev.key==='Enter'&&!ev.isComposing){if((state.settings.sendOnEnter&&!ev.shiftKey&&!ev.altKey)||(ev.ctrlKey||ev.metaKey)){ev.preventDefault();send()}}if(ui.menu&&(ev.key==='ArrowDown'||ev.key==='ArrowUp')){ev.preventDefault();const buttons=[...ui.menu.querySelectorAll('button')];const i=buttons.indexOf(document.activeElement);buttons[(i+(ev.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length]?.focus()}});
+document.addEventListener('keydown',ev=>{if(!ready)return;if(!ev.metaKey&&!ev.ctrlKey&&!ev.altKey&&ev.key==='?'&&!ev.target.closest('input,textarea,select,[contenteditable]')){ev.preventDefault();shortcutDialog();return;}if((ev.metaKey||ev.ctrlKey)&&ev.shiftKey&&ev.code==='Period'){ev.preventDefault();el('send-button')?.matches('[data-action=stop-generation]')&&el('send-button').click();return;}if(ev.key==='Escape'){if(hideSelectionAction()){ev.preventDefault();return}closeMenu();if(activeChat()?.preview&&ui.view==='chat'){setPreview(null);return}if(ui.mobileNav||ui.mobileFiles){ui.mobileNav=false;ui.mobileFiles=false;render()}}if((ev.metaKey||ev.ctrlKey)&&ev.key.toLowerCase()==='k'){ev.preventDefault();commandPalette()}if((ev.metaKey||ev.ctrlKey)&&ev.key.toLowerCase()==='n'){ev.preventDefault();closeModal();newChat()}if(ev.target.id==='composer-input'&&ev.key==='Enter'&&!ev.isComposing){if((state.settings.sendOnEnter&&!ev.shiftKey&&!ev.altKey)||(ev.ctrlKey||ev.metaKey)){ev.preventDefault();send()}}if(ui.menu&&(ev.key==='ArrowDown'||ev.key==='ArrowUp')){ev.preventDefault();const buttons=[...ui.menu.querySelectorAll('button')];const i=buttons.indexOf(document.activeElement);buttons[(i+(ev.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length]?.focus()}});
 el('file-input').addEventListener('change',ev=>uploadFiles([...ev.target.files],uploadAttach));
 el('import-input').addEventListener('change',ev=>importBackup(ev.target.files[0]));
 let dragDepth=0;
