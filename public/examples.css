@@ -1,0 +1,13 @@
+:root { color-scheme: light dark; font-family: system-ui,sans-serif; }
+body { margin: 0; background: light-dark(#f2f6f5,#101819); color: light-dark(#18282b,#ecf4f2); }
+main { max-width: 55rem; margin: auto; padding: 1.5rem; }
+nav { display: flex; justify-content: space-between; margin-bottom: 3rem; }
+a { color: light-dark(#14595c,#a0dfd7); }
+h1 { max-width: 24ch; font-size: clamp(2rem,5vw,3rem); }
+p { line-height: 1.55; }
+.example-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin: 1.5rem 0; }
+button { padding: .7rem 1rem; min-height: 44px; font: inherit; border: 1px solid light-dark(#71918b,#648681); border-radius: .5rem; color: inherit; background: transparent; cursor: pointer; }
+button[aria-pressed=true] { background: light-dark(#d9eeea,#284743); }
+:focus-visible { outline: 3px solid light-dark(#22716f,#90e0d2); outline-offset: 3px; }
+section { padding: 1rem 1.3rem; border: 1px solid light-dark(#92aaa4,#526e68); border-radius: .75rem; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
