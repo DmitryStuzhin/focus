@@ -542,3 +542,6 @@
 .command-suggestions button { display: grid; grid-template-columns: 8ch 1fr; text-align: left; gap: 12px; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--text); }
 .command-suggestions button:hover,.command-suggestions button:focus-visible { background: var(--hover); }
 .command-suggestions small { display: block; color: var(--muted); }
+.composer-modes { display: flex; gap: 4px; overflow-x: auto; padding: 7px 8px 2px; }
+.composer-modes button { flex: 0 0 auto; padding: 5px 8px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font-size: 12px; }
+.composer-modes button[aria-pressed=true] { background: var(--hover); color: var(--text); font-weight: 600; }

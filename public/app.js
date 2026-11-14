@@ -366,7 +366,18 @@ function updateCommands(){
  panel.hidden=!commands.length;
  panel.innerHTML=commands.map(([id,label,example])=>`<button type="button" data-action="command-fill" data-id="${id}"><code>/${id}</code><span>${e(label)}<small>${e('/'+id+(example?' '+example:''))}</small></span></button>`).join('');
 }
-function composer(){return `<div class="composer-area"><div class="composer-wrap"><form class="composer" id="composer-form"><div id="composer-quote">${ui.quote?quoteMarkup(ui.quote.text,true):''}</div><div class="attachment-list" ${ui.attachments.length?'':'hidden'}>${ui.attachments.map(id=>{const f=state.files.find(x=>x.id===id);return f?`<span class="attachment-chip">${icon(fileIcon(f))}<span class="truncate">${e(f.name)}</span>${ib('remove-attachment','close','Убрать вложение',`data-id="${id}"`)}</span>`:''}).join('')}</div><textarea id="composer-input" rows="2" placeholder="Задача, вопрос или идея…" aria-label="Сообщение" maxlength="100000">${e(ui.draft)}</textarea><div class="command-suggestions" id="command-suggestions" aria-label="Команды диалога" hidden></div><div class="composer-bottom"><div class="composer-left">${ib('attach','attach','Прикрепить файлы')}<button class="web-search-toggle ${state.settings.webSearch?'active':''}" type="button" data-action="toggle-web-search" aria-label="Поиск в интернете" aria-pressed="${!!state.settings.webSearch}" title="${apiStatus.searchConfigured?'Искать источники перед ответом':'Поиск ещё не подключён на сервере'}" ${generation?'disabled':''}>${icon('globe')}<span>Поиск</span></button><button class="composer-select" type="button" data-action="model-menu" aria-label="Выбрать модель">${e(MODEL_LABEL)}${icon('down')}</button><button class="composer-select" type="button" data-action="effort-menu" aria-label="Режим ответа">${apiStatus.provider==='openrouter'?'Обычный ответ':effortLabel()}${icon('down')}</button><button class="composer-select project-context" type="button" data-action="context-menu" aria-label="Контекст проекта">${icon('folder')}<span class="truncate">Файлы проекта</span>${icon('down')}</button></div><button class="send" id="send-button" type="${generation?'button':'submit'}" ${generation?'data-action="stop-generation"':''} aria-label="${generation?'Остановить ответ':'Отправить сообщение'}" ${generation||ui.draft.trim()||ui.attachments.length?'':'disabled'}>${generation?'<span class="stop-square"></span>':icon('arrow')}</button></div></form><div class="composer-hint"><span>История сохраняется в этом браузере</span><span class="enter-hint">· ${state.settings.sendOnEnter?'Enter — отправить, Shift + Enter — новая строка':'Ctrl + Enter — отправить'}</span></div></div></div>`}
+const composerModes=[
+ ['tables','Таблицы'],['document','Документ'],['code','Код'],['sites','Сайт'],['images','Изображение'],['search','Поиск'],
+];
+function composerMode(){
+ if(state.settings.webSearch)return 'search';
+ return {'/evidence':'document','/code':'code','/site':'sites','/image':'images'}[ui.draft.trim().split(/\s/u)[0]]??ui.composerMode;
+}
+function composerModesMarkup(){
+ const active=composerMode();
+ return composerModes.map(([id,label])=>`<button type="button" data-action="composer-mode" data-id="${id}" aria-pressed="${id===active}" ${generation?'disabled':''}>${label}</button>`).join('');
+}
+function composer(){return `<div class="composer-area"><div class="composer-wrap"><form class="composer" id="composer-form"><div id="composer-modes" class="composer-modes" aria-label="Инструменты диалога">${composerModesMarkup()}</div><div id="composer-quote">${ui.quote?quoteMarkup(ui.quote.text,true):''}</div><div class="attachment-list" ${ui.attachments.length?'':'hidden'}>${ui.attachments.map(id=>{const f=state.files.find(x=>x.id===id);return f?`<span class="attachment-chip">${icon(fileIcon(f))}<span class="truncate">${e(f.name)}</span>${ib('remove-attachment','close','Убрать вложение',`data-id="${id}"`)}</span>`:''}).join('')}</div><textarea id="composer-input" rows="2" placeholder="Задача, вопрос или идея…" aria-label="Сообщение" maxlength="100000">${e(ui.draft)}</textarea><div class="command-suggestions" id="command-suggestions" aria-label="Команды диалога" hidden></div><div class="composer-bottom"><div class="composer-left">${ib('attach','attach','Прикрепить файлы')}<button class="web-search-toggle ${state.settings.webSearch?'active':''}" type="button" data-action="toggle-web-search" aria-label="Поиск в интернете" aria-pressed="${!!state.settings.webSearch}" title="${apiStatus.searchConfigured?'Искать источники перед ответом':'Поиск ещё не подключён на сервере'}" ${generation?'disabled':''}>${icon('globe')}<span>Поиск</span></button><button class="composer-select" type="button" data-action="model-menu" aria-label="Выбрать модель">${e(MODEL_LABEL)}${icon('down')}</button><button class="composer-select" type="button" data-action="effort-menu" aria-label="Режим ответа">${apiStatus.provider==='openrouter'?'Обычный ответ':effortLabel()}${icon('down')}</button><button class="composer-select project-context" type="button" data-action="context-menu" aria-label="Контекст проекта">${icon('folder')}<span class="truncate">Файлы проекта</span>${icon('down')}</button></div><button class="send" id="send-button" type="${generation?'button':'submit'}" ${generation?'data-action="stop-generation"':''} aria-label="${generation?'Остановить ответ':'Отправить сообщение'}" ${generation||ui.draft.trim()||ui.attachments.length?'':'disabled'}>${generation?'<span class="stop-square"></span>':icon('arrow')}</button></div></form><div class="composer-hint"><span>История сохраняется в этом браузере</span><span class="enter-hint">· ${state.settings.sendOnEnter?'Enter — отправить, Shift + Enter — новая строка':'Ctrl + Enter — отправить'}</span></div></div></div>`}
 function quoteMarkup(text,editable=false){
  return `<div class="message-quote"><div class="quote-copy"><strong>Цитата из диалога</strong><span>${e(text)}</span></div>${editable?ib('remove-quote','close','Убрать цитату'):''}</div>`;
 }
@@ -762,6 +773,27 @@ case 'export-chat':exportChat(id);break;
 case 'restore':restore(t.dataset.type,id);break;
 case 'permanent-delete':confirm('Удалить навсегда?','Элемент и его содержимое будут удалены без возможности восстановления.',()=>permanentDelete(t.dataset.type,id),'Удалить навсегда',true);break;
 case 'empty-trash':confirm('Очистить корзину?','Все элементы корзины будут удалены навсегда.',async()=>{for(const p of state.projects.filter(p=>p.deleted))await permanentDelete('project',p.id);for(const c of state.chats.filter(c=>c.deleted))await permanentDelete('chat',c.id);for(const f of state.files.filter(f=>f.deleted))await permanentDelete('file',f.id)},'Очистить',true);break;
+case 'composer-mode':{
+ if(generation)break;
+ if(id==='tables'){setView('tables');break;}
+ if(id==='search'){
+  if(!apiStatus.searchConfigured){toast('Поиск ещё не подключён на сервере');break;}
+  state.settings.webSearch=!state.settings.webSearch;
+  ui.composerMode=null;
+  persist();render();el('composer-input')?.focus();
+  break;
+ }
+ const prefixes={document:'/evidence',code:'/code',sites:'/site',images:'/image'};
+ const prefix=prefixes[id];
+ if(!prefix)break;
+ const current=ui.draft.replace(/^\/(?:evidence|code|site|image)(?=\s|$)\s*/u,'');
+ ui.draft=ui.draft.trim().startsWith(prefix+' ')?current:prefix+' '+current;
+ ui.composerMode=null;
+ state.settings.webSearch=false;
+ saveDraft();persist();render();
+ const field=el('composer-input');field.focus();field.setSelectionRange(field.value.length,field.value.length);
+ break;
+}
 case 'command-fill':{
  ui.draft='/'+id+' ';
  saveDraft();
@@ -929,7 +961,7 @@ document.addEventListener('submit',event=>{
 });
 document.addEventListener('input',event=>{
  const input=event.target;
- if(input.id==='composer-input'){ui.draft=input.value;saveDraft();updateCommands();el('send-button').disabled=!generation&&!ui.draft.trim()&&!ui.attachments.length;resizeComposer();}
+ if(input.id==='composer-input'){ui.draft=input.value;saveDraft();updateCommands();for(const button of document.querySelectorAll('#composer-modes button'))button.setAttribute('aria-pressed',String(button.dataset.id===composerMode()));el('send-button').disabled=!generation&&!ui.draft.trim()&&!ui.attachments.length;resizeComposer();}
  if(input.id==='code-brief')studio.codeBrief=input.value;
  if(input.id==='forge-brief')studio.forgeBrief=input.value;
  if(input.id==='site-brief')studio.siteBrief=input.value;
