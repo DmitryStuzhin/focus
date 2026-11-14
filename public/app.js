@@ -1241,7 +1241,8 @@ async function requestAnswer(c,approved=false){
  const codeMode=taskMode==='code'||website;
  const forge=forgeIntent(action.input,{previewKind,taskMode,codeFollowUp});
  const imageRequest=website||taskMode||localSkill||explicitSearch?null:action.image||(contextualImage&&imageIntent(contextualImage.input,true));
- const automaticAction=imageRequest?'изображение':website?{site:'сайт',app:'приложение',game:'игра'}[previewKind]:action.nativeProject?'проект с кодом':null;
+ const needsSiteBrief=previewKind==='site'&&!updating&&!siteDetails&&/^сделай\s+сайт[.!?]*$/iu.test(action.input.trim());
+ const automaticAction=imageRequest?'изображение':website&&!needsSiteBrief?{site:'сайт',app:'приложение',game:'игра'}[previewKind]:action.nativeProject?'проект с кодом':null;
  if(automaticAction&&!approved){
   const notice=imageRequest?IMAGE_COST_NOTICE:'Focus отправит запрос модели для подготовки результата.';
   confirm('Распознано действие: '+automaticAction,notice,()=>{
