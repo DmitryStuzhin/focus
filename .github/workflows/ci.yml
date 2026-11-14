@@ -13,10 +13,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: bash -n deploy/*.sh
+      - name: Check deployment shell syntax
+        run: |
+          for script in deploy/*.sh; do bash -n "$script" || exit; done
+      - name: Scan git history for secrets
+        run: |
+          go install github.com/zricethezav/gitleaks/v8@v8.24.3
+          "$(go env GOPATH)/bin/gitleaks" git --log-opts="--all --full-history" --redact --no-banner
       - run: python3 -m unittest discover -s tests -p '*_test.py'
       - name: Lint and format maintained modules
         run: npx --yes @biomejs/biome@2.2.4 ci scripts/proxy.mjs public/search-worker.js
