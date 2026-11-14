@@ -549,3 +549,4 @@
 .composer-hint .data-details { color: var(--muted); font-size: inherit; }
 .quota-chip.quota-low { border-color: var(--focus-danger); }
 .quota-chip.quota-low .quota-value { color: var(--focus-danger); }
+.composer-idea { margin: 2px 12px 6px; }
