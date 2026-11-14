@@ -22,4 +22,18 @@ assert.equal(
   `${pathToFileURL(workerPath)} must export default.fetch`,
 );
 
+const app = workerModule.default;
+const base = "https://focus.example";
+const index = await app.fetch(new Request(base + "/"), {});
+assert.equal(index.status, 200);
+assert.equal(index.headers.get("x-content-type-options"), "nosniff");
+assert.equal(index.headers.get("referrer-policy"), "same-origin");
+assert.match(index.headers.get("content-security-policy"), /script-src 'self';/);
+assert.match(index.headers.get("content-security-policy"), /frame-ancestors 'self'/);
+const preview = await app.fetch(new Request(base + "/preview.html"), {});
+assert.match(preview.headers.get("content-security-policy"), /^sandbox allow-scripts;/);
+assert.equal(preview.headers.get("referrer-policy"), "no-referrer");
+const anonymous = await app.fetch(new Request(base + "/api/chat", { method: "POST" }), {});
+assert.equal(anonymous.status, 401);
+
 console.log("Artifact is valid ESM and exports default.fetch");

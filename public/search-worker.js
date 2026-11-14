@@ -30,7 +30,8 @@ self.onmessage = ({ data }) => {
       }
       self.postMessage({ id, rows });
     } catch {
-      self.postMessage({ id, error: "Не удалось построить индекс поиска." });
+      const error = "Не удалось построить индекс поиска.";
+      self.postMessage({ id, error });
     }
   });
 };
