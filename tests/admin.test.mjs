@@ -165,3 +165,17 @@ test('a legacy database keeps existing accounts and sessions after migration',as
   }finally{old.close();}
  }finally{await server.close();await rm(dir,{recursive:true,force:true});}
 });
+
+test('subscription attempts are bounded per account, including the legacy header',async()=>{
+ const server=await start();
+ try{
+  const {cookie}=await server.signIn('claim-limit@example.net');
+  for(let i=0;i<5;i++){
+   assert.equal((await server.call('/api/auth/subscription',{cookie,body:{code:'0'.repeat(64)}})).status,400);
+  }
+  assert.equal((await server.call('/api/auth/subscription',{cookie,body:{code}})).status,429);
+  assert.equal((await server.call('/api/chat',{cookie,body:{messages:[]},headers:{'x-focus-image-pass':code}})).status,429);
+  server.advance(15*60_000);
+  assert.equal((await server.call('/api/auth/subscription',{cookie,body:{code}})).status,200);
+ }finally{await server.close();}
+});

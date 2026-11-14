@@ -179,7 +179,10 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
     const event=record.run(kind,identity,now);
     if(kind==='email-hour')emailSend=event.lastInsertRowid;
    }
-   if(!blocked)insertChallenge.run(id,email,codeHash(id,code).toString('hex'),now+CODE_TTL,intent);
+   if(!blocked){
+    insertChallenge.run(id,email,codeHash(id,code).toString('hex'),now+CODE_TTL,intent);
+    supersedeCodes.run(email,id);
+   }
    return {emailSend};
   });
   if(limited)return limited;
@@ -195,7 +198,7 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
    console.error('Focus auth: mail delivery request failed. '+diagnostic.replaceAll('\n',' '));
    return json({error:'Не удалось отправить письмо. Попробуй через минуту.',code:'mail_delivery_failed'},503);
   }
-  transaction(db,()=>{markSent.run(id);supersedeCodes.run(email,id);});
+  markSent.run(id);
   return json({challenge:id,resendAfter:60});
  }
 
@@ -210,7 +213,11 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
    record.run('verify-ip',ip,now);
    const entry = challengeById.get(id);
    if(!entry||entry.expires<=now||entry.attempts>=5)return error('Этот код больше не действует. Запроси новый.',400);
+   const emailKey=digest(entry.email);
+   const emailLimit=checkLimits([['verify-email',emailKey,15*MINUTE,10]],now);
+   if(emailLimit)return emailLimit;
    if(!timingSafeEqual(Buffer.from(entry.hash,'hex'),codeHash(id,code))){
+    record.run('verify-email',emailKey,now);
     failAttempt.run(id);
     return error(entry.attempts===4?'Попытки закончились. Запроси новый код.':'Код не совпал. Проверь письмо.',400);
    }
@@ -225,6 +232,17 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
    const registrationToken=nonce();
    insertRegistration.run(digest(registrationToken),entry.email,now+REGISTRATION_TTL);
    return json({registrationToken});
+  });
+ }
+
+ function activateSubscription(user,code,ip,now){
+  return transaction(db,()=>{
+   const limits=[['subscription-account',digest(user.id),15*MINUTE,5],['subscription-ip',ip,15*MINUTE,20]];
+   const limit=checkLimits(limits,now);
+   if(limit)return limit;
+   if(accounts.activate(user.id,code,now))return null;
+   for(const [kind,identity] of limits)record.run(kind,identity,now);
+   return error('Код недействителен, истёк или уже связан с другим аккаунтом.',400);
   });
  }
 
@@ -272,7 +290,10 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
      context.userId=user.id;
      if(path==='/api/chat'&&request.method==='POST'){
       const code=request.headers.get('x-focus-image-pass');
-      if(code&&request.headers.get('origin')===url.origin)accounts.activate(user.id,code,now);
+      if(code&&request.headers.get('origin')===url.origin){
+       const failure=activateSubscription(user,code,client,now);
+       if(failure?.status===429)return failure;
+      }
       context.accountPaid=!!accounts.profile(user,now).subscriptionUntil;
      }
      return null;
@@ -298,8 +319,9 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
     if(typeof body.name!=='string'||body.name.trim().length>80||/[\p{Cc}\p{Cf}]/u.test(body.name))return error('Укажи имя длиной до 80 символов.',400);
     user.name=body.name.trim();
     setName.run(user.name,user.id);
-   }else if(!accounts.activate(user.id,body.code,now)){
-    return error('Код недействителен, истёк или уже связан с другим аккаунтом.',400);
+   }else{
+    const failure=activateSubscription(user,body.code,client,now);
+    if(failure)return failure;
    }
    return json({user:sessionProfile(user,now)});
   },

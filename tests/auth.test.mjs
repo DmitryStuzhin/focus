@@ -193,3 +193,34 @@ test('the account and session survive a restart and the same email signs into th
   }finally{db.close();}
  }finally{if(s)await s.close();await rm(dir,{recursive:true,force:true});}
 });
+
+test('resends revoke previous codes and guessing is limited across challenges and IPs',async()=>{
+ let now=Date.now();
+ const sent=[];
+ const s=await start({...loginEnv,TRUST_PROXY:'127.0.0.1'},{clock:()=>now,mailer:async msg=>sent.push(msg)});
+ try{
+  const email='limit@example.com', path='/api/auth/verify';
+  const request=async()=>(await s.post('/api/auth/request',{email,intent:'register'})).json();
+  let {challenge}=await request();
+  const first=challenge;
+  for(let round=0;round<2;round++){
+   const actual=sent.at(-1).code;
+   const wrong=actual==='000000'?'000001':'000000';
+   for(let i=0;i<5;i++){
+    const r=await s.post(path,{challenge,code:wrong},{'x-real-ip':`192.0.2.${1+round*5+i}`});
+    assert.equal(r.status,400);
+   }
+   now+=61_000;
+   ({challenge}=await request());
+  }
+  assert.equal((await s.post(path,{challenge:first,code:sent[0].code})).status,400);
+  assert.equal((await s.post(path,{challenge,code:sent.at(-1).code},{'x-real-ip':'192.0.2.100'})).status,429);
+  now+=15*60_000;
+  const previous=(await request()).challenge;
+  const previousCode=sent.at(-1).code;
+  now+=61_000;
+  ({challenge}=await request());
+  assert.equal((await s.post(path,{challenge:previous,code:previousCode})).status,400);
+  assert.equal((await s.post(path,{challenge,code:sent.at(-1).code})).status,200);
+ }finally{await s.close();}
+});
