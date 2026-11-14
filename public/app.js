@@ -1,5 +1,6 @@
 import {citationFiles,fileCitations} from './file-citations.js';
 import {documentTemplates,templatePrompt} from './document-templates.js';
+import {importTemplates,saveTemplate} from './personal-templates.js';
 import {matchingCommands,commandUsed} from './commands.js';
 import {eventStream} from './event-stream.js';
 import {workspaceAPI,snapshotWorkspace,decodeWorkspace} from './workspace-features.js';
@@ -489,11 +490,47 @@ function compareDocumentsDialog(){
   saveDraft();closeModal();render();el('composer-input')?.focus();
  }});
 }
+function personalTemplateKey(){return 'focus.personal-templates.'+(account?.id??'guest');}
+function personalTemplates(){
+ try{return importTemplates(JSON.parse(localStorage.getItem(personalTemplateKey())||'{"version":1,"templates":[]}'));}
+ catch{return [];}
+}
+function storeTemplates(templates){
+ localStorage.setItem(personalTemplateKey(),JSON.stringify({version:1,templates}));
+}
+function personalTemplateDialog(){
+ const templates=personalTemplates();
+ modal('Мои шаблоны',`<form>
+  <div class="form-field"><label for="template-title">Название</label><input id="template-title" name="title" maxlength="70" required></div>
+  <div class="form-field"><label for="template-prompt">Текст шаблона</label><textarea id="template-prompt" name="prompt" rows="5" maxlength="5000" required></textarea></div>
+  <p class="settings-note">Если название уже используется, сохранение обновит этот шаблон.</p><button class="btn primary" type="submit">Сохранить шаблон</button>
+ </form><div class="settings-section"><h3>Сохранённые шаблоны</h3>
+  ${templates.map(({title},index)=>`<div class="settings-buttons">${button('use-personal-template',e(title),'ghost',`data-id="${index}"`)}${button('remove-personal-template','Удалить','ghost',`data-id="${index}" aria-label="Удалить шаблон ${e(title)}"`)}</div>`).join('')}
+  <div class="form-field"><label for="template-import">Добавить шаблоны из JSON</label><input id="template-import" type="file" accept=".json,application/json"></div>
+  ${button('export-personal-templates','Скачать шаблоны JSON','ghost')}
+ </div>`,{onSubmit:data=>{
+  try{storeTemplates(saveTemplate(templates,{title:String(data.get('title')),prompt:String(data.get('prompt'))}));personalTemplateDialog();toast('Шаблон сохранён');}
+  catch(error){toast(error.message||'Не удалось сохранить шаблон.');}
+ }});
+ el('template-import').addEventListener('change',async event=>{
+  const file=event.target.files[0];
+  if(!file)return;
+  try{
+   if(file.size>300000)throw new Error('Размер файла должен быть не больше 300 КБ.');
+   let value;
+   try{value=JSON.parse(await file.text());}catch{throw new Error('Файл должен содержать корректный JSON.');}
+   const additions=importTemplates(value);
+   storeTemplates(importTemplates({version:1,templates:[...personalTemplates(),...additions]}));
+   personalTemplateDialog();toast('Шаблоны добавлены');
+  }catch(error){toast(error.message||'Не удалось импортировать шаблоны.');}
+ });
+}
 function documentTemplateDialog(){
  modal('Шаблоны документов',`<p>Выберите шаблон, затем добавьте материалы и уточните задачу в сообщении.</p><div class="settings-buttons">
   ${documentTemplates.map(template=>button('document-template',e(template.title),'ghost',`data-id="${e(template.id)}"`)).join('')}
   ${button('document-checklist','Проверить по критериям','ghost')}
   ${button('compare-documents','Сравнить документы','ghost')}
+  ${button('personal-templates','Мои шаблоны','ghost')}
  </div>`);
 }
 function composer(){return `<div class="composer-area"><div class="composer-wrap"><form class="composer" id="composer-form"><div id="composer-modes" class="composer-modes" aria-label="Инструменты диалога">${composerModesMarkup()}</div><div id="composer-quote">${ui.quote?quoteMarkup(ui.quote.text,true):''}</div><div class="attachment-list" ${ui.attachments.length?'':'hidden'}>${ui.attachments.map(id=>{const f=state.files.find(x=>x.id===id);return f?`<span class="attachment-chip">${icon(fileIcon(f))}<span class="truncate">${e(f.name)}</span>${ib('remove-attachment','close','Убрать вложение',`data-id="${id}"`)}</span>`:''}).join('')}</div><textarea id="composer-input" rows="2" placeholder="Задача, вопрос или идея…" aria-label="Сообщение" maxlength="100000">${e(ui.draft)}</textarea><div class="command-suggestions" id="command-suggestions" aria-label="Команды диалога" hidden></div><button type="button" class="inline-link composer-idea" id="composer-suggestion" data-action="composer-suggestion" hidden></button><div class="composer-bottom"><div class="composer-left">${ib('attach','attach','Прикрепить файлы')}<button class="web-search-toggle ${state.settings.webSearch?'active':''}" type="button" data-action="toggle-web-search" aria-label="Поиск в интернете" aria-pressed="${!!state.settings.webSearch}" title="${apiStatus.searchConfigured?'Искать источники перед ответом':'Поиск ещё не подключён на сервере'}" ${generation?'disabled':''}>${icon('globe')}<span>Поиск</span></button><button class="composer-select" type="button" data-action="model-menu" aria-label="Выбрать модель">${e(MODEL_LABEL)}${icon('down')}</button><button class="composer-select" type="button" data-action="effort-menu" aria-label="Режим ответа">${apiStatus.provider==='openrouter'?'Настройки провайдера':effortLabel()}${icon('down')}</button><button class="composer-select project-context" type="button" data-action="review-context" aria-label="Что видит ИИ">${icon('folder')}<span class="truncate">Что видит ИИ</span>${icon('down')}</button></div><button class="send" id="send-button" type="${generation?'button':'submit'}" ${generation?'data-action="stop-generation"':''} aria-label="${generation?'Остановить ответ':'Отправить сообщение'}" ${generation||ui.draft.trim()||ui.attachments.length?'':'disabled'}>${generation?'<span class="stop-square"></span>':icon('arrow')}</button></div></form><div class="composer-hint"><span>История хранится в браузере</span><button type="button" class="inline-link data-details" data-action="data-details">Куда уходят запросы</button><span class="enter-hint">· ${state.settings.sendOnEnter?'Enter — отправить, Shift + Enter — новая строка':'Ctrl + Enter — отправить'}</span></div></div></div>`}
@@ -997,6 +1034,24 @@ case 'composer-suggestion':{
  else if(id==='compare-csv')ui.draft='/csvdiff id';
  else break;
  saveDraft();render();el('composer-input')?.focus();
+ break;
+}
+case 'personal-templates':personalTemplateDialog();break;
+case 'use-personal-template':{
+ const template=personalTemplates()[Number(id)];
+ if(!template)break;
+ closeModal();ui.draft=template.prompt;saveDraft();render();el('composer-input')?.focus();
+ break;
+}
+case 'remove-personal-template':{
+ const index=Number(id);
+ try{storeTemplates(personalTemplates().filter((_,position)=>position!==index));personalTemplateDialog();}
+ catch{toast('Не удалось удалить шаблон.');}
+ break;
+}
+case 'export-personal-templates':{
+ const data=JSON.stringify({version:1,templates:personalTemplates()},null,2);
+ download(new Blob([data],{type:'application/json'}),'focus-templates.json');
  break;
 }
 case 'document-checklist':documentChecklistDialog();break;
