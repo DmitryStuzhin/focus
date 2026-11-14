@@ -371,36 +371,48 @@
 .product-menu-popup .menu-option > .check { margin-left: auto; color: #e6e6e2; }
 .studio-links { padding-top: 4px; }
 
-/* Light mode keeps the graphite/teal identity without looking washed out. */
+/* Light mode: white canvas with the same restrained moving beige glow. */
 [data-theme=light] .main {
  background:
-  radial-gradient(ellipse 72% 50% at 96% 0%, #82c4c326, transparent 64%),
-  linear-gradient(180deg,#f8fbfb 0%,#f1f6f5 100%);
+  radial-gradient(ellipse 78% 60% at 94% 2%,#d5ae7647 0%,transparent 64%),
+  radial-gradient(ellipse 58% 48% at 4% 100%,#ead4b63d 0%,transparent 70%),
+  linear-gradient(135deg,#fffdf9 0%,#ffffff 52%,#faf4eb 100%);
+ background-size:125% 125%,115% 115%,auto;
+ animation:focus-main-glow 18s var(--ease) infinite alternate;
 }
 [data-theme=light] .topbar {
- border-bottom-color: #c8d9d8;
- background: #f9fcfbd9;
+ border-bottom-color: #ded3c5;
+ background: #fffdf9e8;
  backdrop-filter: blur(18px);
+ box-shadow: 0 1px 18px #765f3e0a;
 }
 [data-theme=light] .sidebar {
- border-right-color: #c8d9d8;
- background: linear-gradient(180deg,#edf4f3 0%,#e7f0ef 100%);
+ border-right-color: #ddd2c4;
+ background:
+  radial-gradient(ellipse 120% 42% at 0% 100%,#ddc39d38,transparent 74%),
+  linear-gradient(180deg,#faf8f4 0%,#f2ebe1 100%);
+ box-shadow: inset -1px 0 #ffffff80;
 }
 [data-theme=light] .composer {
- border-color: #bcd0cf;
- background: #fbfdfde8;
- box-shadow: 0 16px 42px #355f5b14;
+ border-color: #d4c5b1;
+ background: #fffefbea;
+ box-shadow: 0 22px 58px #70563125,inset 0 1px #ffffff;
+ backdrop-filter: blur(18px);
+}
+[data-theme=light] .composer:focus-within {
+ border-color: #b79c76;
+ box-shadow: 0 0 0 3px #d7bea02b,0 24px 62px #70563128;
 }
 [data-theme=light] .workspace-card,
 [data-theme=light] .file-row,
 [data-theme=light] .change-item {
- border-color: #c5d7d6;
- background: linear-gradient(145deg,#ffffff 0%,#f1f7f6 100%);
- box-shadow: 0 9px 24px #315c5812;
+ border-color: #d9cdbc;
+ background: radial-gradient(ellipse at 100% 0%,#d0a96f2b,transparent 52%),linear-gradient(145deg,#fffefb 0%,#f8f1e7 100%);
+ box-shadow: 0 12px 30px #70563118,inset 0 1px #ffffff;
 }
 [data-theme=light] .file-row:hover {
- border-color: #5f999a;
- background: #e3efee;
+ border-color: #bfa987;
+ background: #f2e7d8;
 }
 [data-theme=light] .file-row > .icon,
 [data-theme=light] .workspace-symbol {
@@ -409,15 +421,22 @@
  color: #317b7d;
 }
 [data-theme=light] .files-panel {
- border-left-color: #c8d9d8;
- background: linear-gradient(180deg,#f6faf9,#edf4f3);
+ border-left-color: #ddd2c4;
+ background: radial-gradient(ellipse 110% 38% at 100% 0%,#d0a96f33,transparent 72%),linear-gradient(180deg,#fffdf9,#f3ece2);
+ box-shadow: inset 1px 0 #ffffff90;
 }
-[data-theme=light] .files-header { border-bottom-color: #c8d9d8; background: #f8fbfbd9; }
+[data-theme=light] .files-header { border-bottom-color: #ddd2c4; background: #fffdf9e8; }
 [data-theme=light] .files-tabs,
-[data-theme=light] .files-toolbar { border: 1px solid #c5d7d6; background: #edf5f4; }
+[data-theme=light] .files-toolbar { border: 1px solid #d9cdbc; background: #f5eee4; }
 [data-theme=light] .files-tabs .tab.active { color: #fff; background: #317b7d; }
 [data-theme=light] .btn.primary,
 [data-theme=light] .send { border-color: #286466; background: #286466; color: #f5fbfb; }
+[data-theme=light] .welcome h1 { color:#202321; text-shadow:0 1px #fff; }
+[data-theme=light] .focus-start { border-top-color:#ded2c3; }
+[data-theme=light] .focus-start .suggestion > .icon { color:#557a79; }
+[data-theme=light] .focus-start .suggestion:hover { background:#f4ebdf; }
+[data-theme=light] .composer-hint { color:#77766f; }
+@media (prefers-reduced-motion: reduce) { [data-theme=light] .main { animation:none; } }
 
 /* Reference file rail: quiet rows and controls, without stacked floating cards. */
 .files-tabs,

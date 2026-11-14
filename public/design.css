@@ -3,19 +3,19 @@
  --focus-font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
  --focus-mono: ui-monospace, "SFMono-Regular", Consolas, monospace;
  --focus-ease: cubic-bezier(.22, 1, .36, 1);
- --focus-canvas: #edf3f2;
- --focus-surface: #fbfdfd;
- --focus-inset: #e3eceb;
- --focus-text: #162527;
- --focus-secondary: #465d60;
- --focus-muted: #516668;
- --focus-line: #cddcdb;
- --focus-accent: #317b7d;
- --focus-selection: #d9eae9;
- --focus-action: #286466;
+ --focus-canvas: #f3eee7;
+ --focus-surface: #fffdf9;
+ --focus-inset: #f1e9de;
+ --focus-text: #202321;
+ --focus-secondary: #555b58;
+ --focus-muted: #747973;
+ --focus-line: #ded4c7;
+ --focus-accent: #307778;
+ --focus-selection: #e0eceb;
+ --focus-action: #2c6f70;
  --focus-action-ink: #f5fbfb;
  --focus-danger: #a43c36;
- --focus-glow: #4eaaab2e;
+ --focus-glow: #d0aa7338;
 }
 
 [data-theme="dark"] {
