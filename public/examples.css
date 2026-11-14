@@ -19,3 +19,4 @@ textarea { resize: vertical; }
 .profile-table { overflow: auto; }
 .profile-table table { width: 100%; border-collapse: collapse; }
 .profile-table :is(td,th) { padding: .4rem .6rem; border-bottom: 1px solid light-dark(#92aaa4,#526e68); text-align: left; }
+.embedded-tool { display: block; width: 100%; min-height: 34rem; border: 1px solid light-dark(#92aaa4,#526e68); border-radius: .75rem; }
