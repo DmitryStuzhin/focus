@@ -91,6 +91,7 @@ try{
  for(const [i,prompt] of ['Нарисуй кота','Добавь закат','Сделай фон темнее'].entries()){
   await imagesPage.getByRole('textbox',{name:'Сообщение',exact:true}).fill(prompt);
   await imagesPage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+  await imagesPage.getByRole('dialog').getByRole('button',{name:'Запустить',exact:true}).click();
   await imagesPage.waitForFunction(n=>document.querySelectorAll('[data-generated-file]').length===n,i+1);
  }
  assert.equal(sent[0].imageReference,undefined);

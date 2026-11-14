@@ -19,6 +19,7 @@ import {uid,readState,writeState,fresh,putBlob,getBlob,deleteBlob,replaceWorkspa
 import {forgeIntent,forgeReport,namedCodeFiles} from './forge.js';
 const app=document.querySelector('#app');
 const MODEL_LABEL='Guzan 1.1';
+const IMAGE_COST_NOTICE='После отправки провайдер может завершить генерацию и списать стоимость, даже если остановить ожидание.';
 let state=fresh(), account=null, ready=false;
 let cloudRevision=null, cloudAuto=false, cloudSaving=false, cloudTimer, localRevision=0;
 let pendingResearch=null;
@@ -249,7 +250,7 @@ async function saveGeneratedImage(image,project,prompt){
  return id;
 }
 
-async function generateStudioImage(){
+async function generateStudioImage(approved=false){
  if(studio.imageController)return;
  const project=activeProject();
  if(!project){projectDialog();return;}
@@ -259,6 +260,7 @@ async function generateStudioImage(){
  const paid=mode==='paid';
  const pass=paid&&!(account?.subscriptionUntil>Date.now())?savedImagePass():null;
  if(paid&&!hasImageAccess()){imageSubscriptionDialog();return;}
+ if(!approved){confirm('Запустить генерацию изображения?',IMAGE_COST_NOTICE,()=>{queueMicrotask(()=>void generateStudioImage(true));},'Запустить');return;}
  const controller=new AbortController();
  studio.imageController=controller;
  studio.imageError='';
@@ -1100,7 +1102,7 @@ async function attachmentPayload(ids){
  }
  return result;
 }
-async function requestAnswer(c){
+async function requestAnswer(c,approved=false){
  if(generation)return;
  c.error=null;c.pendingSearch=null;
  const controller=new AbortController();const lastUser=c.messages.findLast(m=>m.role==='user');
@@ -1130,6 +1132,12 @@ async function requestAnswer(c){
  const codeMode=taskMode==='code'||website;
  const forge=forgeIntent(action.input,{previewKind,taskMode,codeFollowUp});
  const imageRequest=website||taskMode||localSkill||explicitSearch?null:action.image||(contextualImage&&imageIntent(contextualImage.input,true));
+ if(imageRequest&&!approved){
+  confirm('Распознано действие: изображение',IMAGE_COST_NOTICE,()=>{
+   queueMicrotask(()=>void requestAnswer(c,true));
+  },'Запустить');
+  return;
+ }
  const researchPlan=lastUser?.researchPlan;
  const background=!!account&&researchPlan?.background;
  const withSearch=!action.splitActions&&!action.locals&&(!!lastUser?.webSearch||explicitSearch||researchPlan?.sources==='web')&&researchPlan?.sources!=='files'&&!localSkill&&!imageRequest&&!website;
