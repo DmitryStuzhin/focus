@@ -47,6 +47,18 @@
    <p id="profile-summary" role="status"></p>
    <div id="profile-result" class="profile-table"></div>
   </section>
+  <section id="clean">
+   <h2>Очистить таблицу</h2>
+   <form id="clean-form">
+    <label>Выгрузка CSV или XLSX <input type="file" name="table" accept=".csv,.xlsx" required></label>
+    <label>Название столбца <input name="column" required maxlength="150"></label>
+    <label>Правило <select name="mode"><option value="date">Даты</option><option value="phone">Телефоны РФ</option><option value="inn">ИНН</option><option value="name">Пробелы в ФИО</option></select></label>
+    <label><span><input type="checkbox" name="deduplicate"> Удалить полные дубликаты строк</span></label>
+    <button>Предпросмотр изменений</button>
+   </form>
+   <pre id="clean-result" role="status"></pre>
+   <button type="button" id="download-clean" hidden>Скачать очищенную копию</button>
+  </section>
   <p>Войдите в аккаунт для сохранения в проекте, синхронизации или запросов к модели.</p>
  </main>
 </body>

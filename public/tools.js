@@ -1,3 +1,4 @@
+import {cleanTable} from './table-cleaning.js';
 import {profileTable} from './table-profile.js';
 import {runLocalSkill} from './local-skills.js';
 import {openTable,createWorkbook} from './office.js';
@@ -69,4 +70,45 @@ profileForm.addEventListener('submit',async event=>{
   result.append(table);
  }catch(error){summary.textContent=error.message;}
  finally{button.disabled=false;}
+});
+
+const cleanForm=document.querySelector('#clean-form');
+const cleanDownload=document.querySelector('#download-clean');
+const cleanResult=document.querySelector('#clean-result');
+let cleanedRows,cleanRevision=0;
+cleanForm.addEventListener('input',()=>{cleanRevision++;cleanedRows=null;cleanDownload.hidden=true;cleanResult.textContent='';});
+cleanForm.addEventListener('submit',async event=>{
+ event.preventDefault();
+ const button=event.submitter;
+ button.disabled=true;
+ cleanDownload.hidden=true;
+ cleanedRows=null;
+ const data=new FormData(cleanForm),revision=++cleanRevision;
+ try{
+  const source=await openTable(data.get('table'));
+  if(revision!==cleanRevision)return;
+  const column=source[0].map(name=>name.trim()).reduce((positions,name,index)=>{
+   if(name===data.get('column').trim())positions.push(index);
+   return positions;
+  },[]);
+  if(column.length!==1)throw new Error('В таблице должен быть один столбец с указанным именем.');
+  const report=cleanTable(source,column[0],data.get('mode'),{deduplicate:data.has('deduplicate')});
+  cleanedRows=report.rows;
+  cleanResult.textContent=[
+   `Изменённых ячеек: ${report.changes.length}. Удаляемых дублей: ${report.removed}.`,
+   ...report.changes.slice(0,25).map(change=>`Строка ${change.row}: ${change.before} → ${change.after}`),
+   ...(report.changes.length>25?['Показаны первые 25 изменений.']:[]),
+  ].join('\n');
+  cleanDownload.hidden=false;
+ }catch(error){cleanResult.textContent=error.message;}
+ finally{button.disabled=false;}
+});
+cleanDownload.addEventListener('click',()=>{
+ if(!cleanedRows)return;
+ try{
+  const url=URL.createObjectURL(createWorkbook([{name:'Очищенные данные',rows:cleanedRows}]));
+  const link=document.createElement('a');
+  link.href=url;link.download='focus-clean.xlsx';link.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+ }catch(error){cleanResult.textContent=error.message;}
 });
