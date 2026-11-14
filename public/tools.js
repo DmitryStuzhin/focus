@@ -1,5 +1,5 @@
 import {cleanTable} from './table-cleaning.js';
-import {profileTable} from './table-profile.js';
+import {showTableProfile} from './table-profile-ui.js';
 import {runLocalSkill} from './local-skills.js';
 import {openTable,createWorkbook} from './office.js';
 import {compareTables,tableKeys} from './tabular.js';
@@ -54,20 +54,7 @@ profileForm.addEventListener('submit',async event=>{
  result.replaceChildren();
  summary.textContent='Читаем таблицу…';
  try{
-  const data=profileTable(await openTable(new FormData(profileForm).get('table')));
-  summary.textContent=`Строк: ${data.rows}. Повторных строк: ${data.duplicates}. Выбросы: правило 1,5 межквартильного размаха.`;
-  const table=document.createElement('table');
-  const header=table.createTHead().insertRow();
-  for(const name of ['Столбец','Тип','Пропуски','Уникальных','Минимум','Максимум','Выбросы']){
-   const cell=document.createElement('th');
-   cell.scope='col';cell.textContent=name;header.append(cell);
-  }
-  const body=table.createTBody();
-  for(const {name,type,missing,distinct,min,max,outliers} of data.columns){
-   const row=body.insertRow();
-   for(const value of [name,type,missing,distinct,min,max,outliers])row.insertCell().textContent=value??'—';
-  }
-  result.append(table);
+  showTableProfile(await openTable(new FormData(profileForm).get('table')),summary,result);
  }catch(error){summary.textContent=error.message;}
  finally{button.disabled=false;}
 });

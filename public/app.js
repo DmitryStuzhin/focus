@@ -445,9 +445,8 @@ function composerModesMarkup(){
 function composerSuggestion(){
  const files=ui.attachments.map(id=>state.files.find(file=>file.id===id&&!file.deleted)).filter(Boolean);
  if(ui.draft.trim()||!files.length)return '';
- if(files.length===1&&/\.csv$/iu.test(files[0].name))return 'profile-csv';
+ if(files.length===1&&/\.(?:csv|xlsx)$/iu.test(files[0].name))return 'profile-table';
  if(files.length===2&&files.every(file=>/\.csv$/iu.test(file.name)))return 'compare-csv';
- if(files.length===1&&/\.xlsx$/iu.test(files[0].name))return 'profile-xlsx';
  if(files.length===2&&files.every(file=>/\.(?:csv|xlsx)$/iu.test(file.name)))return 'compare-tables';
  return '';
 }
@@ -456,7 +455,7 @@ function updateComposerSuggestion(){
  if(!panel)return;
  const idea=composerSuggestion();
  const numbers=!idea&&/^\s*[+-]?\d+(?:[.,]\d+)?(?:[;\s]+[+-]?\d+(?:[.,]\d+)?){1,49}\s*$/u.test(ui.draft);
- const label={'profile-csv':'Проанализировать таблицу','profile-xlsx':'Проанализировать таблицу',
+ const label={'profile-table':'Проанализировать таблицу',
   'compare-csv':'Сравнить таблицы','compare-tables':'Сравнить таблицы'}[idea]??(numbers?'Посчитать итог':'');
  panel.hidden=!label||!!generation;
  panel.textContent=label;
@@ -1029,17 +1028,17 @@ case 'restore':restore(t.dataset.type,id);break;
 case 'permanent-delete':confirm('Удалить навсегда?','Элемент и его содержимое будут удалены без возможности восстановления.',()=>permanentDelete(t.dataset.type,id),'Удалить навсегда',true);break;
 case 'empty-trash':confirm('Очистить корзину?','Все элементы корзины будут удалены навсегда.',async()=>{for(const p of state.projects.filter(p=>p.deleted))await permanentDelete('project',p.id);for(const c of state.chats.filter(c=>c.deleted))await permanentDelete('chat',c.id);for(const f of state.files.filter(f=>f.deleted))await permanentDelete('file',f.id)},'Очистить',true);break;
 case 'composer-suggestion':{
- if(id==='profile-xlsx'||id==='compare-tables'){
+ if(id==='profile-table'||id==='compare-tables'){
   const selection=ui.attachments.map(id=>state.files.find(file=>file.id===id&&!file.deleted));
   if(selection.some(file=>!file)){toast('Один из файлов недоступен в браузере.');break;}
   const files=await Promise.all(selection.map(file=>getBlob(file.id)));
   if(files.some(file=>!file)){toast('Один из файлов недоступен в браузере.');break;}
   try{
    const tables=await Promise.all(files.map((blob,index)=>openTable(new File([blob],selection[index].name))));
-   if(id==='profile-xlsx'){
-    const {profileTable}=await import('./table-profile.js');
-    const profile=profileTable(tables[0]);
-    modal('Профиль таблицы',`<p>Строк: ${profile.rows}. Повторных строк: ${profile.duplicates}.</p><ul>${profile.columns.map(column=>`<li>${e(column.name)}: пропусков ${column.missing}, уникальных ${column.distinct}</li>`).join('')}</ul>`);
+   if(id==='profile-table'){
+    const {showTableProfile}=await import('./table-profile-ui.js');
+    const panel=modal('Анализ таблицы','<p role="status"></p><div class="table-wrap"></div>',{wide:true});
+    showTableProfile(tables[0],panel.querySelector('[role=status]'),panel.querySelector('.table-wrap'));
    }else modal('Сверка таблиц',`<form><label>Общий ключ <input name="key" value="id" required></label><button class="btn primary">Сравнить</button><p role="status"></p></form>`,{onSubmit:(data,form)=>{
     try{
      const {added,removed,modified,matched}=compareTables(tables[0],tables[1],tableKeys(String(data.get('key'))));
@@ -1050,7 +1049,6 @@ case 'composer-suggestion':{
   break;
  }
  if(id==='stats')ui.draft='/stats '+ui.draft.trim().replace(/\s*;\s*|\s+/gu,'; ');
- else if(id==='profile-csv')ui.draft='/csv';
  else if(id==='compare-csv')ui.draft='/csvdiff id';
  else break;
  saveDraft();render();el('composer-input')?.focus();
@@ -1727,7 +1725,8 @@ async function requestAnswer(c,approved=false){
  const codeMode=taskMode==='code'||website;
  const forge=forgeIntent(action.input,{previewKind,taskMode,codeFollowUp});
  const imageRequest=website||taskMode||localSkill||explicitSearch?null:action.image||(contextualImage&&imageIntent(contextualImage.input,true));
- const automaticAction=imageRequest?'изображение':website?{site:'сайт',app:'приложение',game:'игра'}[previewKind]:action.nativeProject?'проект с кодом':null;
+ const needsSiteBrief=previewKind==='site'&&!updating&&!siteDetails&&/^сделай\s+сайт[.!?]*$/iu.test(action.input.trim());
+ const automaticAction=imageRequest?'изображение':website&&!needsSiteBrief?{site:'сайт',app:'приложение',game:'игра'}[previewKind]:action.nativeProject?'проект с кодом':null;
  if(automaticAction&&!approved){
   const notice=(imageRequest?IMAGE_COST_NOTICE:'Focus отправит запрос модели для подготовки результата и зарезервирует часть лимита.')+quotaNotice();
   confirm('Распознано действие: '+automaticAction,notice,()=>{

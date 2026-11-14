@@ -11,7 +11,7 @@ test('exact composite keys keep repeated individual fields and separators unambi
  assert.throws(()=>compareTables(before,after,tableKeys('account;')),/ключевых столбцов/u);
 });
 
-import {profileTable} from '../public/table-profile.js';
+import {profileTable,summarizeTable} from '../public/table-profile.js';
 test('table profile counts missing values, duplicates and numeric outliers',()=>{
  const result=profileTable([['amount','kind'],['1','a'],['1','a'],['2',''],['2','b'],['100','b']]);
  assert.equal(result.duplicates,1);
@@ -28,4 +28,15 @@ test('cleaning leaves source rows intact and keeps invalid dates for manual revi
  assert.equal(result.removed,1);
  assert.equal(source[1][0],'1.2.2026');
  assert.equal(cleanTable([['phone'],['8 (900) 123-45-67']],0,'phone').rows[1][0],'+79001234567');
+});
+
+test('grouped summaries count rows and keep decimal totals exact',()=>{
+ const rows=[['магазин','сумма'],['А','0,1'],['Б','20'],['А','0.02'],['','-0,3'],['Б',''],['А','-0,12'],['А','9007199254740993']];
+ assert.deepEqual(summarizeTable(rows,0,1),[
+  {label:'А',count:4,total:'9007199254740993'},
+  {label:'Б',count:2,total:'20'},
+  {label:'',count:1,total:'−0,3'},
+ ]);
+ assert.deepEqual(summarizeTable([['тип','значение'],['А','текст']],0),[{label:'А',count:1}]);
+ assert.throws(()=>summarizeTable([['тип','значение'],['А','текст']],0,1),/выберите столбец с числами/iu);
 });
