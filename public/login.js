@@ -1,9 +1,8 @@
-function workspaceURL(){
- const example=new URLSearchParams(location.search).get('example');
- return ['tables','document','calculate'].includes(example)?'/?example='+encodeURIComponent(example):'/';
-}
 import {AUTH_EVENT_KEY,uid} from './store.js';
 import {goals,roles} from './onboarding.js';
+import {exampleRoute} from './examples.js';
+
+const workspaceURL=()=>exampleRoute(new URL(location.href));
 
 const emailForm = document.querySelector('#email-form');
 const codeForm = document.querySelector('#code-form');

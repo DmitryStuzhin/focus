@@ -6,6 +6,13 @@ const source='id;сумма\n101;1200\n102;900\n103;500';
 const updated='id;сумма\n103;500\n101;1500\n104;250';
 const documentSource='Поставщик: ООО «Пример»\nПокупатель: ООО «Маяк»\nСрок оплаты: 10 рабочих дней после подписания акта';
 
+const exampleKinds=new Set(['tables','document','calculate']);
+
+export function exampleRoute(url,path='/'){
+ const example=url.searchParams.get('example');
+ return exampleKinds.has(example)?path+'?example='+encodeURIComponent(example):path;
+}
+
 export function exampleProject(kind){
  switch(kind){
   case 'tables':return {name:'Пример · сверка выгрузок',files:[
