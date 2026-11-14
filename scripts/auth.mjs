@@ -2,6 +2,7 @@ import {createHmac, randomInt, timingSafeEqual} from 'node:crypto';
 import {DatabaseSync} from 'node:sqlite';
 import {sendLoginCode,sendLoginCodeViaPostbox,MailDeliveryError} from './mail.mjs';
 import {createAccountStore,digest,nonce,transaction,sessionDevice,DAY} from './accounts.mjs';
+import {createBudget} from './budget.mjs';
 import {createAdmin} from './admin.mjs';
 import {createWorkspace} from './workspace.mjs';
 import {createJobs} from './jobs.mjs';
@@ -78,6 +79,7 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
   CREATE TABLE IF NOT EXISTS auth_events(kind TEXT NOT NULL, identity TEXT NOT NULL, created INTEGER NOT NULL);
   CREATE INDEX IF NOT EXISTS auth_events_recent ON auth_events(kind,identity,created);
  `);
+ const reserveProvider=createBudget(db,env,clock);
  transaction(db,()=>{
   if(!db.prepare('PRAGMA table_info(challenges)').all().some(column=>column.name==='intent')){
    db.exec("ALTER TABLE challenges ADD COLUMN intent TEXT NOT NULL DEFAULT 'login'");
@@ -301,6 +303,7 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
    }
    return json({user:sessionProfile(user,now)});
   },
+  reserveProvider,
   record(id,kind,ok){accounts.record(id,kind,ok,clock());},
   close(){jobs.close();db.close();},
  };

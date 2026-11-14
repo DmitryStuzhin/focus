@@ -8,8 +8,8 @@ test('HTTPS proxy requests preserve origin and cannot spoof identity headers',as
  const server=createServer({PUBLIC_ORIGIN:'https://tokenapp.ru',TRUST_PROXY:'1'},app);
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
  try{
-  const r=await fetch(`http://127.0.0.1:${server.address().port}/api/chat`,{method:'POST',headers:{origin:'https://tokenapp.ru','x-real-ip':'192.0.2.1','cf-connecting-ip':'spoofed','oai-authenticated-user-id':'spoofed'},body:'{}'});
-  assert.equal(r.status,200);assert.equal(seen.url,'https://tokenapp.ru/api/chat');assert.equal(seen.headers.get('cf-connecting-ip'),'192.0.2.1');assert.equal(seen.headers.get('oai-authenticated-user-id'),null);
+  const r=await fetch(`http://127.0.0.1:${server.address().port}/proxy-test`,{method:'POST',headers:{origin:'https://tokenapp.ru','x-real-ip':'192.0.2.1','cf-connecting-ip':'spoofed','oai-authenticated-user-id':'spoofed'},body:'{}'});
+  assert.equal(r.status,200);assert.equal(seen.url,'https://tokenapp.ru/proxy-test');assert.equal(seen.headers.get('cf-connecting-ip'),'192.0.2.1');assert.equal(seen.headers.get('oai-authenticated-user-id'),null);
  }finally{await new Promise(resolve=>server.close(resolve))}
 });
 

@@ -27,13 +27,14 @@ export function createServer(env=process.env, app, authOptions) {
       });
       const handler=()=>app?Promise.resolve(app):import('../dist/server/index.js').then(module=>module.default);
       const context={
+       reserveProvider:auth.reserveProvider,
        async runBackground(input,research,signal,userId){
         const api=await handler();
         const internalHeaders=new Headers({'content-type':'application/json',origin});
         internalHeaders.set('oai-authenticated-user-id',userId);
         const call=(path,body,ctx={userId})=>api.fetch(new Request(new URL(path,origin),{
          method:'POST',headers:internalHeaders,body:JSON.stringify(body),signal
-        }),env,ctx);
+        }),env,{...ctx,reserveProvider:auth.reserveProvider});
         if(research){
          const response=await call('/api/search',research);
          if(!response.ok)return response;
@@ -46,6 +47,9 @@ export function createServer(env=process.env, app, authOptions) {
        }
       };
       let response=await auth.handle(request,url.pathname,headers.get('cf-connecting-ip'),context);
+      if(!response&&url.pathname.startsWith('/api/')&&!context.userId){
+        response=Response.json({error:'Войди в Focus, чтобы продолжить.'},{status:401,headers:{'cache-control':'no-store'}});
+      }
       if(!response){
         const api=await handler();
         if(request.method==='POST')context.activity={'/api/chat':'chat','/api/search':'search'}[url.pathname];
