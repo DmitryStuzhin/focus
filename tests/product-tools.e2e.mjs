@@ -46,6 +46,23 @@ try{
  await dialog.waitFor({state:'hidden'});
  await page.reload();
  await page.getByRole('textbox',{name:'Сообщение',exact:true}).waitFor();
+ const quota=page.getByRole('button',{name:'Лимит на 5 часов. Осталось 100%'});
+ await quota.waitFor();
+ assert.equal(await quota.locator('meter').getAttribute('value'),'100');
+ const bounds=await quota.boundingBox();
+ assert.ok(bounds.x>=0&&bounds.x+bounds.width<=390,'quota fits the phone viewport');
+ await quota.click();
+ const quotaDialog=page.getByRole('dialog',{name:'Лимит на 5 часов'});
+ assert.match(await quotaDialog.textContent(),/Осталось 100%/u);
+ await quotaDialog.getByRole('button',{name:'Закрыть'}).click();
+ await page.route('**/api/status',route=>route.fulfill({status:503,json:{error:'unavailable'}}));
+ await page.reload();
+ await page.getByRole('button',{name:'Лимит на 5 часов. Данные недоступны'}).click();
+ await page.unroute('**/api/status');
+ await quotaDialog.getByRole('button',{name:'Обновить'}).click();
+ await quota.waitFor();
+ assert.match(await quotaDialog.textContent(),/Осталось 100%/u);
+ await quotaDialog.getByRole('button',{name:'Закрыть'}).click();
  const saved=await page.evaluate(async()=>{
   const {selectStorageScope,readState,getBlob}=await import('/store.js');
   const session=await (await fetch('/api/auth/session')).json();

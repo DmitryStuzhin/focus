@@ -338,37 +338,43 @@ async function generateStudioImage(approved=false){
 }
 
 let quotaRefresh=0;
-function quotaNotice(){
+function quotaPercent(){
  const percent=apiStatus.budget?.remainingPercent;
- return Number.isFinite(percent)?' Остаток на 5 часов — '+percent+'%.':'';
+ return Number.isInteger(percent)&&percent>=0&&percent<=100?percent:null;
+}
+function quotaNotice(){
+ const percent=quotaPercent();
+ return percent===null?'':' Остаток на 5 часов — '+percent+'%.';
 }
 function quotaMarkup(){
- const budget=apiStatus.budget;
- if(!budget)return '';
- const percent=budget.remainingPercent;
- const reset=budget.resetAt?new Date(budget.resetAt).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'через 5 часов после первого запроса';
- const description=`Лимит на 5 часов: осталось ${percent}%. Сброс: ${reset}`;
- return `<button type="button" class="quota-chip ${percent<=20?'quota-low':''}" data-action="quota-info" aria-label="${e(description)}" title="${e(description)}">
- <span class="quota-window">5 ч</span><span class="quota-value">${percent}%</span>
- <meter min="0" max="100" value="${percent}" aria-hidden="true"></meter></button>`;
+ if(!account)return '';
+ const percent=quotaPercent();
+ const pending=apiStatus.budget===undefined;
+ const label=percent===null
+  ?'Лимит на 5 часов. '+(pending?'Загружается':'Данные недоступны')
+  :`Лимит на 5 часов. Осталось ${percent}%`;
+ return `<button type="button" class="quota-chip ${percent!==null&&percent<=20?'quota-low':''}" data-action="quota-info" aria-label="${e(label)}" title="${e(label)}">
+ <span class="quota-window">Лимит 5 ч</span><strong class="quota-value">${percent===null?'—':percent+'%'}</strong>
+ ${percent===null?'<span class="quota-track" aria-hidden="true"></span>':`<meter min="0" max="100" value="${percent}" aria-hidden="true"></meter>`}</button>`;
+}
+function paintQuota(){
+ const slot=el('quota-slot');
+ if(!slot)return;
+ const focused=slot.contains(document.activeElement);
+ slot.innerHTML=quotaMarkup();
+ if(focused)slot.querySelector('button')?.focus();
 }
 async function refreshQuota(){
  if(!account)return;
  const id=++quotaRefresh;
+ let budget=null;
  try{
   const response=await fetch('/api/status',{cache:'no-store'});
-  if(!response.ok)return;
-  const {budget}=await response.json();
-  if(id!==quotaRefresh)return;
-  const changed=JSON.stringify(budget)!==JSON.stringify(apiStatus.budget);
-  apiStatus.budget=budget;
-  const slot=el('quota-slot');
-  if(changed&&slot){
-   const focused=slot.contains(document.activeElement);
-   slot.innerHTML=quotaMarkup();
-   if(focused)slot.querySelector('button')?.focus();
-  }
+  if(response.ok)budget=(await response.json()).budget??null;
  }catch{}
+ if(id!==quotaRefresh||JSON.stringify(budget)===JSON.stringify(apiStatus.budget))return;
+ apiStatus.budget=budget;
+ paintQuota();
 }
 window.addEventListener('focus',refreshQuota);
 setInterval(()=>{if(document.visibilityState==='visible')void refreshQuota();},60_000);
@@ -1130,9 +1136,22 @@ case 'context-menu':menu(t,[{label:'Работать в проекте'},...live
 case 'switch-context':{const d=ui.draft;selectProject(id);ui.draft=d;render();break;}
 case 'quota-info':{
  const budget=apiStatus.budget;
- if(!budget)break;
+ const percent=quotaPercent();
+ if(percent===null){
+  modal('Лимит на 5 часов',`<p class="dialog-description">${budget===undefined?'Загружаем остаток лимита.':'Не удалось получить остаток лимита.'}</p><div class="dialog-footer">${button('reload-quota','Обновить','primary')}</div>`);
+  break;
+ }
  const reset=budget.resetAt?new Date(budget.resetAt).toLocaleString('ru-RU'):'через пять часов после первого запроса';
- modal('Лимит на 5 часов',`<p class="dialog-description">Осталось <strong>${budget.remainingPercent}%</strong>. Обновление лимита: ${e(reset)}.</p><p class="settings-note">Бюджет на окно — около ${e(budget.approximateTokenLimit.toLocaleString('ru-RU'))} расчётных токенов. Изображения и поиск расходуют денежную часть лимита. Процент показывает остаток по более строгому из двух ограничений. Подписка на изображения открывает соответствующий режим. Она не увеличивает показанный лимит.</p>`);
+ const tokens=budget.approximateTokenLimit?.toLocaleString('ru-RU');
+ modal('Лимит на 5 часов',`<p class="dialog-description">Осталось <strong>${percent}%</strong>. Обновление лимита: ${e(reset)}.</p>
+ <p class="settings-note">${tokens?`Бюджет на окно — около ${e(tokens)} расчётных токенов. `:''}Изображения и поиск расходуют денежную часть лимита. Процент показывает остаток по более строгому из двух ограничений.</p>`);
+ break;
+}
+case 'reload-quota':{
+ t.disabled=true;
+ await refreshQuota();
+ const quotaButton=el('quota-slot')?.querySelector('button');
+ if(t.isConnected&&quotaButton){closeModal();void handleAction('quota-info',quotaButton);}
  break;
 }
 case 'review-context':{
@@ -1895,7 +1914,12 @@ async function boot(){
   render();
   offerExampleProject();
   if(account)for(const chat of state.chats.filter(item=>item.backgroundJob&&!item.deleted))void recoverJob(chat);
-  fetch('/api/status').then(r=>r.ok?r.json():null).then(d=>{if(d){apiStatus=d;render()}}).catch(()=>{});
+  const initialQuotaRefresh=quotaRefresh;
+ fetch('/api/status',{cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null).then(status=>{
+  const budget=initialQuotaRefresh===quotaRefresh?status?.budget??null:apiStatus.budget;
+  apiStatus={...apiStatus,...status,budget};
+  render();
+ });
   const oldImageCode=account?savedImagePass():null;
   if(oldImageCode)void updateAccount('subscription',{code:oldImageCode}).then(()=>{
    sessionStorage.removeItem(imagePassKey());
