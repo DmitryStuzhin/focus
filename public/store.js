@@ -4,7 +4,7 @@ const scoped=key=>scope?key+'.'+scope:key;
 export const selectStorageScope=id=>{scope=id||'';};
 export const AUTH_EVENT_KEY='focus.auth.changed';
 export const uid=()=>crypto.randomUUID?.()||Array.from(crypto.getRandomValues(new Uint8Array(16)),x=>x.toString(16).padStart(2,'0')).join('');
-export const fresh=()=>({version:1,projects:[{id:'personal',name:'Личное пространство',description:'',created:Date.now(),deleted:false}],chats:[],files:[],changes:[],settings:{name:'Моё пространство',model:'flash',effort:'balanced',theme:'system',sendOnEnter:true,showFiles:true,webSearch:false},activeProject:'personal',activeChat:null});
+export const fresh=()=>({version:1,projects:[{id:'personal',name:'Личное пространство',description:'',created:Date.now(),deleted:false}],chats:[],files:[],changes:[],settings:{name:'Моё пространство',model:'flash',effort:'balanced',theme:'system',textSize:'normal',density:'normal',sendOnEnter:true,showFiles:true,webSearch:false},activeProject:'personal',activeChat:null});
 function normalizeState(data){
  if(data?.version!==1||!['projects','chats','files'].every(key=>Array.isArray(data[key])))return fresh();
  const defaults=fresh();
@@ -138,6 +138,7 @@ const file=shape({id:safeId,project:safeId,parent:id,name:text(512),type:short,s
  kind:value=>['file','folder'].includes(value),created:date,updated:date,deleted:flag,deletedAt:date,
  forgeManaged:flag,sourcePath:path,imagePrompt:optional(text(150000)),favorite:flag});
 const settings=shape({name:text(512),theme:value=>['light','dark','system'].includes(value),
+ textSize:optional(value=>['normal','large'].includes(value)),density:optional(value=>['normal','compact'].includes(value)),
  model:short,effort:short,sendOnEnter:flag,showFiles:flag,webSearch:flag});
 const blobs=value=>value==null||value&&typeof value==='object'&&!Array.isArray(value);
 const backup=shape({version:value=>value===1,projects:list(project,2000),chats:list(chat,5000),

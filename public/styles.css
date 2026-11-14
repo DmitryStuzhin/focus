@@ -550,3 +550,10 @@
 .quota-chip.quota-low { border-color: var(--focus-danger); }
 .quota-chip.quota-low .quota-value { color: var(--focus-danger); }
 .composer-idea { margin: 2px 12px 6px; }
+.markdown > :is(p,ul,ol,blockquote) { max-width: 76ch; }
+[data-text-size=large] :is(.markdown,.message-bubble,#composer-input) { font-size: 17px; }
+[data-density=compact] .messages { gap: 14px; }
+[data-density=compact] :is(.file-row,.nav-row) { min-height: 32px; }
+@media (pointer: coarse) {
+ [data-density=compact] :is(.file-row,.nav-row) { min-height: 44px; }
+}
