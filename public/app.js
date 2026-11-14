@@ -368,6 +368,11 @@ function starterSuggestion(){
  const [action,id,label]=suggestion;
  return button(action,label,'ghost',`data-id="${id}"`);
 }
+function extraAnswerActions(message){
+ return ib('share-answer','arrow','Поделиться ответом',`data-id="${e(message.id)}"`)+
+  button('rate-answer',message.rating==='helpful'?'Полезно ✓':'Полезно','ghost',
+   `data-id="${e(message.id)}" aria-pressed="${message.rating==='helpful'}"`);
+}
 function chatView(){const c=activeChat();if(!c||!c.messages.length)return `<section class="welcome"><div class="welcome-inner">${mark}
  <h1>Над чем поработаем?</h1><p class="welcome-sub">Например, прикрепите две выгрузки и проверьте, какие записи изменились.</p><div class="suggestions focus-start" aria-label="Быстрые задачи">
   <button class="suggestion" aria-label="Создать сайт" data-action="prompt" data-prompt="Сделай сайт">${icon('globe')}<span>Создать сайт<small>Предпросмотр и исходники</small></span></button>
@@ -382,7 +387,7 @@ function chatView(){const c=activeChat();if(!c||!c.messages.length)return `<sect
  let lastUserContent='';
  return `<section class="messages" aria-label="Сообщения диалога">${c.messages.map(m=>{
   if(m.role==='user')lastUserContent=m.content;
-  return m.role==='assistant'?`<article class="assistant-message"><div class="assistant-label">Focus <span>${e(m.model==='local-calculator'?'Калькулятор':m.model==='local-statistics'?'Статистика':m.model==='local-conversion'?'Конвертер':m.model==='local-csv'?'Анализ CSV':m.model==='local-diff'?'Сравнение файлов':m.model==='local-project-search'?'Поиск по проекту':m.taskMode==='plan'?'План':m.taskMode==='review'?'Ревью кода':MODEL_LABEL)}</span>${modelProvenance(m)}</div>${sourcePills({...m.search,owner:m.id})}${m.search?.failedQueries?.length?`<p class="settings-note">Не удалось выполнить запросов: ${m.search.failedQueries.length}</p>`:''}<div class="markdown">${m.model==='local-project-search'?renderProjectMatches(m):m.model==='local-diff'?'<div class="code-block"><pre><code>'+e(m.content)+'</code></pre></div>':linkCitations(markdown(m.content,m,lastUserContent),m.search)}</div>${m.imageFile&&state.files.some(f=>f.id===m.imageFile&&!f.deleted)?'<figure class="generated-image"><img data-generated-file="'+e(m.imageFile)+'" alt="Сгенерированное изображение" /><button class="btn" data-action="download-file" data-id="'+e(m.imageFile)+'">Скачать изображение</button></figure>':''}<div class="assistant-actions">${ib('copy-message','copy','Скопировать ответ',`data-id="${m.id}"`)}${ib('save-answer','file','Сохранить ответ в файл',`data-id="${m.id}"`)}${ib('download-answer','download','Скачать ответ',`data-id="${m.id}"`)}${ib('office-export','file','Экспорт в Word или PowerPoint',`data-id="${m.id}"`)}${!m.truncated&&/\x60\x60\x60\w+\s+[^\s]+/u.test(m.content)?button('download-project','Скачать файлы ZIP','ghost',`data-id="${m.id}"`):''}${ib('retry-answer','refresh','Повторить ответ')}${m.truncated?'<small>Достигнута максимальная длина ответа</small>':''}</div></article>`:`<article class="message">${m.files?.length?`<div class="message-files">${m.files.map(id=>{const f=state.files.find(x=>x.id===id&&!x.deleted);return f?`<button class="message-file" data-action="preview-file" data-id="${f.id}">${icon(fileIcon(f))}<span class="truncate">${e(f.name)}</span></button>`:''}).join('')}</div>`:''}<div class="message-bubble">${typeof m.quote==='string'&&m.quote?quoteMarkup(m.quote):''}<div>${e(m.content)}</div></div><div class="message-time"><span>${time(m.at)}</span>${ib('copy-message','copy','Скопировать сообщение',`data-id="${m.id}"`)}${ib('edit-message','rename','Изменить сообщение',`data-id="${m.id}"`)}${ib('delete-message','trash','Удалить сообщение',`data-id="${m.id}"`)}</div></article>`;}).join('')}${generation?.chatId===c.id?`<div class="assistant-message" role="status"><div class="assistant-label">Focus</div>${generation.sources?.length?sourcePills({sources:generation.sources,query:generation.query,owner:'pending'}):''}<div class="generating ${generation.phase==='searching'?'web-searching':''}">${generation.phase==='searching'?'Ищу в интернете':generation.phase==='imaging'?'Создаю изображение':generation.forge?'Подготавливаю файлы и предпросмотр':'Готовлю ответ'}<span class="typing-dots"><i></i><i></i><i></i></span></div><div class="stream-text" id="stream-text" aria-live="polite" aria-atomic="false">${e(generation.text)}</div></div>`:c.backgroundJob?`<div class="pending-note">${icon('clock')}<span>Исследование выполняется в фоне</span>
+  return m.role==='assistant'?`<article class="assistant-message"><div class="assistant-label">Focus <span>${e(m.model==='local-calculator'?'Калькулятор':m.model==='local-statistics'?'Статистика':m.model==='local-conversion'?'Конвертер':m.model==='local-csv'?'Анализ CSV':m.model==='local-diff'?'Сравнение файлов':m.model==='local-project-search'?'Поиск по проекту':m.taskMode==='plan'?'План':m.taskMode==='review'?'Ревью кода':MODEL_LABEL)}</span>${modelProvenance(m)}</div>${sourcePills({...m.search,owner:m.id})}${m.search?.failedQueries?.length?`<p class="settings-note">Не удалось выполнить запросов: ${m.search.failedQueries.length}</p>`:''}<div class="markdown">${m.model==='local-project-search'?renderProjectMatches(m):m.model==='local-diff'?'<div class="code-block"><pre><code>'+e(m.content)+'</code></pre></div>':linkCitations(markdown(m.content,m,lastUserContent),m.search)}</div>${m.imageFile&&state.files.some(f=>f.id===m.imageFile&&!f.deleted)?'<figure class="generated-image"><img data-generated-file="'+e(m.imageFile)+'" alt="Сгенерированное изображение" /><button class="btn" data-action="download-file" data-id="'+e(m.imageFile)+'">Скачать изображение</button></figure>':''}<div class="assistant-actions">${ib('copy-message','copy','Скопировать ответ',`data-id="${m.id}"`)}${extraAnswerActions(m)}${ib('save-answer','file','Сохранить ответ в файл',`data-id="${m.id}"`)}${ib('download-answer','download','Скачать ответ',`data-id="${m.id}"`)}${ib('office-export','file','Экспорт в Word или PowerPoint',`data-id="${m.id}"`)}${!m.truncated&&/\x60\x60\x60\w+\s+[^\s]+/u.test(m.content)?button('download-project','Скачать файлы ZIP','ghost',`data-id="${m.id}"`):''}${ib('retry-answer','refresh','Повторить ответ')}${m.truncated?'<small>Достигнута максимальная длина ответа</small>':''}</div></article>`:`<article class="message">${m.files?.length?`<div class="message-files">${m.files.map(id=>{const f=state.files.find(x=>x.id===id&&!x.deleted);return f?`<button class="message-file" data-action="preview-file" data-id="${f.id}">${icon(fileIcon(f))}<span class="truncate">${e(f.name)}</span></button>`:''}).join('')}</div>`:''}<div class="message-bubble">${typeof m.quote==='string'&&m.quote?quoteMarkup(m.quote):''}<div>${e(m.content)}</div></div><div class="message-time"><span>${time(m.at)}</span>${ib('copy-message','copy','Скопировать сообщение',`data-id="${m.id}"`)}${ib('edit-message','rename','Изменить сообщение',`data-id="${m.id}"`)}${ib('delete-message','trash','Удалить сообщение',`data-id="${m.id}"`)}</div></article>`;}).join('')}${generation?.chatId===c.id?`<div class="assistant-message" role="status"><div class="assistant-label">Focus</div>${generation.sources?.length?sourcePills({sources:generation.sources,query:generation.query,owner:'pending'}):''}<div class="generating ${generation.phase==='searching'?'web-searching':''}">${generation.phase==='searching'?'Ищу в интернете':generation.phase==='imaging'?'Создаю изображение':generation.forge?'Подготавливаю файлы и предпросмотр':'Готовлю ответ'}<span class="typing-dots"><i></i><i></i><i></i></span></div><div class="stream-text" id="stream-text" aria-live="polite" aria-atomic="false">${e(generation.text)}</div></div>`:c.backgroundJob?`<div class="pending-note">${icon('clock')}<span>Исследование выполняется в фоне</span>
  <button class="inline-link" data-action="resume-background">Проверить результат</button>
  <button class="inline-link" data-action="cancel-background">Остановить</button></div>`:c.error?`<div class="request-error" role="alert">${icon('info')}<div>${c.pendingSearch?.sources?.length?sourcePills({...c.pendingSearch,owner:'pending'}):''}<p>${e(c.error)}</p><button class="inline-link" data-action="retry-answer">Повторить запрос</button></div></div>`:c.messages.at(-1)?.role==='user'?`<div class="pending-note">${icon('info')}<span>${apiStatus.configured?'Ответ не получен. Вы можете повторить запрос.':'Запрос сохранён. Модель ещё не подключена.'} <button class="inline-link" data-action="retry-answer">Повторить</button></span></div>`:''}</section>`}
 
@@ -1088,6 +1093,38 @@ case 'resize-preview':{
 case 'reload-preview':syncPreviewPanel(previewArtifact(activeChat()),true);break;
 case 'download-project':{const m=activeChat()?.messages.find(x=>x.id===id);if(!m||m.truncated)break;try{download(projectZip(projectFiles(m.content)),'project.zip');}catch(error){toast(error.message)}break;}
 case 'download-answer':{const m=activeChat()?.messages.find(x=>x.id===id);if(m)download(new Blob([answerMarkdown(m)],{type:'text/markdown;charset=utf-8'}),'Ответ.md');break;}
+case 'rate-answer':{
+ const message=activeChat()?.messages.find(item=>item.id===id&&item.role==='assistant');
+ if(!message)break;
+ if(message.rating==='helpful')delete message.rating;
+ else message.rating='helpful';
+ t.setAttribute('aria-pressed',String(message.rating==='helpful'));
+ t.textContent=message.rating==='helpful'?'Полезно ✓':'Полезно';
+ void persist();
+ break;
+}
+case 'share-answer':{
+ const message=activeChat()?.messages.find(item=>item.id===id&&item.role==='assistant');
+ if(!message)break;
+ const content=answerMarkdown(message);
+ if(navigator.share){
+  try{await navigator.share({title:'Ответ Focus',text:content});break;}
+  catch(error){if(error.name==='AbortError')break;}
+ }
+ await copy(content);
+ break;
+}
+case 'copy-answer-table':{
+ const table=t.closest('.table-wrap')?.querySelector('table');
+ if(!table)break;
+ const plain=[...table.rows].map(row=>[...row.cells].map(cell=>cell.textContent.replace(/[\t\r\n]+/gu,' ')).join('\t')).join('\n');
+ try{
+  await navigator.clipboard.write([new ClipboardItem({'text/html':new Blob([table.outerHTML],{type:'text/html'}),
+   'text/plain':new Blob([plain],{type:'text/plain'})})]);
+  toast('Таблица скопирована');
+ }catch{await copy(plain);}
+ break;
+}
 case 'copy-message':{const m=activeChat()?.messages.find(x=>x.id===id);if(m)await copy(m.content);break;}
 case 'edit-message':{const m=activeChat()?.messages.find(x=>x.id===id);if(m)modal('Изменить сообщение',`<form><div class="form-field"><textarea name="content" aria-label="Текст сообщения" rows="6" required autofocus>${e(m.content)}</textarea></div><div class="dialog-footer">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">Сохранить</button></div></form>`,{onSubmit:data=>{m.content=data.get('content').trim();activeChat().updated=Date.now();persist();closeModal();render()}});break;}
 case 'delete-message':{const c=activeChat();if(c){c.messages=c.messages.filter(m=>m.id!==id);c.updated=Date.now();persist();render()}break;}
@@ -1359,7 +1396,7 @@ function markdown(text,message,request=''){
    const table=answerTable(lines,j);
    if(table){
     closeParagraph();closeList();
-    out+=table.html;j=table.end-1;
+    out+=table.html.replace('</table></div>', '</table><button type="button" class="btn ghost" data-action="copy-answer-table">Скопировать таблицу</button></div>');j=table.end-1;
     continue;
    }
    const item=line.match(/^\s*(?:([-*+])|(\d+)\.)\s+(.+)/u);
