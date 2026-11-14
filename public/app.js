@@ -261,7 +261,7 @@ async function generateStudioImage(approved=false){
  const paid=mode==='paid';
  const pass=paid&&!(account?.subscriptionUntil>Date.now())?savedImagePass():null;
  if(paid&&!hasImageAccess()){imageSubscriptionDialog();return;}
- if(!approved){confirm('Запустить генерацию изображения?',IMAGE_COST_NOTICE,()=>{queueMicrotask(()=>void generateStudioImage(true));},'Запустить');return;}
+ if(!approved){confirm('Запустить генерацию изображения?',IMAGE_COST_NOTICE+quotaNotice(),()=>{queueMicrotask(()=>void generateStudioImage(true));},'Запустить');return;}
  const controller=new AbortController();
  studio.imageController=controller;
  studio.imageError='';
@@ -304,13 +304,17 @@ async function generateStudioImage(approved=false){
 }
 
 let quotaRefresh=0;
+function quotaNotice(){
+ const percent=apiStatus.budget?.remainingPercent;
+ return Number.isFinite(percent)?' Остаток на 5 часов — '+percent+'%.':'';
+}
 function quotaMarkup(){
  const budget=apiStatus.budget;
  if(!budget)return '';
  const percent=budget.remainingPercent;
  const reset=budget.resetAt?new Date(budget.resetAt).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'через 5 часов после первого запроса';
  const description=`Лимит на 5 часов: осталось ${percent}%. Сброс: ${reset}`;
- return `<button type="button" class="quota-chip" data-action="quota-info" aria-label="${e(description)}" title="${e(description)}">
+ return `<button type="button" class="quota-chip ${percent<=20?'quota-low':''}" data-action="quota-info" aria-label="${e(description)}" title="${e(description)}">
  <span class="quota-window">5 ч</span><span class="quota-value">${percent}%</span>
  <meter min="0" max="100" value="${percent}" aria-hidden="true"></meter></button>`;
 }
@@ -842,7 +846,7 @@ case 'quota-info':{
  const budget=apiStatus.budget;
  if(!budget)break;
  const reset=budget.resetAt?new Date(budget.resetAt).toLocaleString('ru-RU'):'через пять часов после первого запроса';
- modal('Лимит на 5 часов',`<p class="dialog-description">Осталось <strong>${budget.remainingPercent}%</strong>. Обновление лимита: ${e(reset)}.</p><p class="settings-note">Бюджет на окно — около ${e(budget.approximateTokenLimit.toLocaleString('ru-RU'))} расчётных токенов. Изображения и поиск расходуют денежную часть лимита. Процент показывает остаток по более строгому из двух ограничений.</p>`);
+ modal('Лимит на 5 часов',`<p class="dialog-description">Осталось <strong>${budget.remainingPercent}%</strong>. Обновление лимита: ${e(reset)}.</p><p class="settings-note">Бюджет на окно — около ${e(budget.approximateTokenLimit.toLocaleString('ru-RU'))} расчётных токенов. Изображения и поиск расходуют денежную часть лимита. Процент показывает остаток по более строгому из двух ограничений. Подписка на изображения открывает соответствующий режим. Она не увеличивает показанный лимит.</p>`);
  break;
 }
 case 'data-details':
@@ -1346,7 +1350,7 @@ async function requestAnswer(c,approved=false){
  const imageRequest=website||taskMode||localSkill||explicitSearch?null:action.image||(contextualImage&&imageIntent(contextualImage.input,true));
  const automaticAction=imageRequest?'изображение':website?{site:'сайт',app:'приложение',game:'игра'}[previewKind]:action.nativeProject?'проект с кодом':null;
  if(automaticAction&&!approved){
-  const notice=imageRequest?IMAGE_COST_NOTICE:'Focus отправит запрос модели для подготовки результата.';
+  const notice=(imageRequest?IMAGE_COST_NOTICE:'Focus отправит запрос модели для подготовки результата и зарезервирует часть лимита.')+quotaNotice();
   confirm('Распознано действие: '+automaticAction,notice,()=>{
    queueMicrotask(()=>void requestAnswer(c,true));
   },'Запустить');

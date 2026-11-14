@@ -547,3 +547,5 @@
 .composer-modes button[aria-pressed=true] { background: var(--hover); color: var(--text); font-weight: 600; }
 .model-provenance { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
 .composer-hint .data-details { color: var(--muted); font-size: inherit; }
+.quota-chip.quota-low { border-color: var(--focus-danger); }
+.quota-chip.quota-low .quota-value { color: var(--focus-danger); }
