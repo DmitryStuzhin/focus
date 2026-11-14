@@ -121,7 +121,13 @@ try{
  assert.equal(await codeComposer.inputValue(),'Напиши код для ');
  await codeComposer.fill('Создай файл main.rs');
  await codePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
- await codePage.getByRole('button',{name:'Сохранить в проект',exact:true}).click();
+ const saveCode=codePage.getByRole('button',{name:'Сохранить в проект',exact:true});
+ await saveCode.waitFor();
+ assert.equal(await codePage.getByRole('button',{name:'Действия с файлом main.rs'}).count(),0);
+ await codePage.getByRole('button',{name:'Сохранить файлы Forge',exact:true}).click();
+ await codePage.getByRole('dialog').getByRole('button',{name:'Отмена',exact:true}).click();
+ assert.equal(await codePage.getByRole('button',{name:'Действия с файлом main.rs'}).count(),0);
+ await saveCode.click();
  assert.equal(await codePage.locator('#proposed-code').inputValue(),original);
  await codePage.getByRole('button',{name:'Сохранить файл',exact:true}).click();
  const fileMenu=codePage.getByRole('button',{name:'Действия с файлом main.rs'});
@@ -322,7 +328,7 @@ try{
  await draftPage.getByRole('button',{name:'Предпросмотр',exact:true}).last().click();
  const draftFrame=draftPage.frameLocator('#preview-root iframe');
  await draftFrame.getByRole('heading',{name:'Забота о вашей улыбке'}).waitFor();
- await draftPage.getByText(/Открыл стартовую страницу/).waitFor();
+ await draftPage.getByText(/Подготовил стартовую страницу/).waitFor();
  const question=draftFrame.getByText('Как записаться?',{exact:true});
  await question.click();
  assert.equal(await draftFrame.locator('details[open]').count(),1);

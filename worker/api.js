@@ -764,11 +764,11 @@ export async function chat(request,env,fetcher=fetch,context={}){
  const existingPreview=latest.attachments?.some(file=>typeof file?.text==='string'&&
   (/^Текущая версия предпросмотра — /iu.test(String(file.name))||siteMode==='site'&&/\.html?$/iu.test(String(file.name))));
  const gameDraft=()=>json({
-  text:'Модель не подготовила игру по вашему описанию. Открыл запасную мини-игру «Поймай импульс». В неё уже можно сыграть.\n\n```html index.html\n'+createGameDraft()+'\n```',
+  text:'Модель не подготовила игру по вашему описанию. Подготовил запасную мини-игру «Поймай импульс». В неё уже можно сыграть.\n\n```html index.html\n'+createGameDraft()+'\n```',
   model:'local-game-draft',provider:'local',truncated:false,
  });
  const siteDraft=()=>json({
-  text:'Сервис модели не подготовил сайт. Открыл стартовую страницу, собранную внутри Focus. Проверьте тексты и заполните контакты перед публикацией.\n\n```html index.html\n'+createSiteDraft(action.site?action.input:
+  text:'Сервис модели не подготовил сайт. Подготовил стартовую страницу, собранную внутри Focus. Проверьте тексты и заполните контакты перед публикацией.\n\n```html index.html\n'+createSiteDraft(action.site?action.input:
    'Сделай сайт '+(/^\s*(?:для|про|о)\s+/iu.test(latest.content)?'':'для ')+latest.content)+'\n```',
   model:'local-site-draft',provider:'local',truncated:false,
  });
