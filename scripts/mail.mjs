@@ -7,6 +7,18 @@ import {join} from 'node:path';
 const expiry = 'Код действует 10 минут и используется один раз.';
 const unsolicited = 'Если ты не запрашивал код, просто проигнорируй это письмо.';
 
+export class MailDeliveryError extends Error {
+ constructor(diagnostics,deliveryUncertain){
+  super(diagnostics.join('\n'));
+  this.deliveryUncertain=deliveryUncertain;
+ }
+}
+export class SmtpDeliveryError extends MailDeliveryError {}
+
+const subject = 'Код входа в Focus';
+const loginEmailText = code => ['Твой код входа в Focus: '+code,'',expiry,unsolicited].join('\r\n');
+const curlConfigValue = value => '"'+value.replace(/["\\]/gu,'\\$&')+'"';
+
 function loginEmailHtml(code) {
  return `<!doctype html>
 <html lang="ru">
@@ -45,15 +57,14 @@ function alternative(boundary,type,content) {
 }
 
 function message({from,to,code}) {
- const subject = Buffer.from('Код входа в Focus').toString('base64');
+ const encodedSubject = Buffer.from(subject).toString('base64');
  const id = randomUUID();
  const boundary = 'focus-'+id;
- const text = ['Твой код входа в Focus: '+code, '', expiry, unsolicited].join('\r\n');
  return [
-  'From: Focus <'+from+'>', 'To: <'+to+'>', 'Subject: =?UTF-8?B?'+subject+'?=',
+  'From: Focus <'+from+'>', 'To: <'+to+'>', 'Subject: =?UTF-8?B?'+encodedSubject+'?=',
   'Date: '+new Date().toUTCString(), 'Message-ID: <'+id+'@'+from.split('@')[1]+'>',
   'MIME-Version: 1.0', 'Content-Type: multipart/alternative; boundary="'+boundary+'"', '',
-  ...alternative(boundary,'text/plain',text),
+  ...alternative(boundary,'text/plain',loginEmailText(code)),
   ...alternative(boundary,'text/html',loginEmailHtml(code).replaceAll('\n','\r\n')),
   '--'+boundary+'--', '',
  ].join('\r\n');
@@ -64,20 +75,48 @@ const smtpUrls = {
  587: 'smtp://smtp.timeweb.ru:587',
 };
 
-function runCurl(args,credentials) {
+function executeCurl(args,config) {
  return new Promise(resolve=>{
   const child = execFile('/usr/bin/curl',args,{env:{PATH:'/usr/bin:/bin'},timeout:15_000},(error,stdout)=>{
-   const metrics = /^(\d+(?:\.\d+)?) (\d+) (\d{3})$/u.exec(stdout.trim());
-   resolve({
-    exitCode:error?(Number.isInteger(error.code)?error.code:-1):0,
-    connectTime:metrics?Number(metrics[1]):null,
-    uploaded:metrics?Number(metrics[2]):null,
-    reply:metrics?Number(metrics[3]):0,
-   });
+   resolve({exitCode:error?(Number.isInteger(error.code)?error.code:-1):0,stdout});
   });
   child.stdin.on('error',()=>{});
-  child.stdin.end('user = "'+credentials+'"\n');
+  child.stdin.end(config);
  });
+}
+
+async function runCurl(args,credentials) {
+ const {exitCode,stdout}=await executeCurl(args,'user = "'+credentials+'"\n');
+ const metrics = /^(\d+(?:\.\d+)?) (\d+) (\d{3})$/u.exec(stdout.trim());
+ return {exitCode,connectTime:metrics?Number(metrics[1]):null,uploaded:metrics?Number(metrics[2]):null,reply:metrics?Number(metrics[3]):0};
+}
+
+export async function sendLoginCodeViaPostbox({from,to,code,keyId,keySecret},{transport=executeCurl}={}){
+ if(![keyId,keySecret].every(value=>typeof value==='string'&&value&&!/[\r\n\0]/u.test(value))){
+  throw new MailDeliveryError(['Invalid Yandex Cloud Postbox credentials.'],false);
+ }
+ if(typeof code!=='string'||!/^[0-9]{6}$/u.test(code))throw new Error('Invalid Focus login code.');
+ const part = Data => ({Data,Charset:'UTF-8'});
+ const payload=JSON.stringify({
+  FromEmailAddress:'Focus <'+from+'>',
+  Destination:{ToAddresses:[to]},
+  Content:{Simple:{Subject:part(subject),Body:{Text:part(loginEmailText(code)),Html:part(loginEmailHtml(code))}}},
+ });
+ const args=['--disable','--config','-','--url','https://postbox.cloud.yandex.net/v2/email/outbound-emails',
+  '--aws-sigv4','aws:amz:ru-central1:ses','--header','Content-Type: application/json',
+  '--silent','--connect-timeout','5','--max-time','12','--write-out','\n%{http_code}'];
+ const config='user = '+curlConfigValue(keyId+':'+keySecret)+'\ndata-binary = '+curlConfigValue(payload)+'\n';
+ const {exitCode,stdout}=await transport(args,config);
+ const boundary=stdout.lastIndexOf('\n');
+ const status=boundary<0?0:Number(stdout.slice(boundary+1))||0;
+ if(exitCode===0&&status===200){
+  try{
+   const result=JSON.parse(stdout.slice(0,boundary));
+   if(typeof result.MessageId==='string'&&result.MessageId)return;
+  }catch{}
+ }
+ const uncertain=!(status>=400&&status<500)&&![6,7].includes(exitCode);
+ throw new MailDeliveryError(['Postbox did not confirm email submission (HTTP '+status+', curl '+exitCode+').'],uncertain);
 }
 
 function diagnose({exitCode,connectTime,uploaded,reply},port) {
@@ -107,6 +146,7 @@ export async function sendLoginCode({from,to,code,password,port},{transport=runC
   const file = join(folder,'mail.eml');
   await writeFile(file,message({from,to,code}),{mode:0o600});
   const errors = [];
+  let deliveryUncertain=false;
   for(const port of ports){
    const args = ['--disable','--config','-','--url',smtpUrls[port],'--ssl-reqd',
     '--silent','--show-error','--connect-timeout','5','--max-time','12',
@@ -116,8 +156,9 @@ export async function sendLoginCode({from,to,code,password,port},{transport=runC
    if(result.exitCode===0)return port;
    const {diagnostic,canRetry} = diagnose(result,port);
    errors.push(diagnostic);
+   deliveryUncertain=deliveryUncertain||result.uploaded!==0;
    if(!canRetry)break;
   }
-  throw new Error(errors.join('\n'));
+  throw new SmtpDeliveryError(errors,deliveryUncertain);
  }finally{await rm(folder,{recursive:true,force:true});}
 }

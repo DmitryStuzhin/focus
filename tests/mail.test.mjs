@@ -1,9 +1,41 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {sendLoginCode} from '../scripts/mail.mjs';
+import {MailDeliveryError,sendLoginCode,sendLoginCodeViaPostbox} from '../scripts/mail.mjs';
 
 const mail={from:'auth@example.com',to:'user@example.net',code:'000001',password:'fixture-password'};
+const postboxMail={...mail,keyId:'fixture-id',keySecret:'fixture-secret'};
+
+test('Postbox signs the HTTPS request without putting credentials or the code in process arguments',async()=>{
+ await sendLoginCodeViaPostbox(postboxMail,{transport:async(args,config)=>{
+  assert.equal(args[args.indexOf('--url')+1],'https://postbox.cloud.yandex.net/v2/email/outbound-emails');
+  assert.equal(args[args.indexOf('--aws-sigv4')+1],'aws:amz:ru-central1:ses');
+  assert.ok(args.every(arg=>!arg.includes(postboxMail.keySecret)&&!arg.includes(mail.code)));
+  const [user,body]=config.trimEnd().split('\n');
+  assert.equal(user,'user = "fixture-id:fixture-secret"');
+  const payload=JSON.parse(JSON.parse(body.slice('data-binary = '.length)));
+  assert.equal(payload.FromEmailAddress,'Focus <auth@example.com>');
+  assert.deepEqual(payload.Destination.ToAddresses,[mail.to]);
+  assert.match(payload.Content.Simple.Body.Text.Data,/000001/u);
+  assert.match(payload.Content.Simple.Body.Html.Data,/>000001<\/div>/u);
+  return {exitCode:0,stdout:'{"MessageId":"accepted-id"}\n200'};
+ }});
+});
+
+test('Postbox errors report only safe diagnostics and preserve ambiguous delivery state',async()=>{
+ for(const [result,uncertain] of [
+  [{exitCode:0,stdout:'{"message":"fixture-secret"}\n403'},false],
+  [{exitCode:28,stdout:'\n000'},true],
+  [{exitCode:0,stdout:'{}\n200'},true],
+ ]){
+  await assert.rejects(sendLoginCodeViaPostbox(postboxMail,{transport:async()=>result}),error=>{
+   assert.ok(error instanceof MailDeliveryError);
+   assert.equal(error.deliveryUncertain,uncertain);
+   assert.ok(!error.message.includes(postboxMail.keySecret));
+   return true;
+  });
+ }
+});
 
 test('login email carries the same copyable six-digit code in plain text and HTML',async()=>{
  await sendLoginCode(mail,{transport:async args=>{
