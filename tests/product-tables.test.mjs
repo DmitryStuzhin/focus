@@ -10,3 +10,12 @@ test('exact composite keys keep repeated individual fields and separators unambi
  assert.throws(()=>compareTables(before,after,['account']),/повторный ключ/u);
  assert.throws(()=>compareTables(before,after,tableKeys('account;')),/ключевых столбцов/u);
 });
+
+import {profileTable} from '../public/table-profile.js';
+test('table profile counts missing values, duplicates and numeric outliers',()=>{
+ const result=profileTable([['amount','kind'],['1','a'],['1','a'],['2',''],['2','b'],['100','b']]);
+ assert.equal(result.duplicates,1);
+ assert.equal(result.columns[0].outliers,1);
+ assert.equal(result.columns[1].missing,1);
+ assert.equal(result.columns[1].outliers,null);
+});

@@ -1,3 +1,4 @@
+import {profileTable} from './table-profile.js';
 import {runLocalSkill} from './local-skills.js';
 import {openTable,createWorkbook} from './office.js';
 import {compareTables,tableKeys} from './tabular.js';
@@ -41,4 +42,31 @@ download.addEventListener('click',()=>{
   link.click();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
  }catch(error){document.querySelector('#compare-result').textContent=error.message;}
+});
+
+const profileForm=document.querySelector('#profile-form');
+profileForm.addEventListener('submit',async event=>{
+ event.preventDefault();
+ const button=event.submitter,summary=document.querySelector('#profile-summary');
+ const result=document.querySelector('#profile-result');
+ button.disabled=true;
+ result.replaceChildren();
+ summary.textContent='Читаем таблицу…';
+ try{
+  const data=profileTable(await openTable(new FormData(profileForm).get('table')));
+  summary.textContent=`Строк: ${data.rows}. Повторных строк: ${data.duplicates}. Выбросы: правило 1,5 межквартильного размаха.`;
+  const table=document.createElement('table');
+  const header=table.createTHead().insertRow();
+  for(const name of ['Столбец','Тип','Пропуски','Уникальных','Минимум','Максимум','Выбросы']){
+   const cell=document.createElement('th');
+   cell.scope='col';cell.textContent=name;header.append(cell);
+  }
+  const body=table.createTBody();
+  for(const {name,type,missing,distinct,min,max,outliers} of data.columns){
+   const row=body.insertRow();
+   for(const value of [name,type,missing,distinct,min,max,outliers])row.insertCell().textContent=value??'—';
+  }
+  result.append(table);
+ }catch(error){summary.textContent=error.message;}
+ finally{button.disabled=false;}
 });

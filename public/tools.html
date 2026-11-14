@@ -38,6 +38,15 @@
    <pre id="compare-result" role="status"></pre>
    <button type="button" id="download-report" hidden>Скачать XLSX</button>
   </section>
+  <section id="profile">
+   <h2>Профиль таблицы</h2>
+   <form id="profile-form">
+    <label>Выгрузка CSV или XLSX <input type="file" name="table" accept=".csv,.xlsx" required></label>
+    <button>Проанализировать</button>
+   </form>
+   <p id="profile-summary" role="status"></p>
+   <div id="profile-result" class="profile-table"></div>
+  </section>
   <p>Войдите в аккаунт для сохранения в проекте, синхронизации или запросов к модели.</p>
  </main>
 </body>
