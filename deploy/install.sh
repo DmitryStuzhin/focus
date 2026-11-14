@@ -64,8 +64,17 @@ if [[ ! -f /etc/focus/app.env ]]; then
     read -r -s -p "$key_label API key (Enter to configure later): " api_key </dev/tty
     printf '\n' >/dev/tty
     [[ "$api_key" =~ ^[A-Za-z0-9_.?+/-]*$ ]] || { echo 'Unexpected key characters'; exit 1; }
-    (umask 077; printf 'HOST=127.0.0.1\nPORT=3000\nPUBLIC_ORIGIN=https://tokenapp.ru\nTRUST_PROXY=1\n%s=%s\n' "$key_name" "$api_key" > /etc/focus/app.env)
+    (umask 077; printf 'HOST=127.0.0.1\nPORT=3000\nPUBLIC_ORIGIN=https://tokenapp.ru\nTRUST_PROXY=127.0.0.1\n%s=%s\n' "$key_name" "$api_key" > /etc/focus/app.env)
     unset api_key
+fi
+# Validate explicit addresses before replacing the running service.
+proxy_value=$(sed -n 's/^TRUST_PROXY=//p' /etc/focus/app.env | tail -n 1)
+if ! /opt/focus-node/bin/node --input-type=module -e '
+  import {trustedProxies} from "/opt/focus/source/scripts/proxy.mjs";
+  trustedProxies(process.argv[1]);
+' "$proxy_value"; then
+    echo 'Set TRUST_PROXY to the exact IP of the nginx peer in app.env.' >&2
+    exit 1
 fi
 install -m 644 /opt/focus/source/deploy/focus.service /etc/systemd/system/focus.service
 install -m 644 /opt/focus/source/deploy/focus-update.service /etc/systemd/system/focus-update.service

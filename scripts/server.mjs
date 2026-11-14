@@ -1,8 +1,10 @@
 import http from 'node:http';
 import {Readable} from 'node:stream';
+import {clientIP,trustedProxies} from './proxy.mjs';
 import {createAuth} from './auth.mjs';
 
 export function createServer(env=process.env, app, authOptions) {
+  const proxies = trustedProxies(env.TRUST_PROXY);
   const auth = createAuth(env,authOptions);
   const server = http.createServer(async (req,res) => {
     try {
@@ -18,7 +20,8 @@ export function createServer(env=process.env, app, authOptions) {
       const headers=new Headers(req.headers);
       // These identity headers must never be supplied by an Internet client.
       headers.delete('oai-authenticated-user-id'); headers.delete('cf-connecting-ip');
-      headers.set('cf-connecting-ip',env.TRUST_PROXY==='1'?(req.headers['x-real-ip']||req.socket.remoteAddress):req.socket.remoteAddress);
+      headers.delete('x-real-ip'); headers.delete('x-forwarded-for');
+      headers.set('cf-connecting-ip',clientIP(req.socket.remoteAddress,req.headers['x-real-ip'],proxies));
       const controller=new AbortController();
       res.on('close',()=>{if(!res.writableEnded)controller.abort()});
       const request=new Request(url, {
