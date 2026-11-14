@@ -3,6 +3,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {sendLoginCode,sendLoginCodeViaPostbox,MailDeliveryError} from './mail.mjs';
 import {createAccountStore,digest,nonce,transaction,sessionDevice,DAY} from './accounts.mjs';
 import {createBudget} from './budget.mjs';
+import {trustedProxies} from './proxy.mjs';
 import {createAdmin} from './admin.mjs';
 import {createWorkspace} from './workspace.mjs';
 import {createJobs} from './jobs.mjs';
@@ -58,6 +59,7 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
   ?{keyId,keySecret,tunnelPort:env.FOCUS_POSTBOX_TUNNEL_PORT}
   :{password:env.FOCUS_SMTP_PASSWORD,port:env.FOCUS_SMTP_PORT};
  const adminEmail = normalizeEmail(env.FOCUS_ADMIN_EMAIL);
+ const adminIPs=trustedProxies(env.FOCUS_ADMIN_ALLOWED_IPS);
  if(!secret||Buffer.byteLength(secret)<32||!from||!(usePostbox?keyId&&keySecret:env.FOCUS_SMTP_PASSWORD)||!env.FOCUS_AUTH_DB){
   throw new Error('Focus auth requires a secret, database path and configured mail transport.');
  }
@@ -275,7 +277,10 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
    const client = digest(ip||'local');
    const token = sessionToken(request,secure);
    const user = token ? userBySession.get(token,now)||null : null;
-   if(path.startsWith('/api/admin/'))return admin(request,url,client,now,isAdmin(user)?user.email:null);
+   if(path.startsWith('/api/admin/')||['/admin','/admin.html'].includes(path)){
+    if(!adminIPs.has(ip))return error('Доступ к админке с этого адреса закрыт.',403);
+    if(path.startsWith('/api/admin/'))return admin(request,url,client,now,isAdmin(user)?user.email:null,token);
+   }
    const workspace=await workspaceRequest(request,url,user,now);
    if(workspace)return workspace;
    const job=await jobs.handle(request,url,user,now,context.runBackground);
