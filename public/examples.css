@@ -16,3 +16,6 @@ form { display: grid; gap: .7rem; justify-items: start; }
 label { display: grid; gap: .25rem; width: min(100%,32rem); }
 input,select,textarea { font: inherit; padding: .5rem; }
 textarea { resize: vertical; }
+.profile-table { overflow: auto; }
+.profile-table table { width: 100%; border-collapse: collapse; }
+.profile-table :is(td,th) { padding: .4rem .6rem; border-bottom: 1px solid light-dark(#92aaa4,#526e68); text-align: left; }
