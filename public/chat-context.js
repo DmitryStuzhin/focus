@@ -44,23 +44,47 @@ export function rankProjectFiles(files, question) {
     .map(({file}) => file);
 }
 
+const tokens=value=>value.toLowerCase().replaceAll('ё','е').match(/[\p{L}\p{N}]{3,}/gu)||[];
+
 async function readRelevantProjectFiles(files,question,readAttachments){
-  const query=terms(question);
-  if(!query.size)return [];
-  const candidates=[];
-  let total=0;
-  for(const file of rankProjectFiles(files,question).slice(0,60)){
-    if(total>=2_000_000)break;
-    const [attachment]=await readAttachments([file.id]);
-    if(!attachment?.text)continue;
-    total+=attachment.text.length;
-    const nameScore=[...terms(file.name.replace(/\.[^.]+$/, ''))].filter(word=>query.has(word)).length;
-    const words=terms(attachment.text);
-    const bodyScore=[...query].filter(word=>words.has(word)).length;
-    const score=nameScore*8+Math.min(7,bodyScore);
-    if(score>0)candidates.push({file,attachment,score});
+ const query=terms(question);
+ if(!query.size)return [];
+ const documents=[];
+ let remaining=2_000_000;
+ for(const file of rankProjectFiles(files,question).slice(0,60)){
+  if(remaining<=0)break;
+  const [attachment]=await readAttachments([file.id]);
+  if(!attachment?.text)continue;
+  const words=tokens(attachment.text.slice(0,remaining));
+  remaining-=attachment.text.length;
+  const counts=new Map();
+  for(const word of words)if(query.has(word))counts.set(word,(counts.get(word)||0)+1);
+  documents.push({file,attachment,counts,length:words.length});
+ }
+ if(!documents.length)return [];
+ const average=documents.reduce((sum,document)=>sum+document.length,0)/documents.length||1;
+ const frequencies=new Map([...query].map(word=>[word,documents.filter(document=>document.counts.has(word)).length]));
+ return documents.map(document=>{
+  let score=0;
+  const title=terms(document.file.name.replace(/\.[^.]+$/, ''));
+  for(const word of query){
+   const tf=document.counts.get(word)||0;
+   const df=frequencies.get(word);
+   const idf=Math.log(1+(documents.length-df+0.5)/(df+0.5));
+   const norm=1.2*(0.25+0.75*document.length/average);
+   score+=idf*(tf*2.2/(tf+norm)+(title.has(word)?1:0));
   }
-  return candidates.sort((a,b)=>b.score-a.score).slice(0,5);
+  return {...document,score};
+ }).filter(document=>document.score>0).sort((a,b)=>b.score-a.score).slice(0,5);
+}
+
+export function summarizeHistory(messages){
+ const candidates=messages.filter(message=>message.content?.trim());
+ const selected=[...new Set([...candidates.slice(0,2),...candidates.slice(-8)])];
+ return selected.map(({role,content})=>{
+  const short=content.slice(0,800).replace(/\s+/gu,' ').trim().slice(0,220);
+  return (role==='assistant'?'Focus: ':'Пользователь: ')+short;
+ }).join('\n');
 }
 
 function excerpt(text, limit, query) {
@@ -162,11 +186,13 @@ export async function buildChatContext(messages, projectFiles, readAttachments, 
   }
   result.push(current);
 
+  let included=1;
   for (const original of selected.slice(0, -1).reverse()) {
     const message = messageContext(original);
     const cost = bytes(message) + 1;
     const textLength = message.content.length + (message.quote?.length || 0);
     if (textLength > textLeft || cost > bytesLeft) break;
+    included++;
     textReserve = Math.max(0, textReserve - textLength);
     byteReserve = Math.max(0, byteReserve - cost);
     textLeft -= textLength;
@@ -179,5 +205,13 @@ export async function buildChatContext(messages, projectFiles, readAttachments, 
   result.reverse();
   // A clipped history can begin with an answer whose question was outside the budget.
   while (result[0]?.role === 'assistant' && result.length > 1) result.shift();
+  if(messages.length>40){
+    const older=messages.slice(0,messages.length-included);
+    const available=Math.min(2400,textLeft,Math.floor((bytesLeft-120)/4));
+    if(available>100){
+      const summary=summarizeHistory(older).slice(0,available);
+      if(summary)current.historySummary=summary;
+    }
+  }
   return result;
 }

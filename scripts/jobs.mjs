@@ -67,6 +67,7 @@ export function createJobs(db){
    })();
    return json({id,state:'running'},202);
   },
+  abortAccount(id){for(const [key,controller] of controllers)if(key.startsWith(id+':'))controller.abort();},
   close(){closed=true;for(const controller of controllers.values())controller.abort();}
  };
 }

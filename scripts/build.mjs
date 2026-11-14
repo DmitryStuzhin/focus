@@ -11,10 +11,13 @@ assets['/']=assets['/index.html'];
 assets['/login']=assets['/login.html'];
 assets['/admin']=assets['/admin.html'];
 let source=await readFile(new URL('worker/api.js',root),'utf8');
-for(const [name,file] of [['eventStream','event-stream.js'],['csvTable','tabular.js'],['resolveAction,SPLIT_ACTIONS','action-phrases.js'],['codeFollowUpIntent,localIntent,taskIntent','work-intent.js'],['imageAspectRatio,imageIntent','image-intent.js'],['compareText','text-diff.js'],['buildIntent,isPreviewBlock,nativeBuildIntent','site-preview.js']]){
+for(const [name,file] of [['eventStream','event-stream.js'],['resolveAction,SPLIT_ACTIONS','action-phrases.js'],['codeFollowUpIntent,localIntent,taskIntent','work-intent.js'],['imageAspectRatio,imageIntent','image-intent.js'],['buildIntent,isPreviewBlock,nativeBuildIntent','site-preview.js']]){
  const shared=assets['/'+file].body.replace(/^export /gm,'');
  source=source.replace("import {"+name+"} from '../public/"+file+"';",()=>shared);
 }
+const localSkills=assets['/local-skills.js'].body.replace(/^import .*;\n/gm,'').replace(/^export /gm,'');
+const localModules=['tabular.js','text-diff.js'].map(file=>assets['/'+file].body.replace(/^export /gm,''));
+source=source.replace("import {runLocalSkill} from '../public/local-skills.js';",()=>[...localModules,localSkills].join('\n'));
 const draft=(await readFile(new URL('worker/site-draft.js',root),'utf8')).replace(/^export /gm,'');
 source=source.replace("import {createSiteDraft,createGameDraft} from './site-draft.js';",()=>draft);
 const capabilities=(await readFile(new URL('worker/focus-capabilities.js',root),'utf8')).replace(/^export /gm,'');

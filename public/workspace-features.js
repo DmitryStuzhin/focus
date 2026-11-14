@@ -27,12 +27,12 @@ export async function snapshotWorkspace(state,getBlob,limit=8*1024*1024){
  return {...snapshot,blobs};
 }
 
-export async function restoreWorkspace(snapshot,putBlob){
- for(const [id,value] of Object.entries(snapshot.blobs||{})){
+export function decodeWorkspace(snapshot){
+ const {blobs,...state}=snapshot;
+ const files=Object.entries(blobs||{}).map(([id,value])=>{
   const comma=value.indexOf(',');
   const bytes=Uint8Array.from(atob(value.slice(comma+1)),character=>character.charCodeAt(0));
-  await putBlob(id,new Blob([bytes],{type:value.slice(5,value.indexOf(';'))}));
- }
- const {blobs,...state}=snapshot;
- return state;
+  return [id,new Blob([bytes],{type:value.slice(5,value.lastIndexOf(';',comma))})];
+ });
+ return {state,blobs:files};
 }

@@ -39,7 +39,7 @@ test('a selected excerpt reaches the model as context in the user turn',async()=
  assert.equal(tooLong.status,400);
 });
 test('OpenRouter rejects binary PDFs rather than silently ignoring them',async()=>{
- const r=await chat(req({messages:[{role:'user',content:'Read',attachments:[{mimeType:'application/pdf',data:'YWJj'}]}]}),{OPENROUTER_API_KEY:'router-secret'},()=>{throw Error('must not fetch')});assert.equal(r.status,400);assert.equal((await r.json()).code,'unsupported_attachment');
+ const r=await chat(req({messages:[{role:'user',content:'Read',attachments:[{mimeType:'application/pdf',data:btoa('%PDF-1.7\n')}]}]}),{OPENROUTER_API_KEY:'router-secret'},()=>{throw Error('must not fetch')});assert.equal(r.status,400);assert.equal((await r.json()).code,'unsupported_attachment');
 });
 
 test('malformed JSON message shapes return 400 before provider access',async()=>{
@@ -624,7 +624,7 @@ test('Focus answers identity and bare site questions even when the model cannot 
  assert.match(site.text,/HTML, CSS и JavaScript.*прямо в чате/u);
  assert.match(site.text,/Какой сайт сделать/u);
  const who=await (await ask('Ты дипсик?')).json();
- assert.match(who.text,/Я — Guzan 1\.1/u);
+ assert.match(who.text,/Я — Focus/u);
  const skills=await (await ask('Что ты умеешь?',{TAVILY_API_KEY:'fixture'})).json();
  assert.match(skills.text,/Веб-поиск/u);
  assert.doesNotMatch(skills.text,/изображения|fixture/iu);

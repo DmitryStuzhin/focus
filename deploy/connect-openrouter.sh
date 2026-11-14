@@ -23,6 +23,5 @@ unset OPENROUTER_API_KEY
 systemctl restart focus
 # Trigger the usual CI gate. Pending CI is harmless; the timer retries later.
 systemctl start focus-update.service || true
-printf '\nCurrent provider configuration:\n'
-curl --fail --silent --show-error http://127.0.0.1:3000/api/status
-printf '\nIf provider is still google, wait for successful CI and the next timer tick.\n'
+curl --fail --silent --show-error --retry 5 --retry-connrefused http://127.0.0.1:3000/healthz
+printf '\nSign in to Focus and send a chat message to verify OpenRouter and the configured budget.\n'

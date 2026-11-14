@@ -15,7 +15,7 @@ const code='c'.repeat(64);
 const env={
  PUBLIC_ORIGIN:origin,FOCUS_AUTH_ENABLED:'1',FOCUS_AUTH_DB:':memory:',
  FOCUS_AUTH_SECRET:'focus-auth-fixture-secret-for-tests',FOCUS_SMTP_USER:'auth@example.com',FOCUS_SMTP_PASSWORD:'fixture',
- FOCUS_ADMIN_LOGIN:'focus-admin',FOCUS_ADMIN_PASSWORD_HASH:await hashAdminPassword(password),
+ FOCUS_ADMIN_ALLOWED_IPS:'127.0.0.1',FOCUS_ADMIN_LOGIN:'focus-admin',FOCUS_ADMIN_PASSWORD_HASH:await hashAdminPassword(password),
  FOCUS_IMAGE_SUBSCRIPTIONS:digest(code)+':2099-01-01',FOCUS_OPENAI_IMAGE_API_KEY:'fixture-paid',
  CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'fixture-basic',
 };
@@ -164,4 +164,38 @@ test('a legacy database keeps existing accounts and sessions after migration',as
    assert.equal(row.last_seen,now);
   }finally{old.close();}
  }finally{await server.close();await rm(dir,{recursive:true,force:true});}
+});
+
+test('subscription attempts are bounded per account, including the legacy header',async()=>{
+ const server=await start();
+ try{
+  const {cookie}=await server.signIn('claim-limit@example.net');
+  for(let i=0;i<5;i++){
+   assert.equal((await server.call('/api/auth/subscription',{cookie,body:{code:'0'.repeat(64)}})).status,400);
+  }
+  assert.equal((await server.call('/api/auth/subscription',{cookie,body:{code}})).status,429);
+  assert.equal((await server.call('/api/chat',{cookie,body:{messages:[]},headers:{'x-focus-image-pass':code}})).status,429);
+  server.advance(15*60_000);
+  assert.equal((await server.call('/api/auth/subscription',{cookie,body:{code}})).status,200);
+ }finally{await server.close();}
+});
+
+
+test('admin access requires an allowed IP and locks after five consecutive failures',async()=>{
+ const excluded=await start({FOCUS_ADMIN_ALLOWED_IPS:'192.0.2.1'});
+ try{
+  const r=await excluded.call('/api/admin/session',{headers:{'x-real-ip':'192.0.2.1'}});
+  assert.equal(r.status,403);
+ }finally{await excluded.close();}
+ const server=await start();
+ try{
+  const path='/api/admin/login';
+  const body={login:'focus-admin',password};
+  for(let i=0;i<5;i++){
+   assert.equal((await server.call(path,{body:{...body,password:'incorrect'}})).status,401);
+  }
+  assert.equal((await server.call(path,{body})).status,429);
+  server.advance(15*60_000);
+  assert.equal((await server.call(path,{body})).status,200);
+ }finally{await server.close();}
 });

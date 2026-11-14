@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ru">
+<head>
+ <meta charset="utf-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1">
+ <title>Примеры работы · Focus</title>
+ <link rel="icon" href="/favicon.svg">
+ <link rel="stylesheet" href="/examples.css">
+ <script type="module" src="/examples.js"></script>
+</head>
+<body>
+ <main>
+  <nav><a href="/tools.html">Точные инструменты</a><a href="/login">Вход в аккаунт</a></nav>
+  <h1>Попробуйте Focus на примерах</h1>
+  <p>Таблицы, документ и расчёт на готовых данных. Примеры выполняются в браузере.</p>
+  <div class="example-actions" aria-label="Примеры">
+   <button type="button" data-example="tables" aria-pressed="false">Сверить две таблицы</button>
+   <button type="button" data-example="document" aria-pressed="false">Составить документ по файлу</button>
+   <button type="button" data-example="calculate" aria-pressed="false">Посчитать и объяснить</button>
+  </div>
+  <section id="example-result" aria-live="polite" hidden>
+   <h2 id="example-title"></h2>
+   <p id="example-summary"></p>
+   <pre id="example-output"></pre>
+   <button type="button" id="example-download" hidden>Скачать DOCX</button>
+   <p><a id="example-copy" href="/">Скопировать материалы в свой проект</a></p>
+  </section>
+ </main>
+</body>
+</html>

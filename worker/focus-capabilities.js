@@ -1,5 +1,5 @@
 const SITE_CAPABILITY = 'Создаю сайты и лендинги на HTML, CSS и JavaScript. Focus открывает их прямо в чате.';
-const IDENTITY = 'Я — Guzan 1.1, помощник в Focus.';
+const IDENTITY = 'Я — Focus, помощник для работы с диалогами и файлами.';
 
 function capabilityList(env, configured) {
  const items = [
@@ -39,7 +39,7 @@ export function capabilityReply(message, env, configured) {
 export function capabilityInstructions(env, configured) {
  const list=capabilityList(env,configured).map(([name,description])=>'- '+name+': '+description).join('\n');
  return '\nВозможности приложения Focus в этой конфигурации:\n'+list+
-  '\nGuzan 1.1 — имя помощника Focus, а техническая модель может меняться. Когда говоришь о себе, представляйся как Guzan 1.1 и отличай имя помощника от имени модели. Не угадывай модель по стилю или истории сообщений.'+
+  '\nFocus — имя помощника Focus, а техническая модель может меняться. Когда говоришь о себе, представляйся как Focus и отличай имя помощника от имени модели. Не угадывай модель по стилю или истории сообщений.'+
   '\nСозданный браузерный прототип открывается внутри Focus. Публикация на домене, исполнение произвольного кода на сервере и экспорт DOCX/PPTX недоступны. Обещай только доступные действия, а о завершении говори по фактическому результату.';
 }
 

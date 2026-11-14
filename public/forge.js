@@ -3,7 +3,7 @@ const requestText=value=>String(value||'').trim();
 export function forgeIntent(content,{previewKind=null,taskMode=null,codeFollowUp=false}={}){
  const text=requestText(content);
  if(previewKind)return {kind:previewKind,goal:text};
- if(/(?:доведи до результата|собери готовый проект|режим forge|focus forge|guzan forge)/iu.test(text))return {kind:'project',goal:text};
+ if(/(?:доведи до результата|собери готовый проект|режим forge|focus forge)/iu.test(text))return {kind:'project',goal:text};
  if(taskMode==='code'||codeFollowUp)return {kind:'code',goal:text};
  if(/(?:^|[.!?]\s+)(?:доведи|собери|реализуй|сделай|создай|разработай|почини|исправь|доработай)\s+(?:мне\s+)?(?:готов(?:ый|ую|ое)|рабоч(?:ий|ую|ее)|полноценн(?:ый|ую|ое))?\s*(?:проект|программ\p{L}*|скрипт|бот\p{L}*|сервис|api)(?=[\s:,.!?]|$)/iu.test(text))return {kind:'code',goal:text};
  return null;

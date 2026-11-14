@@ -16,13 +16,14 @@
   <section class="arrival" aria-labelledby="welcome-title">
    <header class="top frame">
     <a class="focus-brand" href="/login"><img src="/favicon.svg" alt="" width="24" height="24">Focus</a>
-    <a class="about-link" href="#about">О проекте <span aria-hidden="true">↘</span></a>
+    <a class="about-link" href="/landing.html">О продукте <span aria-hidden="true">↘</span></a>
    </header>
    <div class="arrival-grid frame">
     <div class="welcome">
-     <p class="eyebrow">Рабочее пространство с Guzan</p>
+     <p class="eyebrow">Рабочее пространство с Focus</p>
      <h1 id="welcome-title">От вопроса к проекту</h1>
-     <p>Обсуждай идеи с Guzan, разбирай файлы и превращай ответы в графики, документы и сайты.</p>
+     <p>Задавайте вопросы по файлам, сверяйте таблицы и сохраняйте результаты в проектах.</p>
+     <p><a class="guest-link" href="/examples.html">Попробовать на примерах</a> · <a href="/tools.html">Точные инструменты</a></p>
     </div>
     <section class="login-card" aria-labelledby="login-title">
      <div class="auth-modes" role="group" aria-label="Вход или регистрация" hidden>
@@ -30,8 +31,8 @@
       <button type="button" data-mode="register" aria-pressed="false">Регистрация</button>
      </div>
      <p class="step" id="step" hidden></p>
-     <h2 id="login-title">Войди в Focus</h2>
-     <p class="card-intro" id="card-intro">Укажи почту. Мы отправим код для входа.</p>
+     <h2 id="login-title">Вход в Focus</h2>
+     <p class="card-intro" id="card-intro">Укажите почту. Мы отправим код для входа.</p>
      <form id="email-form" hidden>
       <label for="email">Электронная почта</label>
       <input id="email" name="email" type="email" autocomplete="email" placeholder="name@example.com" maxlength="254" required>
@@ -47,23 +48,16 @@
       </div>
      </form>
      <form id="profile-form" hidden>
-      <div class="name-fields">
-       <div><label for="first-name">Имя</label><input id="first-name" name="firstName" autocomplete="given-name" maxlength="39" required></div>
-       <div><label for="last-name">Фамилия</label><input id="last-name" name="lastName" autocomplete="family-name" maxlength="39" required></div>
-      </div>
       <div class="profile-field">
-       <label for="age-group">Возраст</label>
-       <select id="age-group" name="ageGroup" required><option value="">Выбери возрастную группу</option></select>
-      </div>
-      <div class="profile-field">
-       <label for="role">Чем ты занимаешься?</label>
-       <select id="role" name="role" required><option value="">Выбери вариант</option></select>
+       <label for="role">Чем вы занимаетесь?</label>
+       <select id="role" name="role"><option value="">Выберите вариант</option></select>
       </div>
       <fieldset class="profile-field">
-       <legend>Для чего тебе нужен Focus?</legend>
-       <p>Можно выбрать несколько вариантов.</p>
+       <legend>Для каких задач вам нужен Focus?</legend>
+       <p>Выберите подходящие варианты или пропустите этот вопрос.</p>
        <div class="goal-options" id="goal-options"></div>
       </fieldset>
+      <p>Данные анкеты используются для работы аккаунта. <a href="/privacy.html" target="_blank" rel="noopener noreferrer">Политика конфиденциальности</a> · <a href="/terms.html" target="_blank" rel="noopener noreferrer">Условия использования</a>.</p>
       <button class="primary" type="submit">Создать аккаунт <span aria-hidden="true">↗</span></button>
      </form>
      <p class="feedback" id="feedback" role="status" aria-live="polite" hidden></p>
@@ -72,7 +66,7 @@
      <noscript><p class="feedback">Для входа нужен JavaScript.</p></noscript>
     </section>
     <figure class="answer-example">
-     <figcaption><span class="example-label">Пример ответа</span><span>Guzan 1.1</span></figcaption>
+     <figcaption><span class="example-label">Пример ответа</span><span>Focus</span></figcaption>
      <p class="example-question">Покажи, как росла посещаемость</p>
      <div class="example-chart">
       <p>Посещения за неделю</p>
@@ -93,12 +87,12 @@
     <h2 id="about-title">Место для работы с идеями</h2>
    </div>
    <div class="features">
-    <article><span class="feature-no">01</span><h3>Диалоги с Guzan</h3><p>Задавай вопросы, уточняй детали и развивай идеи в разговоре.</p></article>
-    <article><span class="feature-no">02</span><h3>Файлы и проекты</h3><p>Держи материалы рядом с диалогами и возвращайся к ним, когда нужно.</p></article>
-    <article><span class="feature-no">03</span><h3>От данных к результату</h3><p>Строй графики, проверяй код и открывай предпросмотр сайтов прямо в чате.</p></article>
+    <article><span class="feature-no">01</span><h3>Диалоги с Focus</h3><p>Задавайте вопросы и уточняйте ответы в диалоге.</p></article>
+    <article><span class="feature-no">02</span><h3>Файлы и проекты</h3><p>Храните файлы и связанные диалоги в одном проекте.</p></article>
+    <article><span class="feature-no">03</span><h3>От данных к результату</h3><p>Стройте графики, проверяйте код и открывайте предпросмотр сайтов.</p></article>
    </div>
   </section>
  </main>
- <footer class="frame site-footer"><span>Focus</span><span>Рабочее пространство с Guzan</span></footer>
+ <footer class="frame site-footer"><span>Focus</span><span><a href="/about.html">О проекте</a> · <a href="/privacy.html">Конфиденциальность</a> · <a href="/terms.html">Условия использования</a></span></footer>
 </body>
 </html>

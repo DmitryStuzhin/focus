@@ -1,5 +1,8 @@
 import {AUTH_EVENT_KEY,uid} from './store.js';
-import {ages,goals,roles} from './onboarding.js';
+import {goals,roles} from './onboarding.js';
+import {exampleRoute} from './examples.js';
+
+const workspaceURL=()=>exampleRoute(new URL(location.href));
 
 const emailForm = document.querySelector('#email-form');
 const codeForm = document.querySelector('#code-form');
@@ -18,9 +21,7 @@ const verifyLabel = document.querySelector('#verify-label');
 const forms = [emailForm,codeForm,profileForm];
 let mode='login', email='', challenge='', registrationToken='', resendAt=0, timer, pending=false;
 
-for(const [select,options] of [[profileForm.elements.ageGroup,ages],[profileForm.elements.role,roles]]){
- for(const [value,label] of Object.entries(options))select.add(new Option(label,value));
-}
+for(const [value,label] of Object.entries(roles))profileForm.elements.role.add(new Option(label,value));
 for(const [value,label] of Object.entries(goals)){
  const option=document.createElement('label');
  const checkbox=document.createElement('input');
@@ -32,11 +33,11 @@ for(const [value,label] of Object.entries(goals)){
 function screen(stage){
  const registering=mode==='register';
  const screens=[
-  [registering?'Создай аккаунт Focus':'Войди в Focus',registering
-   ?'Укажи почту, чтобы подтвердить её кодом из письма.'
-   :'Укажи почту. Мы отправим код для входа.'],
-  ['Проверь почту','Введи шестизначный код из письма, отправленного на '+email+'.'],
-  ['Расскажи о себе','Ответы помогут Guzan учитывать твои задачи в будущем.'],
+  [registering?'Регистрация в Focus':'Вход в Focus',registering
+   ?'Укажите почту, чтобы подтвердить её кодом из письма.'
+   :'Укажите почту. Мы отправим код для входа.'],
+  ['Проверьте почту','Введите шестизначный код из письма, отправленного на '+email+'.'],
+  ['Расскажите о себе','Укажите, для каких задач вы планируете использовать Focus.'],
  ];
  [title.textContent,intro.textContent]=screens[stage];
  step.textContent='Шаг '+(stage+1)+' из '+(registering?3:2);
@@ -59,7 +60,7 @@ function startEmail(nextMode=mode,focus=true){
 
 function enterWorkspace(){
  try{localStorage.setItem(AUTH_EVENT_KEY,uid());}catch{}
- location.replace('/');
+ location.replace(workspaceURL());
 }
 
 function notice(message=''){
@@ -92,7 +93,7 @@ async function request(path,data){
  });
  const result=await response.json().catch(()=>null);
  if(!response.ok||!result){
-  const err=new Error(result?.error||'Что-то пошло не так. Попробуй ещё раз.');
+  const err=new Error(result?.error||'Что-то пошло не так. Попробуйте ещё раз.');
   err.retry=Number(response.headers.get('retry-after'))||0;
   err.code=result?.code;
   throw err;
@@ -154,7 +155,7 @@ codeForm.addEventListener('submit',async event=>{
   showRequestError(err,'Не удалось проверить код.');
  }finally{
   busy(false);
-  if(!profileForm.hidden)profileForm.elements.firstName.focus();
+  if(!profileForm.hidden)profileForm.elements.role.focus();
   else if(!codeForm.hidden)codeInput.focus();
   else emailInput.focus();
  }
@@ -164,18 +165,11 @@ profileForm.addEventListener('submit',async event=>{
  if(pending||!registrationToken)return;
  const fields=new FormData(profileForm);
  const selected=fields.getAll('goals');
- if(!selected.length){
-  notice('Выбери, для чего тебе нужен Focus.');
-  profileForm.querySelector('[name="goals"]').focus();
-  return;
- }
  notice();
  busy(true);
  try{
-  await request('register',{
-   registrationToken,firstName:fields.get('firstName'),lastName:fields.get('lastName'),
-   ageGroup:fields.get('ageGroup'),role:fields.get('role'),goals:selected,
-  });
+  const {user,starterTemplate}=await request('register',{registrationToken,role:fields.get('role'),goals:selected});
+  if(starterTemplate)try{sessionStorage.setItem('focus.starter.'+user.id,starterTemplate);}catch{}
   enterWorkspace();
  }catch(err){
   if(err.code==='registration_expired')startEmail(mode,false);
@@ -191,7 +185,7 @@ async function start(){
   const response=await fetch('/api/auth/session',{cache:'no-store'});
   const session=response.status===404?{enabled:false}:await response.json();
   if(!response.ok&&response.status!==404)throw new Error();
-  if(session.user){location.replace('/');return;}
+  if(session.user){location.replace(workspaceURL());return;}
   if(session.enabled){
    modes.hidden=false;
    startEmail(location.hash==='#register'?'register':'login',false);
@@ -202,7 +196,7 @@ async function start(){
   step.hidden=true;
   document.querySelector('#guest').hidden=false;
  }catch{
-  intro.textContent='Не удалось подключиться к Focus. Проверь соединение и обнови страницу.';
+  intro.textContent='Не удалось подключиться к Focus. Проверьте соединение и обновите страницу.';
  }
 }
 window.addEventListener('storage',event=>{if(event.key===AUTH_EVENT_KEY)location.reload();});

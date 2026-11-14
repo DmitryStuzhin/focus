@@ -6,13 +6,13 @@ exec 9>/run/lock/focus-update.lock
 flock -n 9 || exit 0
 cd /opt/focus/source
 runuser -u focus-build -- git fetch --quiet origin main
-revision=$(runuser -u focus-build -- git rev-parse origin/main)
+revision=${FOCUS_INSTALL_REVISION:-$(runuser -u focus-build -- git rev-parse origin/main)}
+runuser -u focus-build -- git merge-base --is-ancestor "$revision" origin/main
 [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || exit 1
 previous=$(readlink -e /opt/focus/current || true)
 # Only a real, existing release is eligible for rollback.
 [[ "$previous" == /opt/focus/releases/* && -d "$previous" ]] || previous=
 [[ "${previous##*/}" != "$revision" ]] || exit 0
-if [[ "${1:-}" != '--initial' ]]; then
     # Fail closed while GitHub is unavailable, but do not mark a transient outage
     # as a broken deployment. systemd treats exit 75 as a successful wait.
     python3 - "$revision" <<'PY'
@@ -54,7 +54,6 @@ if not runs or runs[0].get('status') != 'completed' or runs[0].get('conclusion')
     print('Waiting for successful GitHub CI:', sha)
     sys.exit(75)
 PY
-fi
 stage=$(mktemp -d /opt/focus/staging/build.XXXXXX)
 cleanup() { rm -rf -- "$stage"; }
 trap cleanup EXIT
@@ -94,4 +93,9 @@ install -m 644 "$release/deploy/focus-update.service" /etc/systemd/system/focus-
 install -m 644 "$release/deploy/focus-update.timer" /etc/systemd/system/focus-update.timer
 install -m 755 "$release/deploy/update.sh" /usr/local/sbin/focus-update
 systemctl daemon-reload
+for candidate in /opt/focus/releases/*; do
+    [[ "${candidate##*/}" =~ ^[0-9a-f]{40}$ ]] || continue
+    [[ -d "$candidate" && ! -L "$candidate" && "$candidate" != "$previous" && "$candidate" != "$release" ]] || continue
+    rm -rf -- "$candidate"
+done
 printf 'Deployed %s\n' "$revision"

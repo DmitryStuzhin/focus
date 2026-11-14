@@ -1,16 +1,31 @@
 // Browser regression check, run by CI after building the app.
 import assert from 'node:assert/strict';
 import {chromium} from 'playwright';
-import {createServer} from '../scripts/server.mjs';
+import http from 'node:http';
+import {Readable} from 'node:stream';
+import worker from '../dist/server/index.js';
+import {chat} from '../worker/api.js';
 import {fresh,STORAGE_KEY} from '../public/store.js';
 const state=fresh();
 state.activeChat='long-chat';
 state.chats=[{id:'long-chat',project:'personal',title:'Длинный диалог',created:Date.now(),updated:Date.now(),archived:false,deleted:false,messages:Array.from({length:40},(_,index)=>({id:`message-${index}`,role:index%2?'assistant':'user',content:index%2?Array.from({length:12},(_,n)=>`Абзац ${n+1}. Развёрнутый ответ с пояснениями и примером.`).join('\n\n'):`Вопрос ${index+1}`,at:Date.now()}))}];
-const server=createServer({});
+// Exercise local skills in this browser fixture without creating accounts in every viewport.
+const server=http.createServer(async(req,res)=>{
+ const url=new URL(req.url,'http://'+req.headers.host);
+ const request=new Request(url,{method:req.method,headers:req.headers,
+  ...(['GET','HEAD'].includes(req.method)?{}:{body:Readable.toWeb(req),duplex:'half'})});
+ let response;
+ if(url.pathname==='/api/auth/session')response=Response.json({enabled:false,user:null});
+ else if(url.pathname==='/api/chat')response=await chat(request,{});
+ else response=await worker.fetch(request,{},url.pathname==='/api/status'?{userId:'browser-fixture'}:{});
+ res.writeHead(response.status,Object.fromEntries(response.headers));
+ if(response.body)Readable.fromWeb(response.body).pipe(res);
+ else res.end();
+});
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 let browser;
 try{
- browser=await chromium.launch({headless:true});
+ browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH});
  for(const viewport of [{width:1440,height:900},{width:1024,height:400},{width:390,height:844}]){
   const context=await browser.newContext({viewport});
   await context.addInitScript(({key,state})=>localStorage.setItem(key,JSON.stringify(state)),{key:STORAGE_KEY,state});
@@ -44,23 +59,23 @@ try{
  await page.goto('http://127.0.0.1:'+server.address().port);
  await page.waitForLoadState('networkidle');
  const toggle=page.getByRole('button',{name:'Тёмная тема',exact:true});
- assert.equal(await toggle.getAttribute('aria-pressed'),'true');
- assert.equal(await page.locator('html').getAttribute('data-theme'),'dark');
+ assert.equal(await toggle.getAttribute('aria-pressed'),'false');
+ assert.equal(await page.locator('html').getAttribute('data-theme'),'light');
  const composer=page.getByRole('textbox',{name:'Сообщение',exact:true});
  await composer.fill('Посчитай 0,1 + 0,2');
  await toggle.click();
  assert.equal(await composer.inputValue(),'Посчитай 0,1 + 0,2');
- assert.equal(await page.locator('html').getAttribute('data-theme'),'light');
+ assert.equal(await page.locator('html').getAttribute('data-theme'),'dark');
  await page.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
  await page.getByText('0,3',{exact:false}).last().waitFor();
  assert.equal(await page.locator('.assistant-message .assistant-label span').textContent(),'Калькулятор');
  assert.equal(await page.locator('.topbar .status').textContent(),'Не подключено');
  await page.reload();
  await page.waitForLoadState('networkidle');
- assert.equal(await toggle.getAttribute('aria-pressed'),'false');
- assert.equal(await page.locator('html').getAttribute('data-theme'),'light');
+ assert.equal(await toggle.getAttribute('aria-pressed'),'true');
+ assert.equal(await page.locator('html').getAttribute('data-theme'),'dark');
  await context.close();
- console.log('Dark default, theme persistence and local calculator verified in the chat');
+ console.log('System theme, theme persistence and local calculator verified in the chat');
  const imagesContext=await browser.newContext();
  const imagesPage=await imagesContext.newPage();
  await imagesPage.goto('http://127.0.0.1:'+server.address().port);
@@ -78,6 +93,7 @@ try{
  for(const [i,prompt] of ['Нарисуй кота','Добавь закат','Сделай фон темнее'].entries()){
   await imagesPage.getByRole('textbox',{name:'Сообщение',exact:true}).fill(prompt);
   await imagesPage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+  await imagesPage.getByRole('dialog').getByRole('button',{name:'Запустить',exact:true}).click();
   await imagesPage.waitForFunction(n=>document.querySelectorAll('[data-generated-file]').length===n,i+1);
  }
  assert.equal(sent[0].imageReference,undefined);
@@ -105,7 +121,13 @@ try{
  const codeComposer=codePage.getByRole('textbox',{name:'Сообщение',exact:true});
  await codeComposer.fill('Создай файл main.rs');
  await codePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
- await codePage.getByRole('button',{name:'Сохранить в проект',exact:true}).click();
+ const saveCode=codePage.getByRole('button',{name:'Сохранить в проект',exact:true});
+ await saveCode.waitFor();
+ assert.equal(await codePage.getByRole('button',{name:'Действия с файлом main.rs'}).count(),0);
+ await codePage.getByRole('button',{name:'Сохранить файлы Forge',exact:true}).click();
+ await codePage.getByRole('dialog').getByRole('button',{name:'Отмена',exact:true}).click();
+ assert.equal(await codePage.getByRole('button',{name:'Действия с файлом main.rs'}).count(),0);
+ await saveCode.click();
  assert.equal(await codePage.locator('#proposed-code').inputValue(),original);
  await codePage.getByRole('button',{name:'Сохранить файл',exact:true}).click();
  const fileMenu=codePage.getByRole('button',{name:'Действия с файлом main.rs'});
@@ -196,8 +218,8 @@ try{
  await quotePage.waitForLoadState('networkidle');
  const savedQuote=quotePage.locator('.message-bubble .quote-copy span');
  assert.equal(await savedQuote.textContent(),example.trim());
- await quotePage.getByRole('button',{name:'Повторить ответ',exact:true}).last().click();
- await quotePage.getByText('Пояснение к цитате.',{exact:true}).waitFor();
+ await quotePage.getByRole('button',{name:'Получить ещё один ответ',exact:true}).last().click();
+ await quotePage.getByText('Пояснение к цитате.',{exact:true}).nth(1).waitFor();
  assert.equal(quoteRequests[2].messages.at(-1).quote,example.trim());
  await quotePage.close();
  console.log('Syntax highlighting, selection, removable quote, persisted context and retry verified');
@@ -213,6 +235,11 @@ try{
  await planComposer.fill('Составь план подготовки выпуска');
  await planPage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
  await planPage.getByRole('checkbox',{name:'Собрать материалы'}).check();
+ await planPage.waitForFunction(async()=>{
+  const {readState}=await import('/store.js');
+  const {chats}=await readState();
+  return chats.some(chat=>chat.messages.some(message=>message.content.includes('- [x] Собрать материалы')));
+ });
  await planPage.reload();
  await planPage.waitForLoadState('networkidle');
  assert.equal(await planPage.getByRole('checkbox',{name:'Собрать материалы'}).isChecked(),true);
@@ -248,6 +275,8 @@ try{
  assert.equal(await siteComposer.inputValue(),'Сделай сайт');
  await siteComposer.fill('У меня есть идея для демо. Сделай сайт со счётчиком');
  await sitePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ await sitePage.getByRole('dialog').getByRole('button',{name:'Запустить',exact:true}).click();
+ await sitePage.getByRole('button',{name:'Предпросмотр',exact:true}).last().click();
  const frame=sitePage.frameLocator('#preview-root iframe');
  const heading=frame.getByRole('heading',{name:'Первый сайт'});
  await heading.waitFor();
@@ -273,6 +302,8 @@ try{
  await siteComposer.fill('Первая версия подходит. Теперь добавь на сайт новый заголовок');
  await frame.getByRole('button',{name:'1'}).waitFor();
  await sitePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ await sitePage.getByRole('dialog').getByRole('button',{name:'Запустить',exact:true}).click();
+ await sitePage.getByRole('button',{name:'Предпросмотр',exact:true}).last().click();
  await frame.getByRole('heading',{name:'Вторая версия'}).waitFor();
  assert.equal(siteRequests[2].sitePreview,true);
  assert.match(siteRequests[2].messages.at(-1).attachments[0].text,/<h1>Первый сайт<\/h1>/);
@@ -295,9 +326,12 @@ try{
  await draftPage.getByText(/Какой сайт сделать/).waitFor();
  await draftComposer.fill('Для стоматологической клиники');
  await draftPage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ const draftConfirmation=draftPage.getByRole('dialog').getByRole('button',{name:'Запустить',exact:true});
+ await draftConfirmation.click();
+ await draftPage.getByRole('button',{name:'Предпросмотр',exact:true}).last().click();
  const draftFrame=draftPage.frameLocator('#preview-root iframe');
  await draftFrame.getByRole('heading',{name:'Забота о вашей улыбке'}).waitFor();
- await draftPage.getByText(/Открыл стартовую страницу/).waitFor();
+ await draftPage.getByText(/Подготовил стартовую страницу/).waitFor();
  const question=draftFrame.getByText('Как записаться?',{exact:true});
  await question.click();
  assert.equal(await draftFrame.locator('details[open]').count(),1);
@@ -312,6 +346,8 @@ try{
  const gameComposer=gamePage.getByRole('textbox',{name:'Сообщение',exact:true});
  await gameComposer.fill('Сделай мне залипательную игру на мобилку');
  await gamePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ await gamePage.getByRole('dialog').getByRole('button',{name:'Запустить',exact:true}).click();
+ await gamePage.getByRole('button',{name:'Предпросмотр',exact:true}).last().click();
  const gameFrame=gamePage.frameLocator('#preview-root iframe');
  await gameFrame.getByRole('heading',{name:'Поймай импульс'}).waitFor();
  const gameBox=await gamePage.locator('#preview-root').boundingBox();
@@ -334,6 +370,7 @@ try{
  });
  await gameComposer.fill('Сделай игру сложнее');
  await gamePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ await gamePage.getByRole('dialog').getByRole('button',{name:'Запустить',exact:true}).click();
  await gamePage.getByText('Модель недоступна. Текущая версия сохранена.',{exact:true}).waitFor();
  assert.equal(gameRevision.previewKind,'game');
  assert.match(gameRevision.messages.at(-1).attachments[0].text,/Поймай импульс/u);

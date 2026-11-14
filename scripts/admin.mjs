@@ -40,6 +40,11 @@ export function createAdmin(db,env,accounts,emailEnabled){
   CREATE TABLE IF NOT EXISTS admin_sessions(token TEXT PRIMARY KEY,binding TEXT NOT NULL,expires INTEGER NOT NULL);
   CREATE TABLE IF NOT EXISTS admin_attempts(ip TEXT NOT NULL,created INTEGER NOT NULL);
   CREATE INDEX IF NOT EXISTS admin_attempts_created ON admin_attempts(created);
+  CREATE TABLE IF NOT EXISTS admin_login_audit(
+   id INTEGER PRIMARY KEY, ip TEXT NOT NULL, created INTEGER NOT NULL,
+   result TEXT NOT NULL, session TEXT UNIQUE
+  );
+  CREATE INDEX IF NOT EXISTS admin_login_audit_created ON admin_login_audit(created);
  `);
  db.function('focus_fold',{deterministic:true},value=>String(value??'').toLocaleLowerCase('ru'));
  const sql=query=>db.prepare(query);
@@ -49,6 +54,9 @@ export function createAdmin(db,env,accounts,emailEnabled){
  const cleanupAdminSessions=sql('DELETE FROM admin_sessions WHERE binding<>? OR expires<=?');
  const recordAttempt=sql('INSERT INTO admin_attempts VALUES(?,?)');
  const cleanupAttempts=sql('DELETE FROM admin_attempts WHERE created<=?');
+ const resetAttempts=sql('DELETE FROM admin_attempts WHERE ip=?');
+ const audit=sql('INSERT OR IGNORE INTO admin_login_audit(ip,created,result,session) VALUES(?,?,?,?)');
+ const cleanupAudit=sql('DELETE FROM admin_login_audit WHERE created<=?');
  const attempts=sql('SELECT count(*) AS total,coalesce(sum(ip=?),0) AS client FROM admin_attempts');
  const accountById=sql('SELECT id,email,name,subscription_until FROM users WHERE id=?');
  const blockAccount=sql('UPDATE users SET blocked=? WHERE id=?');
@@ -68,23 +76,31 @@ export function createAdmin(db,env,accounts,emailEnabled){
  }
 
  async function signIn(body,ip,secure,now){
-  if(!validAdminLogin(body.login)||!isPassword(body.password))return error('Неверный логин или пароль.',401);
   if(checkingPassword)return error('Проверка уже выполняется. Повторите попытку.',429,{'retry-after':'1'});
   const allowed=transaction(db,()=>{
    cleanupAttempts.run(now-attemptWindow);
    const {total,client}=attempts.get(ip);
-   if(total>=60||client>=8)return false;
+   if(total>=60||client>=5)return false;
    recordAttempt.run(ip,now);
    return true;
   });
-  if(!allowed)return error('Слишком много попыток. Повторите через 15 минут.',429,{'retry-after':'900'});
+  if(!allowed){
+   return error('Слишком много попыток. Повторите через 15 минут.',429,{'retry-after':'900'});
+  }
   checkingPassword=true;
   try{
-   const hash=await derive(body.password,salt,32,scryptOptions);
-   if(!timingSafeEqual(hash,passwordHash)||body.login!==login)return error('Неверный логин или пароль.',401);
-   cleanupAdminSessions.run(binding,now);
+   const hash=isPassword(body.password)?await derive(body.password,salt,32,scryptOptions):null;
+   if(!hash||!timingSafeEqual(hash,passwordHash)||body.login!==login){
+    audit.run(ip,now,'password_rejected',null);
+    return error('Неверный логин или пароль.',401);
+   }
    const value=nonce();
-   insertAdminSession.run(digest(value),binding,now+sessionDuration);
+   transaction(db,()=>{
+    resetAttempts.run(ip);
+    cleanupAdminSessions.run(binding,now);
+    insertAdminSession.run(digest(value),binding,now+sessionDuration);
+    audit.run(ip,now,'password_accepted',null);
+   });
    return json({authenticated:true,login},200,{'set-cookie':cookie(value,secure)});
   }finally{checkingPassword=false;}
  }
@@ -170,10 +186,12 @@ export function createAdmin(db,env,accounts,emailEnabled){
   return json({ok:true});
  }
 
- return async function handleAdmin(request,url,ip,now,sessionEmail){
+ return async function handleAdmin(request,url,ip,now,sessionEmail,sessionHash){
   if(!secureTransport(url))return error('Для входа требуется HTTPS.',403);
   const {pathname}=url, secure=url.protocol==='https:';
   const current=token(request,secure);
+  cleanupAudit.run(now-90*DAY);
+  if(sessionEmail&&sessionHash)audit.run(ip,now,'verified_email_access',sessionHash);
   const authenticated=!!sessionEmail||(passwordEnabled&&!!current&&!!findAdminSession.get(current,binding,now));
   if(request.method==='GET'&&pathname==='/api/admin/session'){
    return json({enabled:true,authenticated,passwordEnabled,...(authenticated?{login:sessionEmail||login}:{}),...(sessionEmail?{viaFocus:true}:{})});

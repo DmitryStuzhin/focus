@@ -13,7 +13,7 @@ try{
  for(const viewport of [{width:1440,height:960},{width:390,height:844}]){
   const context=await browser.newContext({viewport});const page=await context.newPage();
   let searchGate=pending(),chatGate=pending(),searchCalls=0,chatCalls=0;
-  await page.route('**/api/status',route=>route.fulfill({json:{configured:true,provider:'openrouter',label:'Guzan 1.1',searchConfigured:true}}));
+  await page.route('**/api/status',route=>route.fulfill({json:{configured:true,provider:'openrouter',label:'Focus',searchConfigured:true}}));
   await page.route('**/api/search',async route=>{searchCalls++;await searchGate.promise;await route.fulfill({json:research})});
   await page.route('**/api/chat',async route=>{chatCalls++;assert.equal(route.request().postDataJSON().searchId,'test-snapshot');await chatGate.promise;await route.fulfill({json:reply})});
   await page.goto(`http://127.0.0.1:${server.address().port}`);await page.waitForLoadState('networkidle');

@@ -7,7 +7,9 @@ export DEBIAN_FRONTEND=noninteractive
 export PATH=/opt/focus-node/bin:/usr/sbin:/usr/bin:/sbin:/bin
 umask 022
 domain=tokenapp.ru
-expected_ip=${FOCUS_SERVER_IP:-193.5.64.223}
+revision=${FOCUS_INSTALL_REVISION:?Set FOCUS_INSTALL_REVISION to the verified release commit.}
+[[ "$revision" =~ ^[0-9a-f]{40}$ ]] || { echo 'Invalid release commit.' >&2; exit 1; }
+expected_ip=${FOCUS_SERVER_IP:?Set FOCUS_SERVER_IP to the public address of the deployment.}
 prepare_only=${FOCUS_PREPARE_ONLY:-0}
 if [[ "$prepare_only" != 1 ]] && ! getent ahostsv4 "$domain" | awk '{print $1}' | sort -u | grep -qx "$expected_ip"; then
     echo "First set DNS A record: @ -> $expected_ip for $domain, then rerun." >&2
@@ -53,7 +55,8 @@ else
     runuser -u focus-build -- git -C /opt/focus/source fetch origin main
 fi
 # Use files from the fetched commit without modifying a running release.
-runuser -u focus-build -- git -C /opt/focus/source reset --hard origin/main
+runuser -u focus-build -- git -C /opt/focus/source merge-base --is-ancestor "$revision" origin/main
+runuser -u focus-build -- git -C /opt/focus/source reset --hard "$revision"
 if [[ ! -f /etc/focus/app.env ]]; then
     key_name=GOOGLE_API_KEY
     key_label=Google
@@ -64,15 +67,24 @@ if [[ ! -f /etc/focus/app.env ]]; then
     read -r -s -p "$key_label API key (Enter to configure later): " api_key </dev/tty
     printf '\n' >/dev/tty
     [[ "$api_key" =~ ^[A-Za-z0-9_.?+/-]*$ ]] || { echo 'Unexpected key characters'; exit 1; }
-    (umask 077; printf 'HOST=127.0.0.1\nPORT=3000\nPUBLIC_ORIGIN=https://tokenapp.ru\nTRUST_PROXY=1\n%s=%s\n' "$key_name" "$api_key" > /etc/focus/app.env)
+    (umask 077; printf 'HOST=127.0.0.1\nPORT=3000\nPUBLIC_ORIGIN=https://tokenapp.ru\nTRUST_PROXY=127.0.0.1\n%s=%s\n' "$key_name" "$api_key" > /etc/focus/app.env)
     unset api_key
+fi
+# Validate explicit addresses before replacing the running service.
+proxy_value=$(sed -n 's/^TRUST_PROXY=//p' /etc/focus/app.env | tail -n 1)
+if ! /opt/focus-node/bin/node --input-type=module -e '
+  import {trustedProxies} from "/opt/focus/source/scripts/proxy.mjs";
+  trustedProxies(process.argv[1]);
+' "$proxy_value"; then
+    echo 'Set TRUST_PROXY to the exact IP of the nginx peer in app.env.' >&2
+    exit 1
 fi
 install -m 644 /opt/focus/source/deploy/focus.service /etc/systemd/system/focus.service
 install -m 644 /opt/focus/source/deploy/focus-update.service /etc/systemd/system/focus-update.service
 install -m 644 /opt/focus/source/deploy/focus-update.timer /etc/systemd/system/focus-update.timer
 install -m 755 /opt/focus/source/deploy/update.sh /usr/local/sbin/focus-update
 systemctl daemon-reload
-/usr/local/sbin/focus-update --initial
+FOCUS_INSTALL_REVISION="$revision" /usr/local/sbin/focus-update
 systemctl enable focus
 if [[ "$prepare_only" == 1 ]]; then
     curl --fail --silent --show-error http://127.0.0.1:3000/healthz

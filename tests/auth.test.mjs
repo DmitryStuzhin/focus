@@ -36,6 +36,8 @@ test('a verified email opens a protected workspace and logout revokes the sessio
  const s=await start({...loginEnv,PUBLIC_ORIGIN:'https://focus.example'},{mailer:async message=>sent.push(message)});
  try{
   assert.equal((await s.get('/')).headers.get('location'),'/login');
+  assert.equal((await s.get('/?example=tables')).headers.get('location'),'/login?example=tables');
+  assert.equal((await s.get('/?example=https://other.example')).headers.get('location'),'/login');
   assert.equal((await s.get('/api/chat')).status,401);
   assert.deepEqual(await (await s.get('/api/auth/session')).json(),{enabled:true,user:null});
   const send=await s.post('/api/auth/request',{email:' Me@Example.com ',intent:'register'});
@@ -51,7 +53,7 @@ test('a verified email opens a protected workspace and logout revokes the sessio
   const {registrationToken}=await verify.json();
   assert.equal((await s.get('/')).headers.get('location'),'/login');
   assert.equal((await s.post('/api/auth/register',{...profile,ageGroup:'invalid',registrationToken})).status,400);
-  assert.equal((await s.post('/api/auth/register',{...profile,goals:[],registrationToken})).status,400);
+  assert.equal((await s.post('/api/auth/register',{...profile,goals:['invalid'],registrationToken})).status,400);
   const created=await s.post('/api/auth/register',{...profile,registrationToken,email:'other@example.com',isAdmin:true});
   assert.equal(created.status,200);
   const {user}=await created.json();
@@ -65,6 +67,7 @@ test('a verified email opens a protected workspace and logout revokes the sessio
   const session=cookie.split(';')[0];
   assert.equal((await s.get('/',session)).status,200);
   assert.equal((await s.get('/login',session)).headers.get('location'),'/');
+  assert.equal((await s.get('/login?example=document',session)).headers.get('location'),'/?example=document');
   assert.equal((await s.get('/api/chat',session)).status,200);
   assert.equal((await s.post('/api/auth/verify',{challenge:body.challenge,code:sent[0].code})).status,400);
   assert.equal((await s.post('/api/auth/logout',{},{cookie:session,origin:'https://foreign.example'})).status,403);
@@ -192,4 +195,74 @@ test('the account and session survive a restart and the same email signs into th
    assert.deepEqual(JSON.parse(record.goals),profile.goals);
   }finally{db.close();}
  }finally{if(s)await s.close();await rm(dir,{recursive:true,force:true});}
+});
+
+test('resends revoke previous codes and guessing is limited across challenges and IPs',async()=>{
+ let now=Date.now();
+ const sent=[];
+ const s=await start({...loginEnv,TRUST_PROXY:'127.0.0.1'},{clock:()=>now,mailer:async msg=>sent.push(msg)});
+ try{
+  const email='limit@example.com', path='/api/auth/verify';
+  const request=async()=>(await s.post('/api/auth/request',{email,intent:'register'})).json();
+  let {challenge}=await request();
+  const first=challenge;
+  for(let round=0;round<2;round++){
+   const actual=sent.at(-1).code;
+   const wrong=actual==='000000'?'000001':'000000';
+   for(let i=0;i<5;i++){
+    const r=await s.post(path,{challenge,code:wrong},{'x-real-ip':`192.0.2.${1+round*5+i}`});
+    assert.equal(r.status,400);
+   }
+   now+=61_000;
+   ({challenge}=await request());
+  }
+  assert.equal((await s.post(path,{challenge:first,code:sent[0].code})).status,400);
+  assert.equal((await s.post(path,{challenge,code:sent.at(-1).code},{'x-real-ip':'192.0.2.100'})).status,429);
+  now+=15*60_000;
+  const previous=(await request()).challenge;
+  const previousCode=sent.at(-1).code;
+  now+=61_000;
+  ({challenge}=await request());
+  assert.equal((await s.post(path,{challenge:previous,code:previousCode})).status,400);
+  assert.equal((await s.post(path,{challenge,code:sent.at(-1).code})).status,200);
+ }finally{await s.close();}
+});
+
+test('account deletion revokes sessions and removes cloud content',async()=>{
+ const sent=[];
+ const s=await start(loginEnv,{mailer:async mail=>sent.push(mail)});
+ try{
+  const email='delete@example.com';
+  const {challenge}=await (await s.post('/api/auth/request',{email,intent:'register'})).json();
+  const {registrationToken}=await (await s.post('/api/auth/verify',{challenge,code:sent[0].code})).json();
+  const created=await s.post('/api/auth/register',{...profile,registrationToken});
+  const cookie=created.headers.get('set-cookie').split(';')[0];
+  const page=await s.post('/api/publications',{action:'create',chatId:'chat',version:'version',title:'Sample',html:'<html></html>'},{cookie});
+  const {path}=await page.json();
+  assert.equal((await s.get(path)).status,200);
+  assert.equal((await s.post('/api/auth/delete',{email,confirm:false},{cookie})).status,400);
+  const deleted=await s.post('/api/auth/delete',{email,confirm:true},{cookie});
+  assert.equal(deleted.status,200);
+  assert.match(deleted.headers.get('set-cookie'),/Max-Age=0/);
+  assert.equal((await s.get('/api/chat',cookie)).status,401);
+  assert.equal((await s.get(path)).status,404);
+ }finally{await s.close();}
+});
+
+
+test('registration accepts no profile fields and recommends a template when goals are supplied',async()=>{
+ const sent=[];
+ const s=await start(loginEnv,{mailer:async message=>sent.push(message)});
+ try{
+  for(const [email,fields,template] of [['optional@example.com',{},undefined],['work@example.com',{role:'business',goals:['work']},'tables']]){
+   const {challenge}=await (await s.post('/api/auth/request',{email,intent:'register'})).json();
+   const {registrationToken}=await (await s.post('/api/auth/verify',{challenge,code:sent.at(-1).code})).json();
+   const created=await s.post('/api/auth/register',{registrationToken,...fields});
+   assert.equal(created.status,200);
+   const result=await created.json();
+   assert.equal(result.user.email,email);
+   assert.equal(result.user.name,'');
+   assert.equal(result.starterTemplate,template);
+  }
+ }finally{await s.close();}
 });

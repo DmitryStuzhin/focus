@@ -13,19 +13,38 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: bash -n deploy/*.sh
+      - name: Check deployment shell syntax
+        run: |
+          for script in deploy/*.sh; do bash -n "$script" || exit; done
+      - name: Scan git history for secrets
+        run: |
+          go install github.com/zricethezav/gitleaks/v8@v8.24.3
+          "$(go env GOPATH)/bin/gitleaks" git --log-opts="--all --full-history" --redact --no-banner
       - run: python3 -m unittest discover -s tests -p '*_test.py'
+      - name: Lint and format maintained modules
+        run: npx --yes @biomejs/biome@2.2.4 ci scripts/proxy.mjs public/search-worker.js
       - run: npm test
       - run: npm run build
       - run: npm run validate
       - run: npm install --no-save --package-lock=false playwright@1.62.1
       - run: npx playwright install --with-deps chromium
+      - run: node tests/product-tools.e2e.mjs
       - run: node tests/chat-layout.e2e.mjs
 
       - run: node tests/web-search.e2e.mjs
+      - run: node tests/storage.e2e.mjs
+      - name: Record install script checksums
+        run: sha256sum deploy/install.sh deploy/connect-*.sh > focus-deploy.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: focus-deploy-checksums
+          path: focus-deploy.sha256
       - uses: actions/upload-artifact@v4
         if: always()
         with:

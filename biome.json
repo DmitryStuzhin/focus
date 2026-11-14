@@ -1,0 +1,15 @@
+{
+  "files": {
+    "includes": ["scripts/proxy.mjs", "public/search-worker.js"]
+  },
+  "formatter": {
+    "indentStyle": "space",
+    "indentWidth": 2
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true
+    }
+  }
+}

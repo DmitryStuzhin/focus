@@ -1,8 +1,10 @@
 import http from 'node:http';
 import {Readable} from 'node:stream';
+import {clientIP,trustedProxies} from './proxy.mjs';
 import {createAuth} from './auth.mjs';
 
 export function createServer(env=process.env, app, authOptions) {
+  const proxies = trustedProxies(env.TRUST_PROXY);
   const auth = createAuth(env,authOptions);
   const server = http.createServer(async (req,res) => {
     try {
@@ -18,7 +20,8 @@ export function createServer(env=process.env, app, authOptions) {
       const headers=new Headers(req.headers);
       // These identity headers must never be supplied by an Internet client.
       headers.delete('oai-authenticated-user-id'); headers.delete('cf-connecting-ip');
-      headers.set('cf-connecting-ip',env.TRUST_PROXY==='1'?(req.headers['x-real-ip']||req.socket.remoteAddress):req.socket.remoteAddress);
+      headers.delete('x-real-ip'); headers.delete('x-forwarded-for');
+      headers.set('cf-connecting-ip',clientIP(req.socket.remoteAddress,req.headers['x-real-ip'],proxies));
       const controller=new AbortController();
       res.on('close',()=>{if(!res.writableEnded)controller.abort()});
       const request=new Request(url, {
@@ -27,13 +30,15 @@ export function createServer(env=process.env, app, authOptions) {
       });
       const handler=()=>app?Promise.resolve(app):import('../dist/server/index.js').then(module=>module.default);
       const context={
+       reserveProvider:auth.reserveProvider,
+       budgetStatus:auth.budgetStatus,
        async runBackground(input,research,signal,userId){
         const api=await handler();
         const internalHeaders=new Headers({'content-type':'application/json',origin});
         internalHeaders.set('oai-authenticated-user-id',userId);
         const call=(path,body,ctx={userId})=>api.fetch(new Request(new URL(path,origin),{
          method:'POST',headers:internalHeaders,body:JSON.stringify(body),signal
-        }),env,ctx);
+        }),env,{...ctx,reserveProvider:auth.reserveProvider});
         if(research){
          const response=await call('/api/search',research);
          if(!response.ok)return response;
@@ -46,6 +51,9 @@ export function createServer(env=process.env, app, authOptions) {
        }
       };
       let response=await auth.handle(request,url.pathname,headers.get('cf-connecting-ip'),context);
+      if(!response&&url.pathname.startsWith('/api/')&&!context.userId){
+        response=Response.json({error:'Войди в Focus, чтобы продолжить.'},{status:401,headers:{'cache-control':'no-store'}});
+      }
       if(!response){
         const api=await handler();
         if(request.method==='POST')context.activity={'/api/chat':'chat','/api/search':'search'}[url.pathname];

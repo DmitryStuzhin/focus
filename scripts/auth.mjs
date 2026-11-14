@@ -2,11 +2,14 @@ import {createHmac, randomInt, timingSafeEqual} from 'node:crypto';
 import {DatabaseSync} from 'node:sqlite';
 import {sendLoginCode,sendLoginCodeViaPostbox,MailDeliveryError} from './mail.mjs';
 import {createAccountStore,digest,nonce,transaction,sessionDevice,DAY} from './accounts.mjs';
+import {createBudget} from './budget.mjs';
+import {trustedProxies} from './proxy.mjs';
 import {createAdmin} from './admin.mjs';
 import {createWorkspace} from './workspace.mjs';
 import {createJobs} from './jobs.mjs';
 import {json,error,readJson} from './auth-http.mjs';
-import {ages,goals,roles} from '../public/onboarding.js';
+import {ages,goals,roles,starterTemplate} from '../public/onboarding.js';
+import {exampleRoute} from '../public/examples.js';
 
 const MINUTE = 60_000;
 const CODE_TTL = 10 * MINUTE;
@@ -27,12 +30,12 @@ function registrationProfile(body){
  const name = value => typeof value==='string' ? value.trim().normalize('NFC') : '';
  const firstName=name(body.firstName),lastName=name(body.lastName);
  const validName = value => value.length<=39&&/\p{L}/u.test(value)&&!/[\p{Cc}\p{Cf}]/u.test(value);
- if(!validName(firstName)||!validName(lastName))return 'Укажи имя и фамилию (до 39 символов в каждом поле).';
- const {ageGroup,role,goals:selected}=body;
- if(typeof ageGroup!=='string'||!Object.hasOwn(ages,ageGroup))return 'Выбери свою возрастную группу.';
- if(typeof role!=='string'||!Object.hasOwn(roles,role))return 'Выбери, чем ты занимаешься.';
- if(!Array.isArray(selected)||!selected.length||selected.length>Object.keys(goals).length||
-  selected.some(value=>typeof value!=='string'||!Object.hasOwn(goals,value)))return 'Выбери, для чего тебе нужен Focus.';
+ if((body.firstName!=null&&!validName(firstName))||(body.lastName!=null&&!validName(lastName)))return 'Укажите имя и фамилию (до 39 символов в каждом поле).';
+ const {ageGroup='',role='',goals:selected=[]}=body;
+ if(ageGroup!==''&&(typeof ageGroup!=='string'||!Object.hasOwn(ages,ageGroup)))return 'Выберите свою возрастную группу.';
+ if(role!==''&&(typeof role!=='string'||!Object.hasOwn(roles,role)))return 'Выберите, чем ты занимаешься.';
+ if(!Array.isArray(selected)||selected.length>Object.keys(goals).length||
+  selected.some(value=>typeof value!=='string'||!Object.hasOwn(goals,value)))return 'Выберите, для чего вам нужен Focus.';
  return {firstName,lastName,ageGroup,role,goals:[...new Set(selected)]};
 }
 
@@ -57,6 +60,7 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
   ?{keyId,keySecret,tunnelPort:env.FOCUS_POSTBOX_TUNNEL_PORT}
   :{password:env.FOCUS_SMTP_PASSWORD,port:env.FOCUS_SMTP_PORT};
  const adminEmail = normalizeEmail(env.FOCUS_ADMIN_EMAIL);
+ const adminIPs=trustedProxies(env.FOCUS_ADMIN_ALLOWED_IPS);
  if(!secret||Buffer.byteLength(secret)<32||!from||!(usePostbox?keyId&&keySecret:env.FOCUS_SMTP_PASSWORD)||!env.FOCUS_AUTH_DB){
   throw new Error('Focus auth requires a secret, database path and configured mail transport.');
  }
@@ -78,6 +82,7 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
   CREATE TABLE IF NOT EXISTS auth_events(kind TEXT NOT NULL, identity TEXT NOT NULL, created INTEGER NOT NULL);
   CREATE INDEX IF NOT EXISTS auth_events_recent ON auth_events(kind,identity,created);
  `);
+ const reserveProvider=createBudget(db,env,clock);
  transaction(db,()=>{
   if(!db.prepare('PRAGMA table_info(challenges)').all().some(column=>column.name==='intent')){
    db.exec("ALTER TABLE challenges ADD COLUMN intent TEXT NOT NULL DEFAULT 'login'");
@@ -112,6 +117,7 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
  const touchSession = sql('UPDATE sessions SET last_seen=? WHERE token=? AND (last_seen IS NULL OR last_seen<?)');
  const userBySession = sql(`SELECT users.id,users.email,users.name,users.subscription_until
   FROM sessions JOIN users ON users.id=sessions.user_id WHERE token=? AND expires>? AND ended IS NULL AND users.blocked=0`);
+ const userExists=sql('SELECT 1 FROM users WHERE id=?');
  const setName = sql('UPDATE users SET name=? WHERE id=?');
  const codeHash = (id,code) => createHmac('sha256',secret).update(id+':'+code).digest();
  const isAdmin = user => !!adminEmail&&user?.email===adminEmail;
@@ -136,10 +142,10 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
  function cookie(token,secure,seconds=SESSION_TTL/1000){
   return cookieName(secure)+'='+token+'; Path=/; Max-Age='+seconds+'; HttpOnly; SameSite=Lax'+(secure?'; Secure':'');
  }
- function openSession(user,secure,now,agent){
+ function openSession(user,secure,now,agent,template){
   const token = nonce();
   insertSession.run(digest(token),user.id,now+SESSION_TTL,nonce(),now,now,sessionDevice(agent));
-  return json({user:sessionProfile(user,now)},200,{'set-cookie':cookie(token,secure)});
+  return json({user:sessionProfile(user,now),...(template?{starterTemplate:template}:{})},200,{'set-cookie':cookie(token,secure)});
  }
  function checkLimits(limits,now){
   let retryAt = now;
@@ -149,16 +155,16 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
   }
   if(retryAt>now){
    const seconds=Math.ceil((retryAt-now)/1000);
-   return error('Слишком много попыток. Попробуй позже.',429,{'retry-after':String(seconds)});
+   return error('Слишком много попыток. Попробуйте позже.',429,{'retry-after':String(seconds)});
   }
   return null;
  }
 
  async function requestCode(body,ip,now){
   const email = normalizeEmail(body.email);
-  if(!email)return error('Укажи корректный адрес электронной почты.',400);
+  if(!email)return error('Укажите корректный адрес электронной почты.',400);
   const intent=body.intent??'login';
-  if(intent!=='login'&&intent!=='register')return error('Выбери вход или регистрацию.',400);
+  if(intent!=='login'&&intent!=='register')return error('Выберите вход или регистрацию.',400);
   const emailKey = digest(email);
   const id = nonce();
   const code = String(randomInt(0,1_000_000)).padStart(6,'0');
@@ -177,7 +183,10 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
     const event=record.run(kind,identity,now);
     if(kind==='email-hour')emailSend=event.lastInsertRowid;
    }
-   if(!blocked)insertChallenge.run(id,email,codeHash(id,code).toString('hex'),now+CODE_TTL,intent);
+   if(!blocked){
+    insertChallenge.run(id,email,codeHash(id,code).toString('hex'),now+CODE_TTL,intent);
+    supersedeCodes.run(email,id);
+   }
    return {emailSend};
   });
   if(limited)return limited;
@@ -191,44 +200,78 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
    });
    const diagnostic=failure instanceof MailDeliveryError?failure.message:'Unknown mailer error.';
    console.error('Focus auth: mail delivery request failed. '+diagnostic.replaceAll('\n',' '));
-   return json({error:'Не удалось отправить письмо. Попробуй через минуту.',code:'mail_delivery_failed'},503);
+   return json({error:'Не удалось отправить письмо. Попробуйте через минуту.',code:'mail_delivery_failed'},503);
   }
-  transaction(db,()=>{markSent.run(id);supersedeCodes.run(email,id);});
+  markSent.run(id);
   return json({challenge:id,resendAfter:60});
  }
 
  function verifyCode(body,ip,secure,now,agent){
   const {challenge:id,code} = body;
   if(typeof id!=='string'||!/^[A-Za-z0-9_-]{43}$/u.test(id)||typeof code!=='string'||!/^\d{6}$/u.test(code)){
-   return error('Введи шестизначный код из письма.',400);
+   return error('Введите шестизначный код из письма.',400);
   }
   return transaction(db,()=>{
    const limit = checkLimits([['verify-ip',ip,15*MINUTE,50]],now);
    if(limit)return limit;
    record.run('verify-ip',ip,now);
    const entry = challengeById.get(id);
-   if(!entry||entry.expires<=now||entry.attempts>=5)return error('Этот код больше не действует. Запроси новый.',400);
+   if(!entry||entry.expires<=now||entry.attempts>=5)return error('Этот код больше не действует. Запросите новый.',400);
+   const emailKey=digest(entry.email);
+   const emailLimit=checkLimits([['verify-email',emailKey,15*MINUTE,10]],now);
+   if(emailLimit)return emailLimit;
    if(!timingSafeEqual(Buffer.from(entry.hash,'hex'),codeHash(id,code))){
+    record.run('verify-email',emailKey,now);
     failAttempt.run(id);
-    return error(entry.attempts===4?'Попытки закончились. Запроси новый код.':'Код не совпал. Проверь письмо.',400);
+    return error(entry.attempts===4?'Попытки закончились. Запросите новый код.':'Код не совпал. Проверьте письмо.',400);
    }
    deleteChallenge.run(id);
    const user = userByEmail.get(entry.email);
    if(user?.blocked)return error('Доступ к аккаунту ограничен.',403);
    if(entry.intent==='login'){
-    if(!user)return json({error:'У этой почты ещё нет аккаунта. Выбери регистрацию.',code:'registration_required'},404);
+    if(!user)return json({error:'У этой почты ещё нет аккаунта. Выберите регистрацию.',code:'registration_required'},404);
     return openSession(user,secure,now,agent);
    }
-   if(user)return json({error:'У этой почты уже есть аккаунт. Выбери вход.',code:'account_exists'},409);
+   if(user)return json({error:'У этой почты уже есть аккаунт. Выберите вход.',code:'account_exists'},409);
    const registrationToken=nonce();
    insertRegistration.run(digest(registrationToken),entry.email,now+REGISTRATION_TTL);
    return json({registrationToken});
   });
  }
 
+ function activateSubscription(user,code,ip,now){
+  return transaction(db,()=>{
+   const limits=[['subscription-account',digest(user.id),15*MINUTE,5],['subscription-ip',ip,15*MINUTE,20]];
+   const limit=checkLimits(limits,now);
+   if(limit)return limit;
+   if(accounts.activate(user.id,code,now))return null;
+   for(const [kind,identity] of limits)record.run(kind,identity,now);
+   return error('Код недействителен, истёк или уже связан с другим аккаунтом.',400);
+  });
+ }
+
+ function deleteAccount(user,token,body,now,secure){
+  if(normalizeEmail(body.email)!==user.email||body.confirm!==true)return error('Подтвердите удаление аккаунта.',400);
+  return transaction(db,()=>{
+   if(!userBySession.get(token,now))return error('Сессия завершена.',401);
+   if(adminEmail)sql('DELETE FROM admin_login_audit WHERE session IN (SELECT token FROM sessions WHERE user_id=?)').run(user.id);
+   for(const table of ['sessions','account_activity','account_onboarding','image_claims','workspaces','published_pages','focus_jobs']){
+    sql(`DELETE FROM ${table} WHERE user_id=?`).run(user.id);
+   }
+   sql('DELETE FROM provider_budget WHERE owner=?').run('user:'+user.id);
+   sql('DELETE FROM provider_budget_session WHERE owner=?').run('user:'+user.id);
+   sql('DELETE FROM auth_events WHERE identity IN (?,?)').run(digest(user.email),digest(user.id));
+   sql('DELETE FROM challenges WHERE email=?').run(user.email);
+   sql('DELETE FROM registration_tokens WHERE email=?').run(user.email);
+   sql('DELETE FROM users WHERE id=?').run(user.id);
+   jobs.abortAccount(user.id);
+   return json({ok:true},200,{'set-cookie':cookie('',secure,0)});
+  });
+ }
+
  function register(body,secure,now,agent){
   const {registrationToken}=body;
-  const expired=()=>json({error:'Подтверди почту новым кодом, чтобы завершить регистрацию.',code:'registration_expired'},400);
+  const expired=()=>json({error:'Подтвердите почту новым кодом, чтобы завершить регистрацию.',code:'registration_expired'},400);
   if(typeof registrationToken!=='string'||!/^[A-Za-z0-9_-]{43}$/u.test(registrationToken))return expired();
   const profile=registrationProfile(body);
   if(typeof profile==='string')return error(profile,400);
@@ -237,11 +280,11 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
    const entry=registrationByToken.get(hash,now);
    if(!entry)return expired();
    deleteRegistration.run(hash);
-   if(userByEmail.get(entry.email))return json({error:'У этой почты уже есть аккаунт. Выбери вход.',code:'account_exists'},409);
+   if(userByEmail.get(entry.email))return json({error:'У этой почты уже есть аккаунт. Выберите вход.',code:'account_exists'},409);
    const id=nonce();
-   insertUser.run(id,entry.email,profile.firstName+' '+profile.lastName,now);
+   insertUser.run(id,entry.email,[profile.firstName,profile.lastName].filter(Boolean).join(' '),now);
    accounts.saveOnboarding(id,profile,now);
-   return openSession(userByEmail.get(entry.email),secure,now,agent);
+   return openSession(userByEmail.get(entry.email),secure,now,agent,starterTemplate(profile.role,profile.goals));
   });
  }
 
@@ -255,13 +298,16 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
    const client = digest(ip||'local');
    const token = sessionToken(request,secure);
    const user = token ? userBySession.get(token,now)||null : null;
-   if(path.startsWith('/api/admin/'))return admin(request,url,client,now,isAdmin(user)?user.email:null);
+   if(path.startsWith('/api/admin/')||['/admin','/admin.html'].includes(path)){
+    if(!adminIPs.has(ip))return error('Доступ к админке с этого адреса закрыт.',403);
+    if(path.startsWith('/api/admin/'))return admin(request,url,client,now,isAdmin(user)?user.email:null,token);
+   }
    const workspace=await workspaceRequest(request,url,user,now);
    if(workspace)return workspace;
    const job=await jobs.handle(request,url,user,now,context.runBackground);
    if(job)return job;
    if(user&&(path==='/'||path.startsWith('/api/')))touchSession.run(now,token,now-MINUTE);
-   if(path==='/login'&&user&&['GET','HEAD'].includes(request.method))return redirect('/');
+   if(path==='/login'&&user&&['GET','HEAD'].includes(request.method))return redirect(exampleRoute(url));
    if(path==='/api/auth/session'){
     return request.method==='GET'?json({enabled:true,user:user?sessionProfile(user,now):null}):error('Метод не поддерживается.',405);
    }
@@ -270,15 +316,18 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
      context.userId=user.id;
      if(path==='/api/chat'&&request.method==='POST'){
       const code=request.headers.get('x-focus-image-pass');
-      if(code&&request.headers.get('origin')===url.origin)accounts.activate(user.id,code,now);
+      if(code&&request.headers.get('origin')===url.origin){
+       const failure=activateSubscription(user,code,client,now);
+       if(failure?.status===429)return failure;
+      }
       context.accountPaid=!!accounts.profile(user,now).subscriptionUntil;
      }
      return null;
     }
-    if((path==='/'||path==='/index.html')&&['GET','HEAD'].includes(request.method))return redirect('/login');
-    return path.startsWith('/api/')?error('Войди в Focus, чтобы продолжить.',401):null;
+    if((path==='/'||path==='/index.html')&&['GET','HEAD'].includes(request.method))return redirect(exampleRoute(url,'/login'));
+    return path.startsWith('/api/')?error('Войдите в Focus, чтобы продолжить.',401):null;
    }
-   if(!['/api/auth/request','/api/auth/verify','/api/auth/register','/api/auth/logout','/api/auth/profile','/api/auth/subscription'].includes(path))return error('Страница не найдена.',404);
+   if(!['/api/auth/request','/api/auth/verify','/api/auth/register','/api/auth/logout','/api/auth/profile','/api/auth/subscription','/api/auth/delete'].includes(path))return error('Страница не найдена.',404);
    if(request.method!=='POST')return error('Метод не поддерживается.',405);
    if(request.headers.get('origin')!==url.origin)return error('Запрос отклонён.',403);
    if(!secure&&!['localhost','127.0.0.1','[::1]'].includes(url.hostname))return error('Для входа требуется HTTPS.',403);
@@ -291,17 +340,21 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
    if(path==='/api/auth/request')return requestCode(body,client,now);
    if(path==='/api/auth/verify')return verifyCode(body,client,secure,now,request.headers.get('user-agent'));
    if(path==='/api/auth/register')return register(body,secure,now,request.headers.get('user-agent'));
-   if(!user)return error('Войди в Focus, чтобы продолжить.',401);
+   if(!user)return error('Войдите в Focus, чтобы продолжить.',401);
+   if(path==='/api/auth/delete')return deleteAccount(user,token,body,now,secure);
    if(path==='/api/auth/profile'){
-    if(typeof body.name!=='string'||body.name.trim().length>80||/[\p{Cc}\p{Cf}]/u.test(body.name))return error('Укажи имя длиной до 80 символов.',400);
+    if(typeof body.name!=='string'||body.name.trim().length>80||/[\p{Cc}\p{Cf}]/u.test(body.name))return error('Укажите имя длиной до 80 символов.',400);
     user.name=body.name.trim();
     setName.run(user.name,user.id);
-   }else if(!accounts.activate(user.id,body.code,now)){
-    return error('Код недействителен, истёк или уже связан с другим аккаунтом.',400);
+   }else{
+    const failure=activateSubscription(user,body.code,client,now);
+    if(failure)return failure;
    }
    return json({user:sessionProfile(user,now)});
   },
-  record(id,kind,ok){accounts.record(id,kind,ok,clock());},
+  budgetStatus:reserveProvider.status,
+  reserveProvider(id,request){return userExists.get(id)?reserveProvider(id,request):'unconfigured';},
+  record(id,kind,ok){if(userExists.get(id))accounts.record(id,kind,ok,clock());},
   close(){jobs.close();db.close();},
  };
 }
