@@ -126,7 +126,7 @@ const message=shape({
  at:date,files:optional(list(safeId,1000)),quote:optional(text(4000)),webSearch:flag,noProjectInstructions:flag,noAutoContext:flag,
  model:short,siteMode:flag,previewKind:short,taskMode:short,codeMode:flag,imageFile:id,
  codeTargets:optional(list(shape({id:safeId,name:text(512),hash:short}),20)),
- usage,truncated:flag,search,forge:report,projectSearch,rating:optional(value=>value==='helpful'),
+ usage,truncated:flag,search,forge:report,projectSearch,fileCitations:optional(list(shape({id:safeId,name:text(512),start:number,end:number}),24)),rating:optional(value=>value==='helpful'),
  researchPlan:optional(shape({question:text(600),queries:strings,sources:text(30),background:flag})),
 });
 const project=shape({id:safeId,name:text(120),description:optional(text(10000)),
