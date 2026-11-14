@@ -7,7 +7,7 @@
 [hidden] { display: none !important; }
 body { margin: 0; min-width: 280px; }
 a { color: inherit; text-decoration: none; }
-button, input { font: inherit; }
+button, input, select { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: default; }
 :focus-visible { outline: 2px solid var(--focus-accent); outline-offset: 3px; }
@@ -109,7 +109,7 @@ button:disabled { cursor: default; }
 .card-intro, .feedback { color: var(--focus-secondary); font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; }
 .card-intro { margin: 12px 0 24px; }
 .login-card label { display: block; margin: 0 0 8px; font-size: 13px; }
-.login-card input {
+.login-card input:not([type="checkbox"]), .login-card select {
  width: 100%;
  min-height: 48px;
  border: 1px solid var(--focus-line);
@@ -118,6 +118,51 @@ button:disabled { cursor: default; }
  color: var(--focus-text);
  padding: 0 12px;
 }
+.login-card select { color-scheme: dark; }
+.auth-modes {
+ display: grid;
+ grid-template-columns: 1fr 1fr;
+ gap: 4px;
+ padding: 4px;
+ margin-bottom: 20px;
+ background: var(--focus-inset);
+ border: 1px solid var(--focus-line);
+ border-radius: 10px;
+}
+.auth-modes button {
+ min-height: 38px;
+ padding: 4px 8px;
+ border: 1px solid transparent;
+ border-radius: 7px;
+ background: transparent;
+ color: var(--focus-secondary);
+ font-size: 14px;
+}
+.auth-modes button[aria-pressed="true"] {
+ border-color: var(--focus-line);
+ background: var(--focus-surface);
+ color: var(--focus-text);
+}
+.name-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.profile-field { margin: 16px 0 0; }
+fieldset.profile-field { min-width: 0; border: 0; padding: 0; }
+.profile-field legend { padding: 0; font-size: 13px; }
+.profile-field p { margin: 4px 0 8px; font-size: 12px; color: var(--focus-muted); }
+.goal-options { display: flex; flex-wrap: wrap; gap: 6px; }
+.goal-options label {
+ display: flex;
+ align-items: center;
+ gap: 6px;
+ margin: 0;
+ min-height: 36px;
+ padding: 4px 8px;
+ background: var(--focus-inset);
+ border: 1px solid var(--focus-line);
+ border-radius: 8px;
+ cursor: pointer;
+}
+.goal-options label:has(:checked) { border-color: var(--focus-accent); }
+.goal-options input { margin: 0; accent-color: var(--focus-accent); }
 .login-card input::placeholder { color: var(--focus-muted); opacity: 1; }
 .login-card input.otp {
  font-family: var(--focus-mono);
@@ -145,6 +190,7 @@ button:disabled { cursor: default; }
 .primary:hover:not(:disabled), .guest-link:hover { background: var(--focus-accent); }
 .primary:disabled { opacity: .62; }
 .primary span { font-size: 16px; }
+.primary .button-label { font-size: inherit; }
 .code-actions { display: flex; justify-content: space-between; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .text-button {
  border: 0;

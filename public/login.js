@@ -1,7 +1,11 @@
 import {AUTH_EVENT_KEY,uid} from './store.js';
+import {ages,goals,roles} from './onboarding.js';
 
 const emailForm = document.querySelector('#email-form');
 const codeForm = document.querySelector('#code-form');
+const profileForm = document.querySelector('#profile-form');
+const modes = document.querySelector('.auth-modes');
+const modeButtons = [...modes.querySelectorAll('[data-mode]')];
 const emailInput = document.querySelector('#email');
 const codeInput = document.querySelector('#code');
 const title = document.querySelector('#login-title');
@@ -10,11 +14,62 @@ const step = document.querySelector('#step');
 const feedback = document.querySelector('#feedback');
 const resend = document.querySelector('#resend');
 const changeEmail = document.querySelector('#change-email');
-let email = '', challenge = '', resendAt = 0, timer, pending = false;
+const verifyLabel = document.querySelector('#verify-label');
+const forms = [emailForm,codeForm,profileForm];
+let mode='login', email='', challenge='', registrationToken='', resendAt=0, timer, pending=false;
+
+for(const [select,options] of [[profileForm.elements.ageGroup,ages],[profileForm.elements.role,roles]]){
+ for(const [value,label] of Object.entries(options))select.add(new Option(label,value));
+}
+for(const [value,label] of Object.entries(goals)){
+ const option=document.createElement('label');
+ const checkbox=document.createElement('input');
+ Object.assign(checkbox,{type:'checkbox',name:'goals',value});
+ option.append(checkbox,label);
+ document.querySelector('#goal-options').append(option);
+}
+
+function screen(stage){
+ const registering=mode==='register';
+ const screens=[
+  [registering?'Создай аккаунт Focus':'Войди в Focus',registering
+   ?'Укажи почту, чтобы подтвердить её кодом из письма.'
+   :'Укажи почту. Мы отправим код для входа.'],
+  ['Проверь почту','Введи шестизначный код из письма, отправленного на '+email+'.'],
+  ['Расскажи о себе','Ответы помогут Guzan учитывать твои задачи в будущем.'],
+ ];
+ [title.textContent,intro.textContent]=screens[stage];
+ step.textContent='Шаг '+(stage+1)+' из '+(registering?3:2);
+ step.hidden=false;
+ verifyLabel.textContent=registering?'Подтвердить почту':'Войти в Focus';
+ for(const [index,form] of forms.entries())form.hidden=index!==stage;
+ for(const button of modeButtons)button.setAttribute('aria-pressed',String(button.dataset.mode===mode));
+}
+
+function startEmail(nextMode=mode,focus=true){
+ mode=nextMode;
+ challenge='';
+ registrationToken='';
+ clearInterval(timer);
+ resendAt=0;
+ notice();
+ screen(0);
+ if(focus)emailInput.focus();
+}
+
+function enterWorkspace(){
+ try{localStorage.setItem(AUTH_EVENT_KEY,uid());}catch{}
+ location.replace('/');
+}
 
 function notice(message=''){
  feedback.textContent=message;
  feedback.hidden=!message;
+}
+function showRequestError(err,fallback){
+ const message=err.message||fallback;
+ const wait=err.retry>=60?Math.ceil(err.retry/60)+' мин.':err.retry+' с.';
+ notice(err.retry>0?message+' До следующей попытки: '+wait:message);
 }
 function updateResend(){
  const seconds=Math.max(0,Math.ceil((resendAt-Date.now())/1000));
@@ -24,10 +79,10 @@ function updateResend(){
 }
 function busy(on){
  pending=on;
- emailInput.readOnly=on;
- codeInput.readOnly=on;
- emailForm.querySelector('[type=submit]').disabled=on;
- codeForm.querySelector('[type=submit]').disabled=on;
+ for(const field of profileForm.elements)field.disabled=on;
+ emailInput.readOnly=codeInput.readOnly=on;
+ for(const form of [emailForm,codeForm])form.querySelector('[type=submit]').disabled=on;
+ for(const button of modeButtons)button.disabled=on;
  changeEmail.disabled=on;
  updateResend();
 }
@@ -39,6 +94,7 @@ async function request(path,data){
  if(!response.ok||!result){
   const err=new Error(result?.error||'Что-то пошло не так. Попробуй ещё раз.');
   err.retry=Number(response.headers.get('retry-after'))||0;
+  err.code=result?.code;
   throw err;
  }
  return result;
@@ -54,20 +110,17 @@ async function sendCode(target){
  notice();
  busy(true);
  try{
-  const result=await request('request',{email:target});
+  const result=await request('request',{email:target,intent:mode});
   email=target;
+  emailInput.value=target;
   challenge=result.challenge;
   codeInput.value='';
-  title.textContent='Проверь почту';
-  intro.textContent='Введи шестизначный код из письма, отправленного на '+email+'.';
-  step.textContent='Шаг 2 из 2';
-  emailForm.hidden=true;
-  codeForm.hidden=false;
+  screen(1);
   countdown(result.resendAfter);
   codeInput.focus();
  }catch(err){
   if(err.retry&&!codeForm.hidden)countdown(err.retry);
-  notice(err.message||'Не удалось отправить код.');
+  showRequestError(err,'Не удалось отправить код.');
  }finally{busy(false);}
 }
 emailForm.addEventListener('submit',event=>{
@@ -75,15 +128,12 @@ emailForm.addEventListener('submit',event=>{
  void sendCode(emailInput.value.trim());
 });
 resend.addEventListener('click',()=>void sendCode(email));
-changeEmail.addEventListener('click',()=>{
- notice();
- challenge='';
- codeForm.hidden=true;
- emailForm.hidden=false;
- step.textContent='Шаг 1 из 2';
- title.textContent='Войди в Focus';
- intro.textContent='Укажи почту. Мы отправим код для входа или регистрации.';
- emailInput.focus();
+changeEmail.addEventListener('click',()=>startEmail());
+for(const button of modeButtons)button.addEventListener('click',()=>{
+ if(mode!==button.dataset.mode){
+  profileForm.reset();
+  startEmail(button.dataset.mode);
+ }
 });
 codeInput.addEventListener('input',()=>{codeInput.value=codeInput.value.replace(/\D/gu,'').slice(0,6);});
 codeForm.addEventListener('submit',async event=>{
@@ -92,13 +142,49 @@ codeForm.addEventListener('submit',async event=>{
  notice();
  busy(true);
  try{
-  await request('verify',{challenge,code:codeInput.value});
-  try{localStorage.setItem(AUTH_EVENT_KEY,uid());}catch{}
-  location.replace('/');
+  const result=await request('verify',{challenge,code:codeInput.value});
+  if(result.user){enterWorkspace();return;}
+  registrationToken=result.registrationToken;
+  challenge='';
+  clearInterval(timer);
+  screen(2);
  }catch(err){
-  notice(err.message||'Не удалось проверить код.');
-  codeInput.focus();
- }finally{busy(false);}
+  if(err.code==='registration_required')startEmail('register',false);
+  if(err.code==='account_exists')startEmail('login',false);
+  showRequestError(err,'Не удалось проверить код.');
+ }finally{
+  busy(false);
+  if(!profileForm.hidden)profileForm.elements.firstName.focus();
+  else if(!codeForm.hidden)codeInput.focus();
+  else emailInput.focus();
+ }
+});
+profileForm.addEventListener('submit',async event=>{
+ event.preventDefault();
+ if(pending||!registrationToken)return;
+ const fields=new FormData(profileForm);
+ const selected=fields.getAll('goals');
+ if(!selected.length){
+  notice('Выбери, для чего тебе нужен Focus.');
+  profileForm.querySelector('[name="goals"]').focus();
+  return;
+ }
+ notice();
+ busy(true);
+ try{
+  await request('register',{
+   registrationToken,firstName:fields.get('firstName'),lastName:fields.get('lastName'),
+   ageGroup:fields.get('ageGroup'),role:fields.get('role'),goals:selected,
+  });
+  enterWorkspace();
+ }catch(err){
+  if(err.code==='registration_expired')startEmail(mode,false);
+  if(err.code==='account_exists')startEmail('login',false);
+  showRequestError(err,'Не удалось создать аккаунт.');
+ }finally{
+  busy(false);
+  if(!emailForm.hidden)emailInput.focus();
+ }
 });
 async function start(){
  try{
@@ -106,7 +192,11 @@ async function start(){
   const session=response.status===404?{enabled:false}:await response.json();
   if(!response.ok&&response.status!==404)throw new Error();
   if(session.user){location.replace('/');return;}
-  if(session.enabled){emailForm.hidden=false;return;}
+  if(session.enabled){
+   modes.hidden=false;
+   startEmail(location.hash==='#register'?'register':'login',false);
+   return;
+  }
   title.textContent='Открыть Focus';
   intro.textContent='Вход по почте пока недоступен. Можно открыть рабочее пространство.';
   step.hidden=true;

@@ -18,23 +18,25 @@ async function api(path,body){
  if(!response.ok)throw Object.assign(new Error(result?.error||'Не удалось выполнить запрос.'),{status:response.status});
  return result;
 }
-function showLogin(enabled,message=''){
+function showLogin(enabled,message='',focusOnly=false){
  view.requestId++;
  byId('loading').hidden=true;
  byId('dashboard').hidden=true;
  byId('panel').replaceChildren();
  byId('identity').hidden=true;
  byId('sign-in').hidden=false;
- byId('setup-note').hidden=enabled;
+ byId('setup-note').hidden=enabled||focusOnly;
+ byId('focus-login-note').hidden=!focusOnly;
  byId('login-form').hidden=!enabled;
  const output=byId('login-error');
  output.textContent=message;output.hidden=!message;
 }
-function showDashboard(login){
+function showDashboard(login,viaFocus=false){
  byId('loading').hidden=true;
  byId('sign-in').hidden=true;
  byId('identity').hidden=false;
  byId('admin-name').textContent=login;
+ byId('sign-out').hidden=viaFocus;
  byId('dashboard').hidden=false;
  void loadPanel();
 }
@@ -187,6 +189,6 @@ byId('grant-form').addEventListener('submit',event=>{
  void manage({action:'grant',id:selectedGrant,days:Number(new FormData(form).get('days'))},form.querySelector('[type=submit]'));
 });
 api('session').then(session=>{
- if(session.authenticated)showDashboard(session.login);
- else showLogin(session.enabled);
+ if(session.authenticated)showDashboard(session.login,session.viaFocus);
+ else showLogin(session.passwordEnabled??session.enabled,'',session.enabled&&!session.passwordEnabled);
 }).catch(error=>showLogin(false,error.message));

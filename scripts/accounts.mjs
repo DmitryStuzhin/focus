@@ -35,6 +35,11 @@ export function createAccountStore(db, env, now) {
    CREATE INDEX IF NOT EXISTS sessions_by_start ON sessions(started);
    CREATE INDEX IF NOT EXISTS sessions_by_end ON sessions(ended,expires);
    CREATE INDEX IF NOT EXISTS users_by_creation ON users(created);
+   CREATE TABLE IF NOT EXISTS account_onboarding(
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    first_name TEXT NOT NULL, last_name TEXT NOT NULL, age_group TEXT NOT NULL,
+    role TEXT NOT NULL, goals TEXT NOT NULL, completed INTEGER NOT NULL
+   );
    CREATE TABLE IF NOT EXISTS image_claims(
     code_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), revoked INTEGER NOT NULL DEFAULT 0
    );
@@ -56,6 +61,8 @@ export function createAccountStore(db, env, now) {
   }
  }
  const sql = query => db.prepare(query);
+ const saveOnboarding = sql(`INSERT INTO account_onboarding
+  (user_id,first_name,last_name,age_group,role,goals,completed) VALUES(?,?,?,?,?,?,?)`);
  const claims = sql('SELECT code_hash FROM image_claims WHERE user_id=? AND revoked=0');
  const allClaims = sql('SELECT user_id,code_hash FROM image_claims WHERE revoked=0');
  const claim = sql('INSERT OR IGNORE INTO image_claims(code_hash,user_id) VALUES(?,?)');
@@ -76,6 +83,9 @@ export function createAccountStore(db, env, now) {
  };
  return {
   trackingSince,
+  saveOnboarding(id,profile,now){
+   saveOnboarding.run(id,profile.firstName,profile.lastName,profile.ageGroup,profile.role,JSON.stringify(profile.goals),now);
+  },
   profile(user,now){
    const until=Math.max(user.subscription_until,legacyUntil(user.id,now));
    return {id:user.id,email:user.email,name:user.name,subscriptionUntil:until>now?until:null};

@@ -26,15 +26,15 @@ function pageNumber(value){
  return Number.isSafeInteger(number)&&number>=1?Math.min(number,100000):1;
 }
 
-export function createAdmin(db,env,accounts){
+export function createAdmin(db,env,accounts,emailEnabled){
  const login=env.FOCUS_ADMIN_LOGIN;
  const stored=hashPattern.exec(env.FOCUS_ADMIN_PASSWORD_HASH||'');
- const enabled=validAdminLogin(login)&&!!stored;
- if(!enabled)return (request,url)=>url.pathname==='/api/admin/session'&&request.method==='GET'
+ const passwordEnabled=validAdminLogin(login)&&!!stored;
+ if(!passwordEnabled&&!emailEnabled)return (request,url)=>url.pathname==='/api/admin/session'&&request.method==='GET'
   ?json({enabled:false,authenticated:false}):error('Админка ещё не настроена.',503);
 
- const salt=Buffer.from(stored[1],'hex');
- const passwordHash=Buffer.from(stored[2],'hex');
+ const salt=passwordEnabled?Buffer.from(stored[1],'hex'):null;
+ const passwordHash=passwordEnabled?Buffer.from(stored[2],'hex'):null;
  const binding=digest(login+'\0'+env.FOCUS_ADMIN_PASSWORD_HASH);
  db.exec(`
   CREATE TABLE IF NOT EXISTS admin_sessions(token TEXT PRIMARY KEY,binding TEXT NOT NULL,expires INTEGER NOT NULL);
@@ -170,20 +170,23 @@ export function createAdmin(db,env,accounts){
   return json({ok:true});
  }
 
- return async function handleAdmin(request,url,ip,now){
+ return async function handleAdmin(request,url,ip,now,sessionEmail){
   if(!secureTransport(url))return error('Для входа требуется HTTPS.',403);
   const {pathname}=url, secure=url.protocol==='https:';
   const current=token(request,secure);
-  const authenticated=!!current&&!!findAdminSession.get(current,binding,now);
-  if(request.method==='GET'&&pathname==='/api/admin/session')return json({enabled:true,authenticated,...(authenticated?{login}:{})});
+  const authenticated=!!sessionEmail||(passwordEnabled&&!!current&&!!findAdminSession.get(current,binding,now));
+  if(request.method==='GET'&&pathname==='/api/admin/session'){
+   return json({enabled:true,authenticated,passwordEnabled,...(authenticated?{login:sessionEmail||login}:{}),...(sessionEmail?{viaFocus:true}:{})});
+  }
   if(request.method==='POST'&&!trustedOrigin(request,url))return error('Запрос отклонён.',403);
   if(request.method==='POST'&&pathname==='/api/admin/login'){
+   if(!passwordEnabled)return error('Войди в Focus под аккаунтом администратора.',401);
    const body=await readJson(request);
    return body?signIn(body,ip,secure,now):error('Не удалось прочитать запрос.',400);
   }
   if(!authenticated)return error('Войдите в админку.',401);
   if(request.method==='POST'&&pathname==='/api/admin/logout'){
-   deleteAdminSession.run(current);
+   if(current)deleteAdminSession.run(current);
    return json({ok:true},200,{'set-cookie':cookie('',secure,0)});
   }
   if(request.method==='POST'&&pathname==='/api/admin/manage'){

@@ -6,9 +6,11 @@ import {createAdmin} from './admin.mjs';
 import {createWorkspace} from './workspace.mjs';
 import {createJobs} from './jobs.mjs';
 import {json,error,readJson} from './auth-http.mjs';
+import {ages,goals,roles} from '../public/onboarding.js';
 
 const MINUTE = 60_000;
 const CODE_TTL = 10 * MINUTE;
+const REGISTRATION_TTL = 20 * MINUTE;
 const SESSION_TTL = 30 * DAY;
 const redirect = location => new Response(null,{status:302,headers:{'cache-control':'no-store','x-content-type-options':'nosniff',location}});
 
@@ -19,6 +21,19 @@ export function normalizeEmail(value) {
  if(rest.length||!local||local.length>64||!domain)return null;
  if(!/^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*$/u.test(local))return null;
  return /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,62}$/u.test(domain)?email:null;
+}
+
+function registrationProfile(body){
+ const name = value => typeof value==='string' ? value.trim().normalize('NFC') : '';
+ const firstName=name(body.firstName),lastName=name(body.lastName);
+ const validName = value => value.length<=39&&/\p{L}/u.test(value)&&!/[\p{Cc}\p{Cf}]/u.test(value);
+ if(!validName(firstName)||!validName(lastName))return 'Укажи имя и фамилию (до 39 символов в каждом поле).';
+ const {ageGroup,role,goals:selected}=body;
+ if(typeof ageGroup!=='string'||!Object.hasOwn(ages,ageGroup))return 'Выбери свою возрастную группу.';
+ if(typeof role!=='string'||!Object.hasOwn(roles,role))return 'Выбери, чем ты занимаешься.';
+ if(!Array.isArray(selected)||!selected.length||selected.length>Object.keys(goals).length||
+  selected.some(value=>typeof value!=='string'||!Object.hasOwn(goals,value)))return 'Выбери, для чего тебе нужен Focus.';
+ return {firstName,lastName,ageGroup,role,goals:[...new Set(selected)]};
 }
 
 
@@ -35,6 +50,7 @@ export function createAuth(env,{mailer=sendLoginCode,clock=Date.now}={}) {
  };
  const secret = env.FOCUS_AUTH_SECRET;
  const from = normalizeEmail(env.FOCUS_SMTP_USER);
+ const adminEmail = normalizeEmail(env.FOCUS_ADMIN_EMAIL);
  if(!secret||Buffer.byteLength(secret)<32||!from||!env.FOCUS_SMTP_PASSWORD||!env.FOCUS_AUTH_DB){
   throw new Error('Focus auth requires a secret, database path and SMTP credentials.');
  }
@@ -50,25 +66,39 @@ export function createAuth(env,{mailer=sendLoginCode,clock=Date.now}={}) {
     expires INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, sent INTEGER NOT NULL DEFAULT 0
   );
   CREATE INDEX IF NOT EXISTS challenges_email ON challenges(email);
+  CREATE TABLE IF NOT EXISTS registration_tokens(
+    token TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, expires INTEGER NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS auth_events(kind TEXT NOT NULL, identity TEXT NOT NULL, created INTEGER NOT NULL);
   CREATE INDEX IF NOT EXISTS auth_events_recent ON auth_events(kind,identity,created);
  `);
+ transaction(db,()=>{
+  if(!db.prepare('PRAGMA table_info(challenges)').all().some(column=>column.name==='intent')){
+   db.exec("ALTER TABLE challenges ADD COLUMN intent TEXT NOT NULL DEFAULT 'login'");
+  }
+ });
  const accounts=createAccountStore(db,env,clock());
- const admin=createAdmin(db,env,accounts);
+ const admin=createAdmin(db,env,accounts,!!adminEmail);
  const workspaceRequest=createWorkspace(db);
  const jobs=createJobs(db);
  const sql = query => db.prepare(query);
- const count = sql('SELECT count(*) AS n FROM auth_events WHERE kind=? AND identity=? AND created>?');
+ const limitEvent = sql(`SELECT created FROM auth_events
+  WHERE kind=? AND identity=? AND created>? ORDER BY created DESC LIMIT 1 OFFSET ?`);
  const record = sql('INSERT INTO auth_events VALUES(?,?,?)');
  const cleanupEvents = sql('DELETE FROM auth_events WHERE created<=?');
  const cleanupChallenges = sql('DELETE FROM challenges WHERE expires<=?');
- const insertChallenge = sql('INSERT INTO challenges(id,email,hash,expires) VALUES(?,?,?,?)');
+ const cleanupRegistrations = sql('DELETE FROM registration_tokens WHERE expires<=?');
+ const insertChallenge = sql('INSERT INTO challenges(id,email,hash,expires,intent) VALUES(?,?,?,?,?)');
  const markSent = sql('UPDATE challenges SET sent=1 WHERE id=?');
  const deleteChallenge = sql('DELETE FROM challenges WHERE id=?');
- const supersedeCodes = sql('DELETE FROM challenges WHERE email=? AND id<>?');
+ const supersedeCodes = sql('DELETE FROM challenges WHERE email=? AND rowid<(SELECT rowid FROM challenges WHERE id=?)');
  const challengeById = sql('SELECT * FROM challenges WHERE id=? AND sent=1');
  const failAttempt = sql('UPDATE challenges SET attempts=attempts+1 WHERE id=?');
- const upsertUser = sql('INSERT INTO users(id,email,created) VALUES(?,?,?) ON CONFLICT(email) DO NOTHING');
+ const insertRegistration = sql(`INSERT INTO registration_tokens(token,email,expires) VALUES(?,?,?)
+  ON CONFLICT(email) DO UPDATE SET token=excluded.token,expires=excluded.expires`);
+ const registrationByToken = sql('SELECT email FROM registration_tokens WHERE token=? AND expires>?');
+ const deleteRegistration = sql('DELETE FROM registration_tokens WHERE token=?');
+ const insertUser = sql('INSERT INTO users(id,email,name,created) VALUES(?,?,?,?)');
  const userByEmail = sql('SELECT id,email,name,blocked,subscription_until FROM users WHERE email=?');
  const insertSession = sql('INSERT INTO sessions(token,user_id,expires,id,started,last_seen,device) VALUES(?,?,?,?,?,?,?)');
  const endSession = sql('UPDATE sessions SET ended=? WHERE token=? AND ended IS NULL');
@@ -77,12 +107,15 @@ export function createAuth(env,{mailer=sendLoginCode,clock=Date.now}={}) {
   FROM sessions JOIN users ON users.id=sessions.user_id WHERE token=? AND expires>? AND ended IS NULL AND users.blocked=0`);
  const setName = sql('UPDATE users SET name=? WHERE id=?');
  const codeHash = (id,code) => createHmac('sha256',secret).update(id+':'+code).digest();
+ const isAdmin = user => !!adminEmail&&user?.email===adminEmail;
+ const sessionProfile = (user,now) => ({...accounts.profile(user,now),...(isAdmin(user)?{isAdmin:true}:{})});
  let nextCleanup = 0;
 
  function tidy(now){
   if(now<nextCleanup)return;
   cleanupEvents.run(now-24*60*MINUTE);
   cleanupChallenges.run(now);
+  cleanupRegistrations.run(now);
   accounts.tidy(now);
   nextCleanup=now+10*MINUTE;
  }
@@ -96,10 +129,19 @@ export function createAuth(env,{mailer=sendLoginCode,clock=Date.now}={}) {
  function cookie(token,secure,seconds=SESSION_TTL/1000){
   return cookieName(secure)+'='+token+'; Path=/; Max-Age='+seconds+'; HttpOnly; SameSite=Lax'+(secure?'; Secure':'');
  }
+ function openSession(user,secure,now,agent){
+  const token = nonce();
+  insertSession.run(digest(token),user.id,now+SESSION_TTL,nonce(),now,now,sessionDevice(agent));
+  return json({user:sessionProfile(user,now)},200,{'set-cookie':cookie(token,secure)});
+ }
  function checkLimits(limits,now){
-  const blocked = limits.find(([kind,identity,period,max])=>count.get(kind,identity,now-period).n>=max);
-  if(blocked){
-   const seconds=Math.ceil(blocked[2]/1000);
+  let retryAt = now;
+  for(const [kind,identity,period,max] of limits){
+   const event = limitEvent.get(kind,identity,now-period,max-1);
+   if(event)retryAt=Math.max(retryAt,event.created+period);
+  }
+  if(retryAt>now){
+   const seconds=Math.ceil((retryAt-now)/1000);
    return error('Слишком много попыток. Попробуй позже.',429,{'retry-after':String(seconds)});
   }
   for(const [kind,identity] of limits)record.run(kind,identity,now);
@@ -109,6 +151,8 @@ export function createAuth(env,{mailer=sendLoginCode,clock=Date.now}={}) {
  async function requestCode(body,ip,now){
   const email = normalizeEmail(body.email);
   if(!email)return error('Укажи корректный адрес электронной почты.',400);
+  const intent=body.intent??'login';
+  if(intent!=='login'&&intent!=='register')return error('Выбери вход или регистрацию.',400);
   const emailKey = digest(email);
   const id = nonce();
   const code = String(randomInt(0,1_000_000)).padStart(6,'0');
@@ -120,7 +164,7 @@ export function createAuth(env,{mailer=sendLoginCode,clock=Date.now}={}) {
     ['send-ip',ip,60*MINUTE,12],
     ['send-global','*',24*60*MINUTE,500],
    ],now);
-   if(!limit&&!blocked)insertChallenge.run(id,email,codeHash(id,code).toString('hex'),now+CODE_TTL);
+   if(!limit&&!blocked)insertChallenge.run(id,email,codeHash(id,code).toString('hex'),now+CODE_TTL,intent);
    return limit;
   });
   if(limited)return limited;
@@ -151,12 +195,35 @@ export function createAuth(env,{mailer=sendLoginCode,clock=Date.now}={}) {
     return error(entry.attempts===4?'Попытки закончились. Запроси новый код.':'Код не совпал. Проверь письмо.',400);
    }
    deleteChallenge.run(id);
-   upsertUser.run(nonce(),entry.email,now);
    const user = userByEmail.get(entry.email);
-   if(user.blocked)return error('Доступ к аккаунту ограничен.',403);
-   const token = nonce();
-   insertSession.run(digest(token),user.id,now+SESSION_TTL,nonce(),now,now,sessionDevice(agent));
-   return json({user:accounts.profile(user,now)},200,{'set-cookie':cookie(token,secure)});
+   if(user?.blocked)return error('Доступ к аккаунту ограничен.',403);
+   if(entry.intent==='login'){
+    if(!user)return json({error:'У этой почты ещё нет аккаунта. Выбери регистрацию.',code:'registration_required'},404);
+    return openSession(user,secure,now,agent);
+   }
+   if(user)return json({error:'У этой почты уже есть аккаунт. Выбери вход.',code:'account_exists'},409);
+   const registrationToken=nonce();
+   insertRegistration.run(digest(registrationToken),entry.email,now+REGISTRATION_TTL);
+   return json({registrationToken});
+  });
+ }
+
+ function register(body,secure,now,agent){
+  const {registrationToken}=body;
+  const expired=()=>json({error:'Подтверди почту новым кодом, чтобы завершить регистрацию.',code:'registration_expired'},400);
+  if(typeof registrationToken!=='string'||!/^[A-Za-z0-9_-]{43}$/u.test(registrationToken))return expired();
+  const profile=registrationProfile(body);
+  if(typeof profile==='string')return error(profile,400);
+  return transaction(db,()=>{
+   const hash=digest(registrationToken);
+   const entry=registrationByToken.get(hash,now);
+   if(!entry)return expired();
+   deleteRegistration.run(hash);
+   if(userByEmail.get(entry.email))return json({error:'У этой почты уже есть аккаунт. Выбери вход.',code:'account_exists'},409);
+   const id=nonce();
+   insertUser.run(id,entry.email,profile.firstName+' '+profile.lastName,now);
+   accounts.saveOnboarding(id,profile,now);
+   return openSession(userByEmail.get(entry.email),secure,now,agent);
   });
  }
 
@@ -168,9 +235,9 @@ export function createAuth(env,{mailer=sendLoginCode,clock=Date.now}={}) {
    const now = clock();
    tidy(now);
    const client = digest(ip||'local');
-   if(path.startsWith('/api/admin/'))return admin(request,url,client,now);
    const token = sessionToken(request,secure);
    const user = token ? userBySession.get(token,now)||null : null;
+   if(path.startsWith('/api/admin/'))return admin(request,url,client,now,isAdmin(user)?user.email:null);
    const workspace=await workspaceRequest(request,url,user,now);
    if(workspace)return workspace;
    const job=await jobs.handle(request,url,user,now,context.runBackground);
@@ -178,7 +245,7 @@ export function createAuth(env,{mailer=sendLoginCode,clock=Date.now}={}) {
    if(user&&(path==='/'||path.startsWith('/api/')))touchSession.run(now,token,now-MINUTE);
    if(path==='/login'&&user&&['GET','HEAD'].includes(request.method))return redirect('/');
    if(path==='/api/auth/session'){
-    return request.method==='GET'?json({enabled:true,user:user?accounts.profile(user,now):null}):error('Метод не поддерживается.',405);
+    return request.method==='GET'?json({enabled:true,user:user?sessionProfile(user,now):null}):error('Метод не поддерживается.',405);
    }
    if(!path.startsWith('/api/auth/')){
     if(user){
@@ -193,7 +260,7 @@ export function createAuth(env,{mailer=sendLoginCode,clock=Date.now}={}) {
     if((path==='/'||path==='/index.html')&&['GET','HEAD'].includes(request.method))return redirect('/login');
     return path.startsWith('/api/')?error('Войди в Focus, чтобы продолжить.',401):null;
    }
-   if(!['/api/auth/request','/api/auth/verify','/api/auth/logout','/api/auth/profile','/api/auth/subscription'].includes(path))return error('Страница не найдена.',404);
+   if(!['/api/auth/request','/api/auth/verify','/api/auth/register','/api/auth/logout','/api/auth/profile','/api/auth/subscription'].includes(path))return error('Страница не найдена.',404);
    if(request.method!=='POST')return error('Метод не поддерживается.',405);
    if(request.headers.get('origin')!==url.origin)return error('Запрос отклонён.',403);
    if(!secure&&!['localhost','127.0.0.1','[::1]'].includes(url.hostname))return error('Для входа требуется HTTPS.',403);
@@ -205,6 +272,7 @@ export function createAuth(env,{mailer=sendLoginCode,clock=Date.now}={}) {
    if(!body)return error('Не удалось прочитать данные запроса.',400);
    if(path==='/api/auth/request')return requestCode(body,client,now);
    if(path==='/api/auth/verify')return verifyCode(body,client,secure,now,request.headers.get('user-agent'));
+   if(path==='/api/auth/register')return register(body,secure,now,request.headers.get('user-agent'));
    if(!user)return error('Войди в Focus, чтобы продолжить.',401);
    if(path==='/api/auth/profile'){
     if(typeof body.name!=='string'||body.name.trim().length>80||/[\p{Cc}\p{Cf}]/u.test(body.name))return error('Укажи имя длиной до 80 символов.',400);
@@ -213,7 +281,7 @@ export function createAuth(env,{mailer=sendLoginCode,clock=Date.now}={}) {
    }else if(!accounts.activate(user.id,body.code,now)){
     return error('Код недействителен, истёк или уже связан с другим аккаунтом.',400);
    }
-   return json({user:accounts.profile(user,now)});
+   return json({user:sessionProfile(user,now)});
   },
   record(id,kind,ok){accounts.record(id,kind,ok,clock());},
   close(){jobs.close();db.close();},

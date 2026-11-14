@@ -42,13 +42,19 @@ async function start(override={}){
  });
  return {
   call,now,sent,advance:milliseconds=>{clock+=milliseconds;},close:()=>new Promise(resolve=>server.close(resolve)),
-  async signIn(email){
-   const response=await call('/api/auth/request',{body:{email}});
+  async signIn(email,intent='register'){
+   const response=await call('/api/auth/request',{body:{email,intent}});
    assert.equal(response.status,200);
    const {challenge}=await response.json();
-   const verified=await call('/api/auth/verify',{body:{challenge,code:sent.at(-1).code},headers:{'user-agent':'Mozilla/5.0 (Linux; Android 16) Chrome/140'}});
+   const headers={'user-agent':'Mozilla/5.0 (Linux; Android 16) Chrome/140'};
+   const verified=await call('/api/auth/verify',{body:{challenge,code:sent.at(-1).code},headers});
    assert.equal(verified.status,200);
-   return {cookie:verified.headers.get('set-cookie').split(';')[0],...(await verified.json())};
+   const session=intent==='login'?verified:await call('/api/auth/register',{headers,body:{
+    registrationToken:(await verified.json()).registrationToken,
+    firstName:'Тест',lastName:'Focus',ageGroup:'25-34',role:'other',goals:['work'],
+   }});
+   assert.equal(session.status,200);
+   return {cookie:session.headers.get('set-cookie').split(';')[0],...(await session.json())};
   },
  };
 }
@@ -112,6 +118,27 @@ test('admin credentials are separate and control user sessions, subscriptions an
   assert.equal((await manage('unblock',second.user.id)).status,200);
   assert.equal((await call('/api/admin/logout',{cookie,body:{}})).status,200);
   assert.equal((await get('users')).status,401);
+ }finally{await server.close();}
+});
+
+test('only a verified session for the configured email grants Focus admin access',async()=>{
+ const server=await start({FOCUS_ADMIN_EMAIL:' Owner@Example.net ',FOCUS_ADMIN_LOGIN:'',FOCUS_ADMIN_PASSWORD_HASH:''});
+ const {call}=server;
+ try{
+  const ordinary=await server.signIn('ordinary@example.net');
+  const owner=await server.signIn('owner@example.net');
+  assert.equal(ordinary.user.isAdmin,undefined);
+  assert.equal(owner.user.isAdmin,true);
+  assert.equal((await call('/api/admin/users')).status,401);
+  assert.equal((await call('/api/admin/users',{cookie:ordinary.cookie,headers:{'x-focus-admin-email':'owner@example.net'}})).status,401);
+  assert.equal((await call('/api/admin/users',{cookie:owner.cookie})).status,200);
+  assert.deepEqual(await (await call('/api/admin/session',{cookie:owner.cookie})).json(),{
+   enabled:true,authenticated:true,passwordEnabled:false,login:'owner@example.net',viaFocus:true,
+  });
+  assert.equal((await call('/api/auth/logout',{cookie:owner.cookie,body:{}})).status,200);
+  assert.equal((await call('/api/admin/users',{cookie:owner.cookie})).status,401);
+  server.advance(61_000);
+  assert.equal((await server.signIn('owner@example.net','login')).user.isAdmin,true);
  }finally{await server.close();}
 });
 
