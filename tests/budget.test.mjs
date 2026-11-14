@@ -63,3 +63,42 @@ test('account, token and monthly limits apply independently and failed reservati
  now=Date.UTC(2026,11,1);
  assert.equal(reserve('one',text(3)),'reserved');
 });
+
+test('the temporary default quota survives re-opening the budget and resets five hours after first dispatch',async t=>{
+ const db=new DatabaseSync(':memory:');
+ t.after(()=>db.close());
+ let now=Date.UTC(2026,10,14,21);
+ const clock=()=>now;
+ let reserve=createBudget(db,{},clock);
+ assert.deepEqual(reserve.status('one'),{remainingPercent:100,resetAt:null,approximateTokenLimit:500000});
+ assert.equal(reserve('one',{provider:'GOOGLE_TEXT',tokens:250000}),'reserved');
+ const resetAt=now+5*3600_000;
+ now+=4*3600_000;
+ reserve=createBudget(db,{},clock);
+ assert.deepEqual(reserve.status('one'),{remainingPercent:50,resetAt,approximateTokenLimit:500000});
+ assert.equal(reserve('one',{provider:'GOOGLE_TEXT',tokens:250001}),'session_exhausted');
+ assert.equal(reserve.status('other').remainingPercent,100);
+ const response=await dispatchAPI(new Request('https://test.example/api/status'),'/api/status',{},{
+  userId:'one',budgetStatus:reserve.status,
+ });
+ assert.equal((await response.json()).budget.resetAt,resetAt);
+ now=resetAt;
+ assert.equal(reserve.status('one').remainingPercent,100);
+ assert.equal(reserve('one',{provider:'GOOGLE_TEXT',tokens:250001}),'reserved');
+});
+
+test('images and search consume the dollar side of the five-hour budget',async t=>{
+ const db=new DatabaseSync(':memory:');
+ t.after(()=>db.close());
+ const env={TAVILY_API_KEY:'fixture',FOCUS_BUDGET_USER_5H_USD_MICROS:'10000'};
+ const reserve=createBudget(db,env,()=>Date.UTC(2026,10,14));
+ assert.equal(reserve('one',{provider:'OPENAI_IMAGE',tokens:0}),'session_exhausted');
+ assert.equal(reserve('one',{provider:'TAVILY_SEARCH',tokens:0}),'reserved');
+ assert.equal(reserve.status('one').remainingPercent,0);
+ const result=await dispatchAPI(search('second search'),'/api/search',env,{
+  userId:'one',budgetStatus:reserve.status,reserveProvider:reserve,
+  providerFetch:()=>assert.fail('Provider must not be called'),
+ });
+ assert.equal(result.status,429);
+ assert.equal((await result.json()).code,'provider_budget_session_exhausted');
+});

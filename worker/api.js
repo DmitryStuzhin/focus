@@ -912,7 +912,7 @@ export default{async fetch(request,env,ctx){const url=new URL(request.url);if(['
 export async function dispatchAPI(request,path,env,ctx){
  if(!ctx?.userId)return json({error:'Войди в Focus, чтобы продолжить.'},401);
  if(path==='/api/status'&&request.method==='GET'){
-  return json({...modelConfig(env),searchConfigured:!!env.TAVILY_API_KEY,images:imageAccess(env)});
+  return json({...modelConfig(env),searchConfigured:!!env.TAVILY_API_KEY,images:imageAccess(env),budget:ctx.budgetStatus?.(ctx.userId)??null});
  }
  if(!['/api/status','/api/chat','/api/search'].includes(path))return json({error:'Страница не найдена.'},404);
  if(path==='/api/status'||request.method!=='POST')return json({error:'Метод не поддерживается'},405);
@@ -921,6 +921,10 @@ export async function dispatchAPI(request,path,env,ctx){
   return path==='/api/search'?await searchWeb(request,env,fetcher,ctx):await chat(request,env,fetcher,ctx);
  }catch(error){
   if(!(error instanceof ProviderBudgetError))throw error;
+  if(error.message==='session_exhausted'){
+   return json({error:'Запрос превышает доступный лимит на 5 часов. Сократи запрос или дождись обновления лимита.',
+    code:'provider_budget_session_exhausted',budget:ctx.budgetStatus?.(ctx.userId)??null},429);
+  }
   return error.message==='exhausted'
    ?json({error:'Лимит Focus на обращения к провайдерам исчерпан. Повторите после обновления бюджета.',code:'provider_budget_exhausted'},429)
    :json({error:'Бюджет провайдера ещё не настроен.',code:'provider_budget_unconfigured'},503);

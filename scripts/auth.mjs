@@ -258,6 +258,7 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
     sql(`DELETE FROM ${table} WHERE user_id=?`).run(user.id);
    }
    sql('DELETE FROM provider_budget WHERE owner=?').run('user:'+user.id);
+   sql('DELETE FROM provider_budget_session WHERE owner=?').run('user:'+user.id);
    sql('DELETE FROM auth_events WHERE identity IN (?,?)').run(digest(user.email),digest(user.id));
    sql('DELETE FROM challenges WHERE email=?').run(user.email);
    sql('DELETE FROM registration_tokens WHERE email=?').run(user.email);
@@ -350,6 +351,7 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
    }
    return json({user:sessionProfile(user,now)});
   },
+  budgetStatus:reserveProvider.status,
   reserveProvider(id,request){return userExists.get(id)?reserveProvider(id,request):'unconfigured';},
   record(id,kind,ok){if(userExists.get(id))accounts.record(id,kind,ok,clock());},
   close(){jobs.close();db.close();},

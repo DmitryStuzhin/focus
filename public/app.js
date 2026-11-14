@@ -296,12 +296,45 @@ async function generateStudioImage(approved=false){
   studio.imageError=error.name==='AbortError'?'Ожидание остановлено.':error.message;
  }finally{
   studio.imageController=null;
+  void refreshQuota();
   refreshImageStudio();
   if(generated&&ui.view==='images')el('studio-images-title')?.scrollIntoView({block:'start'});
  }
 }
 
-function header(){let title=STUDIO_LABELS[ui.view]||(ui.view==='workspace'?'Рабочее пространство':ui.view==='trash'?'Корзина':ui.view==='archive'?'Архив':activeProject()?.name||'Новый диалог');return `<header class="topbar"><div class="topbar-title">${ib('toggle-sidebar','menu','Открыть навигацию',ui.sidebarClosed?'':`class="mobile-only"`)}<span class="truncate">${e(title)}</span>${ui.view==='chat'&&activeChat()?`<span class="top-divider desktop-only"></span><span class="truncate desktop-only" style="color:var(--muted);font-size:12px;font-weight:400">${e(activeChat().title)}</span>`:''}</div><div class="topbar-actions">${themeButton()}${ui.view==='chat'?`<button class="status" data-action="model-info" title="Статус подключения"><span class="status-dot"></span>${apiStatus.configured?e(MODEL_LABEL):'Не подключено'}</button><span class="top-divider"></span>${activeChat()?ib('current-chat-menu','more','Действия с диалогом'):''}${ib('toggle-files','panel','Показать или скрыть файлы',`aria-pressed="${state.settings.showFiles}"`)}`:button('new-chat',`${icon('plus')} <span>Новый диалог</span>`,'ghost topbar-new-chat','aria-label="Новый диалог"')}</div></header>`}
+let quotaRefresh=0;
+function quotaMarkup(){
+ const budget=apiStatus.budget;
+ if(!budget)return '';
+ const percent=budget.remainingPercent;
+ const reset=budget.resetAt?new Date(budget.resetAt).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'через 5 часов после первого запроса';
+ const description=`Лимит на 5 часов: осталось ${percent}%. Сброс: ${reset}`;
+ return `<button type="button" class="quota-chip" data-action="quota-info" aria-label="${e(description)}" title="${e(description)}">
+ <span class="quota-window">5 ч</span><span class="quota-value">${percent}%</span>
+ <meter min="0" max="100" value="${percent}" aria-hidden="true"></meter></button>`;
+}
+async function refreshQuota(){
+ if(!account)return;
+ const id=++quotaRefresh;
+ try{
+  const response=await fetch('/api/status',{cache:'no-store'});
+  if(!response.ok)return;
+  const {budget}=await response.json();
+  if(id!==quotaRefresh)return;
+  const changed=JSON.stringify(budget)!==JSON.stringify(apiStatus.budget);
+  apiStatus.budget=budget;
+  const slot=el('quota-slot');
+  if(changed&&slot){
+   const focused=slot.contains(document.activeElement);
+   slot.innerHTML=quotaMarkup();
+   if(focused)slot.querySelector('button')?.focus();
+  }
+ }catch{}
+}
+window.addEventListener('focus',refreshQuota);
+setInterval(()=>{if(document.visibilityState==='visible')void refreshQuota();},60_000);
+
+function header(){let title=STUDIO_LABELS[ui.view]||(ui.view==='workspace'?'Рабочее пространство':ui.view==='trash'?'Корзина':ui.view==='archive'?'Архив':activeProject()?.name||'Новый диалог');return `<header class="topbar"><div class="topbar-title">${ib('toggle-sidebar','menu','Открыть навигацию',ui.sidebarClosed?'':`class="mobile-only"`)}<span class="truncate">${e(title)}</span>${ui.view==='chat'&&activeChat()?`<span class="top-divider desktop-only"></span><span class="truncate desktop-only" style="color:var(--muted);font-size:12px;font-weight:400">${e(activeChat().title)}</span>`:''}</div><div class="topbar-actions"><span id="quota-slot">${quotaMarkup()}</span>${themeButton()}${ui.view==='chat'?`<button class="status" data-action="model-info" title="Статус подключения"><span class="status-dot"></span>${apiStatus.configured?e(MODEL_LABEL):'Не подключено'}</button><span class="top-divider"></span>${activeChat()?ib('current-chat-menu','more','Действия с диалогом'):''}${ib('toggle-files','panel','Показать или скрыть файлы',`aria-pressed="${state.settings.showFiles}"`)}`:button('new-chat',`${icon('plus')} <span>Новый диалог</span>`,'ghost topbar-new-chat','aria-label="Новый диалог"')}</div></header>`}
 function chatView(){const c=activeChat();if(!c||!c.messages.length)return `<section class="welcome"><div class="welcome-inner">${mark}
  <h1>Над чем поработаем?</h1><div class="suggestions focus-start" aria-label="Быстрые задачи">
   <button class="suggestion" aria-label="Создать сайт" data-action="prompt" data-prompt="Сделай сайт">${icon('globe')}<span>Создать сайт<small>Предпросмотр и исходники</small></span></button>
@@ -707,6 +740,13 @@ case 'effort-menu':if(apiStatus.provider==='openrouter'){toast('В беспла�
 case 'set-effort':state.settings.effort=t.dataset.value;persist();render();break;
 case 'context-menu':menu(t,[{label:'Работать в проекте'},...liveProjects().map(p=>({text:p.name,action:'switch-context',id:p.id,checked:p.id===state.activeProject,icon:'folder'}))]);break;
 case 'switch-context':{const d=ui.draft;selectProject(id);ui.draft=d;render();break;}
+case 'quota-info':{
+ const budget=apiStatus.budget;
+ if(!budget)break;
+ const reset=budget.resetAt?new Date(budget.resetAt).toLocaleString('ru-RU'):'через пять часов после первого запроса';
+ modal('Лимит на 5 часов',`<p class="dialog-description">Осталось <strong>${budget.remainingPercent}%</strong>. Обновление лимита: ${e(reset)}.</p><p class="settings-note">Бюджет на окно — около ${e(budget.approximateTokenLimit.toLocaleString('ru-RU'))} расчётных токенов. Изображения и поиск расходуют денежную часть лимита. Процент показывает остаток по более строгому из двух ограничений.</p>`);
+ break;
+}
 case 'model-info':modal('Подключение модели',`<p class="dialog-description">${e(MODEL_LABEL)} ${apiStatus.configured?'подключена через сервер приложения.':'ещё не настроена на этом сервере.'}</p><p class="settings-note">История хранится в браузере. Для ответа текст диалога и прикреплённые поддерживаемые файлы передаются провайдеру модели. Focus выбирает модель из настроек сервера. В бесплатном режиме ответы обрабатывает внешний провайдер, базовая модель может меняться. Ключ API хранится на сервере и не передаётся в браузер.</p><p class="settings-note">Встроенные навыки работают без ключа. Попробуйте «Посчитай (125 + 18) * 1,2», «Статистика для чисел 12; 18; 21; 24» или «Переведи 2,5 км в м».</p><p class="settings-note">Прикрепите таблицу и напишите «Проанализируй CSV». Чтобы увидеть правки, прикрепите старую и новую версии и напишите «Сравни два файла построчно».</p><div class="dialog-footer" style="margin-top:24px">${button('close-modal','Понятно','primary')}</div>`);break;
 case 'toggle-web-search':if(!apiStatus.searchConfigured){toast('Поиск ещё не подключён на сервере');break;}state.settings.webSearch=!state.settings.webSearch;persist();render();el('composer-input')?.focus();break;
 case 'search-sources':{const owner=t.dataset.searchOwner;const search=owner==='pending'?(generation?.sources?{sources:generation.sources,query:generation.query}:activeChat()?.pendingSearch):activeChat()?.messages.find(m=>m.id===owner)?.search;if(search)modal('Источники поиска',sourcesDialog(search));break;}
@@ -1315,6 +1355,7 @@ async function requestAnswer(c,approved=false){
  }catch(err){c.error=err.name==='AbortError'?'Запрос остановлен. Его можно повторить.':err.message||'Не удалось получить ответ';}
  finally{
   generation=null;persist();refresh();
+  void refreshQuota();
   if(ui.view==='sites')render();
   if(ui.view==='images')refreshImageStudio();
  }
@@ -1338,7 +1379,7 @@ async function boot(){
   ui.view=studioRoute()||'chat';
   render();
   if(account)for(const chat of state.chats.filter(item=>item.backgroundJob&&!item.deleted))void recoverJob(chat);
-  fetch('/api/status').then(r=>r.json()).then(d=>{apiStatus=d;render()}).catch(()=>{});
+  fetch('/api/status').then(r=>r.ok?r.json():null).then(d=>{if(d){apiStatus=d;render()}}).catch(()=>{});
   const oldImageCode=account?savedImagePass():null;
   if(oldImageCode)void updateAccount('subscription',{code:oldImageCode}).then(()=>{
    sessionStorage.removeItem(imagePassKey());
@@ -1548,6 +1589,7 @@ async function recoverJob(chat){
   chat.updated=Date.now();
   persist();
   if(ui.view==='chat'&&activeChat()?.id===chat.id)render();
+  void refreshQuota();
  }catch(error){
   if(error.status===404){delete chat.backgroundJob;chat.error=error.message;persist();if(activeChat()?.id===chat.id)render();}
   else if(activeChat()?.id===chat.id)toast(error.message);

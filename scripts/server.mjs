@@ -31,6 +31,7 @@ export function createServer(env=process.env, app, authOptions) {
       const handler=()=>app?Promise.resolve(app):import('../dist/server/index.js').then(module=>module.default);
       const context={
        reserveProvider:auth.reserveProvider,
+       budgetStatus:auth.budgetStatus,
        async runBackground(input,research,signal,userId){
         const api=await handler();
         const internalHeaders=new Headers({'content-type':'application/json',origin});
