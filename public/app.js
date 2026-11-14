@@ -424,8 +424,66 @@ async function openProjectMatch(messageId,index){
 async function previewFile(id){const f=state.files.find(x=>x.id===id&&!x.deleted);if(!f)return;const blob=await getBlob(id);if(!blob){toast('Файл недоступен на этом устройстве');return}const text=isText(f)&&blob.size<=2*1048576?await blob.text():null;let content;if(text!==null)content=`<pre>${e(text)||'Файл пуст'}</pre>`;else if(f.type?.startsWith('image/')){const url=URL.createObjectURL(blob);content=`<img src="${url}" alt="${e(f.name)}" />`}else content=`<div class="list-empty">${icon(fileIcon(f))}<h2>${e(f.name)}</h2><p>Скачайте файл, чтобы открыть его в подходящем приложении</p></div>`;
  const urlToKeep=content.match(/src="(blob:[^"]+)"/)?.[1];modal(f.name,`<div class="file-preview-header"><span class="file-preview-meta">${humanSize(f.size)} · ${date(f.updated)}</span><div style="display:flex;gap:8px">${text!==null?button('edit-file',`${icon('rename')} Изменить`,'',`data-id="${id}"`):''}${button('download-file',`${icon('download')} Скачать`,'',`data-id="${id}"`)}</div></div><div class="file-preview-content">${content}</div>`,{wide:true});if(urlToKeep)objectURLs.push(urlToKeep)}
 async function editFile(id){const f=state.files.find(x=>x.id===id),blob=await getBlob(id);if(!f||!blob)return;const text=await blob.text();modal(f.name,`<form><div class="form-field"><label for="editor-text">Содержимое файла</label><textarea id="editor-text" class="file-editor" name="content" maxlength="2000000" spellcheck="false">${e(text)}</textarea></div><p class="error-text" id="form-error" hidden></p><div class="dialog-footer">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">Сохранить изменения</button></div></form>`,{wide:true,onSubmit:async(data,form)=>{form.querySelector('[type=submit]').disabled=true;try{const b=new Blob([data.get('content')],{type:f.type||'text/plain'});await putBlob(id,b);f.size=b.size;f.updated=Date.now();log(`Изменён файл «${f.name}»`,f.project);persist();closeModal();render();toast('Изменения сохранены')}catch{form.querySelector('[type=submit]').disabled=false;el('form-error').textContent='Не удалось сохранить файл';el('form-error').hidden=false}}})}
-function searchDialog(){modal('Поиск по пространству',`<div class="search-input-wrap">${icon('search')}<input id="search-input" aria-label="Поиск диалогов и проектов" placeholder="Название проекта или текст диалога" autocomplete="off" autofocus /></div><div class="search-results" id="search-results"></div>`);searchResults('');el('search-input').oninput=ev=>searchResults(ev.target.value)}
-function searchResults(q){q=q.toLocaleLowerCase('ru').trim();const projects=liveProjects().filter(p=>!q||p.name.toLocaleLowerCase('ru').includes(q));const chats=state.chats.filter(c=>!c.deleted&&!state.projects.find(p=>p.id===c.project)?.deleted&&(!q||[c.title,...c.messages.map(m=>m.content)].join(' ').toLocaleLowerCase('ru').includes(q)));const rows=[...projects.map(p=>({id:p.id,action:'search-project',title:p.name,sub:'Проект',ico:'folder'})),...chats.map(c=>({id:c.id,action:'search-chat',title:c.title,sub:`${projectName(c.project)}${c.archived?' · Архив':''}`,ico:'chat'}))].slice(0,30);el('search-results').innerHTML=rows.map(r=>`<button class="search-result" data-action="${r.action}" data-id="${r.id}">${icon(r.ico)}<span><strong class="truncate">${e(r.title)}</strong><small class="truncate">${e(r.sub)}</small></span></button>`).join('')||'<div class="search-empty">Ничего не найдено. Попробуйте другое слово.</div>'}
+let searchWorker,searchRevision=0,searchQueue=Promise.resolve();
+const searchVersions=new Map();
+
+function searchDialog(){
+ modal('Поиск по пространству',`<div class="search-input-wrap">${icon('search')}<input id="search-input" aria-label="Поиск диалогов, проектов и файлов" placeholder="Название или текст" autocomplete="off" autofocus /></div><div class="search-results" id="search-results" aria-live="polite"></div>`);
+ searchResults('');
+ el('search-input').oninput=event=>searchResults(event.target.value);
+}
+function searchResults(query){
+ const id=++searchRevision;
+ searchQueue=searchQueue.then(async()=>{
+  if(id!==searchRevision||!el('search-results'))return;
+  if(!searchWorker){
+   searchWorker=new Worker('/search-worker.js',{type:'module'});
+   searchWorker.onmessage=({data})=>{
+    const result=el('search-results');
+    if(!result||data.id!==searchRevision)return;
+    if(data.error){result.textContent=data.error;return;}
+    result.innerHTML=data.rows.map(row=>`<button class="search-result" data-action="${row.action}" data-id="${e(row.id)}">${icon(row.icon)}<span><strong class="truncate">${e(row.title)}</strong><small class="truncate">${e(row.subtitle)}</small></span></button>`).join('')||'<div class="search-empty">Ничего не найдено. Попробуйте другое слово.</div>';
+   };
+   searchWorker.onerror=()=>{
+    searchWorker.terminate();searchWorker=null;searchVersions.clear();
+    if(el('search-results'))el('search-results').textContent='Не удалось открыть поиск.';
+   };
+  }
+  const live=new Set(liveProjects().map(project=>project.id));
+  const next=new Map(),changed=[];
+  const add=(key,revision,entry)=>{
+   next.set(key,revision);
+   if(searchVersions.get(key)!==revision)changed.push({key,...entry});
+  };
+  for(const project of liveProjects()){
+   add('project:'+project.id,project.name,{id:project.id,title:project.name,project:project.id,action:'search-project',icon:'folder',subtitle:'Проект'});
+  }
+  for(const chat of state.chats){
+   if(chat.deleted||!live.has(chat.project))continue;
+   add('chat:'+chat.id,chat.updated+':'+chat.title+':'+chat.archived+':'+chat.messages.length,{
+    id:chat.id,title:chat.title,project:chat.project,action:'search-chat',icon:'chat',
+    subtitle:projectName(chat.project)+(chat.archived?' · Архив':''),messages:chat.messages.map(message=>message.content),
+   });
+  }
+  for(const file of state.files){
+   if(file.deleted||!live.has(file.project))continue;
+   const key='file:'+file.id,revision=file.updated+':'+file.name;
+   let blob;
+   if(searchVersions.get(key)!==revision&&file.kind==='file'&&isText(file)&&file.size<=500000){
+    blob=await getBlob(file.id);
+   }
+   add(key,revision,{id:file.id,title:file.name,project:file.project,action:'search-file',icon:fileIcon(file),
+    subtitle:projectName(file.project),blob});
+  }
+  const removed=[...searchVersions.keys()].filter(key=>!next.has(key));
+  searchWorker.postMessage({id,changed,removed,query});
+  searchVersions.clear();
+  for(const [key,value] of next)searchVersions.set(key,value);
+ }).catch(()=>{
+  searchVersions.clear();
+  if(el('search-results'))el('search-results').textContent='Не удалось выполнить поиск.';
+ });
+}
 function settingsDialog(){modal('Настройки',`<form id="settings-form">${account?`<div class="settings-section"><h3>Аккаунт Focus</h3><p class="settings-note">${e(account.email)}</p><div class="form-field"><label for="account-name">Имя в аккаунте</label><input id="account-name" name="accountName" value="${e(account.name||'')}" maxlength="80" autocomplete="name" /></div>${button('cloud-workspace','Синхронизация пространства','','type="button"')} ${button('logout','Выйти из аккаунта','ghost','type="button"')} ${button('delete-account','Удалить аккаунт','danger','type="button"')}</div>`:''}<div class="settings-section"><h3>Ваше пространство</h3><div class="form-field"><label for="settings-name">Название</label><input id="settings-name" name="name" value="${e(state.settings.name)}" maxlength="60" required /></div><div class="form-field" style="margin-bottom:0"><label for="settings-theme">Оформление</label><select name="theme" id="settings-theme">${[['light','Светлое'],['dark','Тёмное'],['system','Как на устройстве']].map(([v,l])=>`<option value="${v}" ${state.settings.theme===v?'selected':''}>${l}</option>`).join('')}</select></div><div class="setting-row"><div>Отправлять по Enter<p>Shift + Enter добавляет новую строку</p></div><button class="switch" type="button" role="switch" aria-label="Отправлять по Enter" aria-checked="${state.settings.sendOnEnter}" data-action="toggle-enter"></button></div></div><div class="settings-section"><h3>Данные</h3><p class="settings-note" style="margin-bottom:16px">По умолчанию история и файлы остаются в этом браузере. Между устройствами они передаются после включения синхронизации. Браузер может очистить локальные данные при нехватке места или при очистке сайта. Регулярно скачивай резервную копию.</p><div class="settings-buttons">${button('export-backup',`${icon('download')} Скачать копию`,'','type="button"')}${button('import-backup',`${icon('upload')} Восстановить`,'','type="button"')}</div></div><div class="settings-section"><h3>Подключение модели</h3><p class="settings-note">${e(MODEL_LABEL)} · ${apiStatus.configured?'подключена':'не настроена'}. Запросы проходят через сервер приложения. Ключ API не хранится в браузере. Текст диалога и поддерживаемые вложения передаются выбранному провайдеру: Google, OpenRouter, Cloudflare или OpenAI. Поисковые запросы передаются Tavily. <a href="/privacy.html">Политика конфиденциальности</a> · <a href="/terms.html">Условия использования</a>. В бесплатном режиме режимы глубины ответа не применяются.</p></div><p class="settings-note">Focus · первая версия<br>Дизайн по референсам и <a href="https://github.com/heydamir/unslop" target="_blank" rel="noopener noreferrer">Unslop</a> — Damir Sokolovsky, CC BY 4.0</p><div class="dialog-footer" style="margin-top:24px">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">Сохранить</button></div></form>`,{onSubmit:saveSettings})}
 async function updateAccount(path,body){
  const response=await fetch('/api/auth/'+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
@@ -608,6 +666,15 @@ case 'search':searchDialog();break;
 case 'open-project-match':await openProjectMatch(id,Number(t.dataset.match));break;
 case 'search-project':closeModal();selectProject(id);break;
 case 'search-chat':closeModal();selectChat(id);break;
+case 'search-file':{
+ const file=state.files.find(item=>item.id===id&&!item.deleted);
+ if(!file)break;
+ closeModal();
+ selectProject(file.project);
+ if(file.kind==='folder'){ui.folder=file.id;render();}
+ else await previewFile(id);
+ break;
+}
 case 'create-project':projectDialog();break;
 case 'edit-project':projectDialog(id);break;
 case 'project-menu':menu(t,[{text:'Новый диалог',action:'project-new-chat',id,icon:'compose'},{text:'Настройки проекта',action:'edit-project',id,icon:'settings'},{separator:true},{text:'В корзину',action:'trash-project',id,icon:'trash',danger:true}]);break;
@@ -978,6 +1045,8 @@ async function updatePlanStep(input){
  if(!changed)return;
  const previous=message.content;
  message.content=next;
+ const chat=activeChat();
+ if(chat)chat.updated=Date.now();
  if(!await persist()){
   message.content=previous;
   input.checked=!input.checked;
