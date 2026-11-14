@@ -569,3 +569,5 @@
  .shell .main,.shell .files-panel,.shell .sidebar { padding-bottom: calc(46px + env(safe-area-inset-bottom)); }
 }
 .toast-undo { margin-inline-start: 5px; color: inherit; text-decoration: underline; }
+
+.document-choice{display:block;overflow-wrap:anywhere;margin:.45rem 0}
