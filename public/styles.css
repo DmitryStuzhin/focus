@@ -545,3 +545,5 @@
 .composer-modes { display: flex; gap: 4px; overflow-x: auto; padding: 7px 8px 2px; }
 .composer-modes button { flex: 0 0 auto; padding: 5px 8px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font-size: 12px; }
 .composer-modes button[aria-pressed=true] { background: var(--hover); color: var(--text); font-weight: 600; }
+.model-provenance { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+.composer-hint .data-details { color: var(--muted); font-size: inherit; }
