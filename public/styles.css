@@ -508,3 +508,9 @@
 [data-theme=dark] .focus-start .suggestion { border: 0; background: transparent; box-shadow: none; }
 [data-theme=dark] .focus-start .suggestion > .icon { border: 0; background: transparent; color: #737a79; }
 [data-theme=dark] .focus-start .suggestion:hover { border: 0; background: #151a1c; }
+
+
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+ outline: 2px solid var(--focus-accent);
+ outline-offset: 3px;
+}
