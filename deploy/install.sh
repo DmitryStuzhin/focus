@@ -7,6 +7,8 @@ export DEBIAN_FRONTEND=noninteractive
 export PATH=/opt/focus-node/bin:/usr/sbin:/usr/bin:/sbin:/bin
 umask 022
 domain=tokenapp.ru
+revision=${FOCUS_INSTALL_REVISION:?Set FOCUS_INSTALL_REVISION to the verified release commit.}
+[[ "$revision" =~ ^[0-9a-f]{40}$ ]] || { echo 'Invalid release commit.' >&2; exit 1; }
 expected_ip=${FOCUS_SERVER_IP:?Set FOCUS_SERVER_IP to the public address of the deployment.}
 prepare_only=${FOCUS_PREPARE_ONLY:-0}
 if [[ "$prepare_only" != 1 ]] && ! getent ahostsv4 "$domain" | awk '{print $1}' | sort -u | grep -qx "$expected_ip"; then
@@ -53,7 +55,8 @@ else
     runuser -u focus-build -- git -C /opt/focus/source fetch origin main
 fi
 # Use files from the fetched commit without modifying a running release.
-runuser -u focus-build -- git -C /opt/focus/source reset --hard origin/main
+runuser -u focus-build -- git -C /opt/focus/source merge-base --is-ancestor "$revision" origin/main
+runuser -u focus-build -- git -C /opt/focus/source reset --hard "$revision"
 if [[ ! -f /etc/focus/app.env ]]; then
     key_name=GOOGLE_API_KEY
     key_label=Google
@@ -81,7 +84,7 @@ install -m 644 /opt/focus/source/deploy/focus-update.service /etc/systemd/system
 install -m 644 /opt/focus/source/deploy/focus-update.timer /etc/systemd/system/focus-update.timer
 install -m 755 /opt/focus/source/deploy/update.sh /usr/local/sbin/focus-update
 systemctl daemon-reload
-/usr/local/sbin/focus-update --initial
+FOCUS_INSTALL_REVISION="$revision" /usr/local/sbin/focus-update
 systemctl enable focus
 if [[ "$prepare_only" == 1 ]]; then
     curl --fail --silent --show-error http://127.0.0.1:3000/healthz

@@ -26,6 +26,12 @@ jobs:
       - run: node tests/chat-layout.e2e.mjs
 
       - run: node tests/web-search.e2e.mjs
+      - name: Record install script checksums
+        run: sha256sum deploy/install.sh deploy/connect-*.sh > focus-deploy.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: focus-deploy-checksums
+          path: focus-deploy.sha256
       - uses: actions/upload-artifact@v4
         if: always()
         with:

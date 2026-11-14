@@ -17,3 +17,19 @@ Focus работает на Node.js 22 на Debian или Ubuntu. TLS завер
 Для входа поддерживаются SMTP и Yandex Cloud Postbox. При использовании Postbox подтвердите домен через DKIM, выдайте сервисному аккаунту роль `postbox.sender` и храните его статический ключ в закрытом окружении сервиса. Для проверки запросите код в интерфейсе и завершите вход.
 
 Для отдельного входа администратора используйте `deploy/connect-admin.sh` из проверенного релиза. Перед включением панели настройте `FOCUS_ADMIN_ALLOWED_IPS`. [Эксплуатация и администрирование](../docs/operations.md)
+
+## Проверка установочного скрипта (ТЗ №8)
+
+Выберите полный SHA коммита `main` с успешным запуском Check Focus. Скачайте артефакт `focus-deploy-checksums` из этого запуска и извлеките `focus-deploy.sha256`. Скачайте установщик по этому SHA и проверьте его перед запуском:
+
+```bash
+mkdir -p deploy
+curl --fail --location "https://raw.githubusercontent.com/DmitryStuzhin/focus/$revision/deploy/install.sh" -o deploy/install.sh
+grep '  deploy/install.sh$' focus-deploy.sha256 | sha256sum --strict --check -
+```
+
+Переменная `revision` должна содержать выбранный SHA. После успешной проверки передайте этот SHA в `FOCUS_INSTALL_REVISION`, а адрес установки — в `FOCUS_SERVER_IP`, и запустите проверенный скрипт. Для скриптов подключения провайдеров используйте контрольные суммы того же артефакта или копии из установленного релиза.
+
+В настройках GitHub создайте активный ruleset для `main`: обязательный PR с одним ревью, проверка `check` от GitHub Actions, запрет force-push и удаления, обязательные подписанные коммиты. Уберите обход правил для участников, которые должны проходить те же проверки. Включите 2FA на аккаунте. Наличие правил и 2FA проверяет владелец репозитория. [Правила GitHub](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets)
+
+Среда сборки работает от выделенного пользователя. Храните окружение и базу вне доступных ему каталогов. Первичная установка проверяет CI для указанного SHA, как и последующие обновления.
