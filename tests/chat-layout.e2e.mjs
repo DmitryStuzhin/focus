@@ -220,8 +220,8 @@ try{
  await quotePage.waitForLoadState('networkidle');
  const savedQuote=quotePage.locator('.message-bubble .quote-copy span');
  assert.equal(await savedQuote.textContent(),example.trim());
- await quotePage.getByRole('button',{name:'Повторить ответ',exact:true}).last().click();
- await quotePage.getByText('Пояснение к цитате.',{exact:true}).waitFor();
+ await quotePage.getByRole('button',{name:'Получить ещё один ответ',exact:true}).last().click();
+ await quotePage.getByText('Пояснение к цитате.',{exact:true}).nth(1).waitFor();
  assert.equal(quoteRequests[2].messages.at(-1).quote,example.trim());
  await quotePage.close();
  console.log('Syntax highlighting, selection, removable quote, persisted context and retry verified');
