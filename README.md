@@ -59,7 +59,7 @@ npm run validate
 
 ## VPS и автодеплой
 
-Для `tokenapp.ru` подготовлен [установщик и инструкция](deploy/README.md).
+[Установка и автодеплой](deploy/README.md) описаны отдельно.
 После установки VPS сам забирает изменения `main`, прошедшие GitHub Actions,
 проверяет сборку и перезапускает приложение с откатом при неудачном запуске.
 
@@ -69,7 +69,7 @@ npm run validate
 
 Для генерации в рамках бесплатной квоты выберите тариф Workers Free. В [панели Cloudflare](https://dash.cloudflare.com/) откройте Workers AI → Use REST API и получите Account ID и Workers AI API Token.
 
-Добавьте на VPS в `/etc/focus/app.env` следующие переменные.
+Добавьте на VPS в приватное окружение сервиса следующие переменные.
 
 ```dotenv
 CLOUDFLARE_ACCOUNT_ID=идентификатор_аккаунта
@@ -90,11 +90,11 @@ CLOUDFLARE_API_TOKEN=токен_workers_ai
 
 ### GPT Image по подписке
 
-GPT Image 2.5 Sunburst использует отдельный платный проект OpenAI API. В `/etc/focus/app.env` задайте `FOCUS_OPENAI_IMAGE_API_KEY` и список `FOCUS_IMAGE_SUBSCRIPTIONS`. Один ключ OpenAI без действующего кода не открывает платную генерацию посетителям.
+GPT Image 2.5 Sunburst использует отдельный платный проект OpenAI API. В приватном окружении сервиса задайте `FOCUS_OPENAI_IMAGE_API_KEY` и список `FOCUS_IMAGE_SUBSCRIPTIONS`. Один ключ OpenAI без действующего кода не открывает платную генерацию посетителям.
 
 1. После подтверждения оплаты сгенерируйте новый код и его хеш на VPS:
    ```bash
-   /opt/focus-node/bin/node -e 'const c=require("node:crypto");const p=c.randomBytes(32).toString("hex");console.log(p);console.log(c.createHash("sha256").update(p).digest("hex"))'
+   node -e 'const c=require("node:crypto");const p=c.randomBytes(32).toString("hex");console.log(p);console.log(c.createHash("sha256").update(p).digest("hex"))'
    ```
 2. Отправьте подписчику первую строку. Вторую добавьте в `FOCUS_IMAGE_SUBSCRIPTIONS` в формате `хеш:ГГГГ-ММ-ДД`. Дата означает начало суток UTC, когда доступ закончится. Несколько записей разделяются запятой. Чтобы отозвать код, удалите запись.
 3. Выполните `sudo systemctl restart focus`. Подписчик выбирает режим по подписке в разделе «Изображения» и вводит код на странице HTTPS. При включённом входе по email код привязывается к аккаунту. Базовый режим доступен отдельно.

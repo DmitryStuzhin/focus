@@ -7,7 +7,7 @@ export DEBIAN_FRONTEND=noninteractive
 export PATH=/opt/focus-node/bin:/usr/sbin:/usr/bin:/sbin:/bin
 umask 022
 domain=tokenapp.ru
-expected_ip=${FOCUS_SERVER_IP:-193.5.64.223}
+expected_ip=${FOCUS_SERVER_IP:?Set FOCUS_SERVER_IP to the public address of the deployment.}
 prepare_only=${FOCUS_PREPARE_ONLY:-0}
 if [[ "$prepare_only" != 1 ]] && ! getent ahostsv4 "$domain" | awk '{print $1}' | sort -u | grep -qx "$expected_ip"; then
     echo "First set DNS A record: @ -> $expected_ip for $domain, then rerun." >&2
