@@ -582,5 +582,4 @@
 @media(max-width:639px) and (pointer:coarse){
  .camera-control{display:grid;place-items:center;min-width:44px;min-height:44px;background:none;border:0;border-radius:8px;color:var(--secondary)}
  .camera-control .icon{width:18px;height:18px}
- .mobile-nav button{min-height:44px}
 }
