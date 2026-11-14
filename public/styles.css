@@ -557,3 +557,14 @@
 @media (pointer: coarse) {
  [data-density=compact] :is(.file-row,.nav-row) { min-height: 44px; }
 }
+
+.mobile-navigation { display: none; }
+.file-breadcrumbs { min-width: 0; display: flex; gap: 4px; align-items: center; overflow: auto; white-space: nowrap; }
+.file-breadcrumbs > span { flex: 0 0 auto; }
+.file-breadcrumbs .btn { padding: 2px 4px; font-size: 11px; white-space: nowrap; }
+@media (max-width: 639px) {
+ .mobile-navigation { position: fixed; z-index: 80; inset: auto 0 0; display: flex; padding-bottom: env(safe-area-inset-bottom); background: var(--surface); border-top: 1px solid var(--line); }
+ .mobile-navigation button { flex: 1; display: grid; justify-items: center; gap: 2px; min-height: 46px; padding: 5px; border: 0; color: var(--muted); background: transparent; font-size: 11px; }
+ .mobile-navigation button[aria-current=page] { color: var(--text); background: var(--hover); }
+ .shell .main,.shell .files-panel,.shell .sidebar { padding-bottom: calc(46px + env(safe-area-inset-bottom)); }
+}
