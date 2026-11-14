@@ -7,6 +7,13 @@ focus_node=/opt/focus-node/bin/node
 [[ -x "$focus_node" && -f scripts/admin.mjs ]] || { echo 'Deploy the Focus admin release first.' >&2; exit 1; }
 [[ -f /etc/focus/auth.env ]] || { echo 'Configure Focus email sign-in first.' >&2; exit 1; }
 
+IFS= read -r -p 'Allowed client IP addresses (comma-separated): ' admin_allowed_ips </dev/tty
+admin_allowed_ips=$("$focus_node" --input-type=module -e '
+ import {trustedProxies} from "./scripts/proxy.mjs";
+ const addresses=[...trustedProxies(process.argv[1])];
+ if(!addresses.length)process.exit(1);
+ console.log(addresses.join(","));
+' "$admin_allowed_ips") || { echo 'Enter at least one exact IP address.' >&2; exit 1; }
 IFS= read -r -p 'Admin login: ' admin_login </dev/tty
 [[ "$admin_login" =~ ^[A-Za-z0-9_.-]{3,64}$ ]] || { echo 'Use 3–64 letters, numbers, dots, dashes or underscores.' >&2; exit 1; }
 IFS= read -r -s -p 'Admin password (at least 14 characters): ' admin_password </dev/tty
@@ -46,7 +53,7 @@ trap cleanup EXIT
 for file in "$admin_env" "$dropin"; do
  if [[ -f "$file" ]]; then cp -p -- "$file" "$backup/"; fi
 done
-printf 'FOCUS_ADMIN_LOGIN=%s\nFOCUS_ADMIN_PASSWORD_HASH=%s\n' "$admin_login" "$admin_hash" > "$backup/new-admin.env"
+printf 'FOCUS_ADMIN_LOGIN=%s\nFOCUS_ADMIN_PASSWORD_HASH=%s\nFOCUS_ADMIN_ALLOWED_IPS=%s\n' "$admin_login" "$admin_hash" "$admin_allowed_ips" > "$backup/new-admin.env"
 unset admin_hash
 install -d -m 755 "$dropin_dir"
 changed=1
@@ -59,10 +66,9 @@ chmod 644 "$dropin"
 systemctl daemon-reload
 systemctl restart focus
 for _ in {1..20}; do
- if curl -fsS --max-time 2 http://127.0.0.1:3000/api/admin/session |
-  "$focus_node" -e 'try{const v=JSON.parse(require("node:fs").readFileSync(0,"utf8"));process.exit(v.enabled===true?0:1)}catch{process.exit(1)}' 2>/dev/null; then
+ if curl -fsS --max-time 2 http://127.0.0.1:3000/healthz >/dev/null; then
   committed=1
-  echo 'Focus admin access is enabled at /admin.'
+  echo 'Focus is ready. Verify admin access from an allowed IP address at /admin.'
   exit 0
  fi
  sleep 1
