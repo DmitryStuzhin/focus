@@ -31,3 +31,39 @@ export function profileTable([header,...rows]){
  });
  return {rows:rows.length,duplicates:[...frequencies.values()].reduce((sum,count)=>sum+count-1,0),columns};
 }
+
+// Aggregate decimal cells as integers at a shared scale so totals stay exact.
+export function summarizeTable([header,...rows],groupIndex,valueIndex=null){
+ if(!Number.isInteger(groupIndex)||groupIndex<0||groupIndex>=header.length)throw new Error('Выберите столбец для группировки.');
+ const sum=valueIndex!==null;
+ if(sum&&(!Number.isInteger(valueIndex)||valueIndex<0||valueIndex>=header.length))throw new Error('Выберите столбец для суммы.');
+ const groups=new Map();
+ let scale=0;
+ for(const row of rows){
+  const label=String(row[groupIndex]??'').trim();
+  if(!groups.has(label))groups.set(label,{label,count:0,sum:0n});
+  const group=groups.get(label);
+  group.count++;
+  if(!sum)continue;
+  const value=String(row[valueIndex]??'').trim();
+  if(!value)continue;
+  if(value.length>40||!numberPattern.test(value))throw new Error('Для суммы выберите столбец с числами до 40 символов.');
+  const [whole,part='']=value.replace(/^[+-]/u,'').split(/[.,]/u);
+  if(part.length>scale){
+   const factor=10n**BigInt(part.length-scale);
+   for(const existing of groups.values())existing.sum*=factor;
+   scale=part.length;
+  }
+  const units=BigInt(whole+part)*10n**BigInt(scale-part.length);
+  group.sum+=value.startsWith('-')?-units:units;
+ }
+ return [...groups.values()]
+  .sort((a,b)=>b.count-a.count||a.label.localeCompare(b.label,'ru'))
+  .map(group=>{
+   if(!sum)return {label:group.label,count:group.count};
+   const absolute=(group.sum<0n?-group.sum:group.sum).toString().padStart(scale+1,'0');
+   const whole=scale?absolute.slice(0,-scale):absolute;
+   const part=scale?absolute.slice(-scale).replace(/0+$/u,''):'';
+   return {label:group.label,count:group.count,total:(group.sum<0n?'−':'')+whole+(part?','+part:'')};
+  });
+}
