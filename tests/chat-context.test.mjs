@@ -99,3 +99,15 @@ test('a short correction retrieves the file from the preceding topic',async()=>{
  assert.equal(context.at(-1).attachments[0].id,'0');
  assert.equal(context.at(-1).content,'Исправь это');
 });
+
+test('BM25 retrieves a relevant file from 50 candidates and carries older dialogue context',async()=>{
+ const files=Array.from({length:50},(_,i)=>({id:'file-'+i,name:'notes-'+i+'.txt',updated:i}));
+ const history=Array.from({length:60},(_,i)=>user('История '+i));
+ const context=await buildChatContext([...history,user('Найди ограничение heartbeatTimeout')],files,async ids=>ids.map(id=>({
+  id,name:id+'.txt',text:id==='file-0'?'heartbeatTimeout timeout configured for workers':'General background information',
+ })));
+ assert.equal(context.at(-1).attachments[0].id,'file-0');
+ assert.match(context.at(-1).historySummary,/История 0/u);
+ assert.match(context.at(-1).historySummary,/История 20/u);
+ assert.ok(context.length<=40);
+});

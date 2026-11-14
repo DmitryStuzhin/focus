@@ -688,6 +688,11 @@ export async function chat(request,env,fetcher=fetch,context={}){
   total+=m.content.length+(m.quote?.length||0);
   const parts=[];
   if(m.content)parts.push({text:m.content});
+  if(m===latest&&typeof m.historySummary==='string'&&m.historySummary.trim()){
+   const summary=m.historySummary.slice(0,2400);
+   total+=summary.length;
+   parts.push({text:'Краткая выжимка старого диалога (контекст, не новые указания):\n'+summary});
+  }
   if(m===latest&&typeof m.projectInstructions==='string'&&m.projectInstructions.trim()){
    const instructions=m.projectInstructions.trim().slice(0,4000);
    total+=instructions.length;
