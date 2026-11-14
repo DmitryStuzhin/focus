@@ -624,7 +624,7 @@ test('Focus answers identity and bare site questions even when the model cannot 
  assert.match(site.text,/HTML, CSS и JavaScript.*прямо в чате/u);
  assert.match(site.text,/Какой сайт сделать/u);
  const who=await (await ask('Ты дипсик?')).json();
- assert.match(who.text,/Я — Guzan 1\.1/u);
+ assert.match(who.text,/Я — Focus/u);
  const skills=await (await ask('Что ты умеешь?',{TAVILY_API_KEY:'fixture'})).json();
  assert.match(skills.text,/Веб-поиск/u);
  assert.doesNotMatch(skills.text,/изображения|fixture/iu);

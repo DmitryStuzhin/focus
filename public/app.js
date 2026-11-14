@@ -18,7 +18,7 @@ import {icon,mark} from './icons.js';
 import {uid,readState,writeState,fresh,putBlob,getBlob,deleteBlob,replaceWorkspace,validBackup,selectStorageScope,AUTH_EVENT_KEY} from './store.js';
 import {forgeIntent,forgeReport,namedCodeFiles} from './forge.js';
 const app=document.querySelector('#app');
-const MODEL_LABEL='Guzan 1.1';
+const MODEL_LABEL='Focus';
 const IMAGE_COST_NOTICE='После отправки провайдер может завершить генерацию и списать стоимость, даже если остановить ожидание.';
 let state=fresh(), account=null, ready=false;
 let cloudRevision=null, cloudAuto=false, cloudSaving=false, cloudTimer, localRevision=0;
@@ -245,7 +245,7 @@ async function saveGeneratedImage(image,project,prompt){
  const blob=new Blob([bytes],{type:image.mimeType});
  const id=uid(),now=Date.now();
  await putBlob(id,blob);
- state.files.push({id,project,parent:null,name:'Guzan-'+id.slice(0,8)+'.'+extension,kind:'file',type:blob.type,size:blob.size,
+ state.files.push({id,project,parent:null,name:'Focus-'+id.slice(0,8)+'.'+extension,kind:'file',type:blob.type,size:blob.size,
   created:now,updated:now,deleted:false,...(prompt?{imagePrompt:prompt}:{})});
  return id;
 }
@@ -707,7 +707,7 @@ case 'effort-menu':if(apiStatus.provider==='openrouter'){toast('В беспла�
 case 'set-effort':state.settings.effort=t.dataset.value;persist();render();break;
 case 'context-menu':menu(t,[{label:'Работать в проекте'},...liveProjects().map(p=>({text:p.name,action:'switch-context',id:p.id,checked:p.id===state.activeProject,icon:'folder'}))]);break;
 case 'switch-context':{const d=ui.draft;selectProject(id);ui.draft=d;render();break;}
-case 'model-info':modal('Подключение модели',`<p class="dialog-description">${e(MODEL_LABEL)} ${apiStatus.configured?'подключена через сервер приложения.':'ещё не настроена на этом сервере.'}</p><p class="settings-note">История хранится в браузере. Для ответа текст диалога и прикреплённые поддерживаемые файлы передаются провайдеру модели. Guzan 1.1 — название модели в Focus. В бесплатном режиме ответы обрабатывает внешний провайдер, базовая модель может меняться. Ключ API хранится на сервере и не передаётся в браузер.</p><p class="settings-note">Встроенные навыки работают без ключа. Попробуйте «Посчитай (125 + 18) * 1,2», «Статистика для чисел 12; 18; 21; 24» или «Переведи 2,5 км в м».</p><p class="settings-note">Прикрепите таблицу и напишите «Проанализируй CSV». Чтобы увидеть правки, прикрепите старую и новую версии и напишите «Сравни два файла построчно».</p><div class="dialog-footer" style="margin-top:24px">${button('close-modal','Понятно','primary')}</div>`);break;
+case 'model-info':modal('Подключение модели',`<p class="dialog-description">${e(MODEL_LABEL)} ${apiStatus.configured?'подключена через сервер приложения.':'ещё не настроена на этом сервере.'}</p><p class="settings-note">История хранится в браузере. Для ответа текст диалога и прикреплённые поддерживаемые файлы передаются провайдеру модели. Focus — название модели в Focus. В бесплатном режиме ответы обрабатывает внешний провайдер, базовая модель может меняться. Ключ API хранится на сервере и не передаётся в браузер.</p><p class="settings-note">Встроенные навыки работают без ключа. Попробуйте «Посчитай (125 + 18) * 1,2», «Статистика для чисел 12; 18; 21; 24» или «Переведи 2,5 км в м».</p><p class="settings-note">Прикрепите таблицу и напишите «Проанализируй CSV». Чтобы увидеть правки, прикрепите старую и новую версии и напишите «Сравни два файла построчно».</p><div class="dialog-footer" style="margin-top:24px">${button('close-modal','Понятно','primary')}</div>`);break;
 case 'toggle-web-search':if(!apiStatus.searchConfigured){toast('Поиск ещё не подключён на сервере');break;}state.settings.webSearch=!state.settings.webSearch;persist();render();el('composer-input')?.focus();break;
 case 'search-sources':{const owner=t.dataset.searchOwner;const search=owner==='pending'?(generation?.sources?{sources:generation.sources,query:generation.query}:activeChat()?.pendingSearch):activeChat()?.messages.find(m=>m.id===owner)?.search;if(search)modal('Источники поиска',sourcesDialog(search));break;}
 case 'toggle-files':if(previewArtifact(activeChat())){state.settings.showFiles=true;setPreview(null);if(innerWidth<960){ui.mobileFiles=true;render()}break}if(innerWidth<960){ui.mobileFiles=!ui.mobileFiles}else state.settings.showFiles=!state.settings.showFiles;persist();render();break;
