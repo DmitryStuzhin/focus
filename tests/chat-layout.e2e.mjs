@@ -266,6 +266,7 @@ try{
  assert.equal(await siteComposer.inputValue(),'Сделай сайт');
  await siteComposer.fill('У меня есть идея для демо. Сделай сайт со счётчиком');
  await sitePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ await sitePage.getByRole('dialog').getByRole('button',{name:'Запустить',exact:true}).click();
  await sitePage.getByRole('button',{name:'Предпросмотр',exact:true}).last().click();
  const frame=sitePage.frameLocator('#preview-root iframe');
  const heading=frame.getByRole('heading',{name:'Первый сайт'});
@@ -292,6 +293,7 @@ try{
  await siteComposer.fill('Первая версия подходит. Теперь добавь на сайт новый заголовок');
  await frame.getByRole('button',{name:'1'}).waitFor();
  await sitePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ await sitePage.getByRole('dialog').getByRole('button',{name:'Запустить',exact:true}).click();
  await sitePage.getByRole('button',{name:'Предпросмотр',exact:true}).last().click();
  await frame.getByRole('heading',{name:'Вторая версия'}).waitFor();
  assert.equal(siteRequests[2].sitePreview,true);
@@ -315,6 +317,8 @@ try{
  await draftPage.getByText(/Какой сайт сделать/).waitFor();
  await draftComposer.fill('Для стоматологической клиники');
  await draftPage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ const draftConfirmation=draftPage.getByRole('dialog').getByRole('button',{name:'Запустить',exact:true});
+ await draftConfirmation.click();
  await draftPage.getByRole('button',{name:'Предпросмотр',exact:true}).last().click();
  const draftFrame=draftPage.frameLocator('#preview-root iframe');
  await draftFrame.getByRole('heading',{name:'Забота о вашей улыбке'}).waitFor();
@@ -333,6 +337,7 @@ try{
  const gameComposer=gamePage.getByRole('textbox',{name:'Сообщение',exact:true});
  await gameComposer.fill('Сделай мне залипательную игру на мобилку');
  await gamePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ await gamePage.getByRole('dialog').getByRole('button',{name:'Запустить',exact:true}).click();
  await gamePage.getByRole('button',{name:'Предпросмотр',exact:true}).last().click();
  const gameFrame=gamePage.frameLocator('#preview-root iframe');
  await gameFrame.getByRole('heading',{name:'Поймай импульс'}).waitFor();
@@ -356,6 +361,7 @@ try{
  });
  await gameComposer.fill('Сделай игру сложнее');
  await gamePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ await gamePage.getByRole('dialog').getByRole('button',{name:'Запустить',exact:true}).click();
  await gamePage.getByText('Модель недоступна. Текущая версия сохранена.',{exact:true}).waitFor();
  assert.equal(gameRevision.previewKind,'game');
  assert.match(gameRevision.messages.at(-1).attachments[0].text,/Поймай импульс/u);
