@@ -466,8 +466,12 @@
 
 /* Near-black reference palette: depth comes from lines, not bright gradients. */
 [data-theme=dark] .main {
- background: #0c1113;
- animation: none;
+ background:
+  radial-gradient(ellipse 72% 54% at 92% 4%, #36c9b914 0%, transparent 62%),
+  radial-gradient(ellipse 46% 40% at 8% 100%, #187e7710 0%, transparent 68%),
+  #0c1113;
+ background-size: 125% 125%,115% 115%,auto;
+ animation: focus-main-glow 18s var(--ease) infinite alternate;
 }
 [data-theme=dark] .topbar {
  border-bottom-color: #242b2d;
@@ -475,7 +479,7 @@
 }
 [data-theme=dark] .sidebar {
  border-right-color: #242b2d;
- background: #090d0f;
+ background: linear-gradient(180deg,#090d0f 0%,#0a1012 76%,#0d1918 150%);
 }
 [data-theme=dark] .composer {
  border-color: #252d2f;
@@ -488,13 +492,13 @@
 }
 [data-theme=dark] .workspace-card {
  border-color: #252d2f;
- background: #111719;
+ background: radial-gradient(ellipse at 100% 0%,#36c9b914,transparent 46%),#111719;
  box-shadow: none;
 }
 [data-theme=dark] .workspace-symbol { background: #1a2022; color: #ad9265; }
 [data-theme=dark] .files-panel {
  border-left-color: #242b2d;
- background: #090e10;
+ background: radial-gradient(ellipse 90% 32% at 100% 0%,#36c9b90c,transparent 72%),#090e10;
 }
 [data-theme=dark] .files-header,
 [data-theme=dark] .files-foot { border-color: #242b2d; background: #090e10; }
