@@ -30,7 +30,7 @@ const hasImageAccess=()=>account?account.subscriptionUntil>Date.now()||!!savedIm
 let ui={view:'chat',archive:false,filesTab:'files',folder:null,collapsed:new Set(),sidebarClosed:false,mobileNav:false,mobileFiles:false,draft:'',quote:null,attachments:[],menu:null,sort:'name'};
 const studio={siteBrief:'',codeBrief:'',forgeBrief:'',image:{brief:'',mode:'free',ratio:'1:1',style:'',reference:null,favorites:false},imageError:'',imageController:null};
 const studioRoute=()=>{const view=location.hash.slice(1);return Object.hasOwn(STUDIO_LABELS,view)?view:null};
-let toastTimer,uploadAttach=false,objectURLs=[],modalOpener=null,generation=null,apiStatus={configured:false,model:'',label:MODEL_LABEL};
+let pendingUndo,toastTimer,uploadAttach=false,objectURLs=[],modalOpener=null,generation=null,apiStatus={configured:false,model:'',label:MODEL_LABEL};
 const e=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const el=id=>document.getElementById(id);
 const activeProject=()=>state.projects.find(p=>p.id===state.activeProject&&!p.deleted)||state.projects.find(p=>!p.deleted);
@@ -91,7 +91,28 @@ async function saveForgeCheckpoint(chat,content){
  return {id:checkpoint.id,count:files.length,name:checkpointName};
 }
 function forgeCard(report,message){if(!report)return '';const ready=report.status==='ready';return `<section class="forge-report ${ready?'ready':'needs-work'}" aria-label="Проверка Focus Forge"><div class="forge-report-head"><div><strong>Focus Forge</strong><span>${ready?'Результат подготовлен':'Нужна доработка'}</span></div><span class="forge-status">${ready?'Проверено':'Есть замечания'}</span></div><div class="forge-checks">${report.checks.map(item=>`<div class="forge-check ${item.status}"><span aria-hidden="true">${item.status==='pass'?'✓':item.status==='warn'?'!':'×'}</span><div><strong>${e(item.label)}</strong><small>${e(item.detail)}</small></div></div>`).join('')}</div>${report.checkpoint?`<button class="btn ghost forge-open" data-action="open-forge-checkpoint" data-id="${e(report.checkpoint.id)}">Открыть контрольную точку</button>`:report.files.length&&!message.truncated?`<button class="btn ghost" data-action="save-forge-checkpoint" data-id="${e(message.id)}">Сохранить файлы Forge</button>`:''}<small class="forge-limitation">${e(report.limitation)}</small></section>`}
-function toast(text){clearTimeout(toastTimer);const t=el('toast');t.textContent=text;t.classList.add('show');toastTimer=setTimeout(()=>t.classList.remove('show'),4200)}
+function toast(text,undo){
+ clearTimeout(toastTimer);
+ pendingUndo=undo;
+ const element=el('toast');
+ element.textContent=text;
+ if(undo){
+  const control=document.createElement('button');
+  control.type='button';
+  control.textContent='Отменить';
+  control.className='inline-link toast-undo';
+  control.addEventListener('click',async()=>{
+   const action=pendingUndo;pendingUndo=null;
+   if(!action)return;
+   try{await action();render();toast('Действие отменено');}
+   catch{toast('Не удалось отменить действие');}
+  });
+  element.append(' ',control);
+ }
+ element.classList.add('show');
+ toastTimer=setTimeout(()=>{pendingUndo=null;element.classList.remove('show');},undo?8000:4200);
+}
+
 let generatedURLs=[];
 let renderedScrollKey;
 const scrollPositions=new Map();
@@ -515,8 +536,37 @@ function renameDialog(type,id){const item=type==='chat'?state.chats.find(x=>x.id
 function confirm(title,text,action,label='Подтвердить',danger=false){modal(title,`<p class="dialog-description">${e(text)}</p><div class="dialog-footer">${button('close-modal','Отмена','ghost')}<button id="confirm-button" class="btn ${danger?'danger':'primary'}">${e(label)}</button></div>`);el('confirm-button').onclick=async event=>{const submit=event.currentTarget;submit.disabled=true;try{await action();closeModal();persist();render()}catch{submit.disabled=false;toast('Не удалось выполнить действие. Попробуйте ещё раз.')}}}
 function descendants(id){const ids=new Set([id]);let n=-1;while(n!==ids.size){n=ids.size;state.files.forEach(f=>{if(ids.has(f.parent))ids.add(f.id)})}return ids}
 function trashProject(id){const p=state.projects.find(x=>x.id===id);if(!p)return;confirm('Переместить проект в корзину?',`«${p.name}», его диалоги и файлы можно будет восстановить.`,()=>{p.deleted=true;p.deletedAt=Date.now();if(state.activeProject===id){state.activeProject=liveProjects()[0]?.id;state.activeChat=null;ui.view=state.activeProject?'chat':'workspace';ui.draft='';ui.attachments=[];ui.folder=null}log(`Проект «${p.name}» перемещён в корзину`,id)},'В корзину')}
-function trashChat(id){const c=state.chats.find(x=>x.id===id);if(!c)return;c.deleted=true;c.deletedAt=Date.now();if(state.activeChat===id){state.activeChat=null;ui.draft=''}log(`Диалог «${c.title}» перемещён в корзину`,c.project);persist();render();toast('Диалог перемещён в корзину')}
-function trashFile(id){const f=state.files.find(x=>x.id===id);if(!f)return;const ids=descendants(id);state.files.forEach(x=>{if(ids.has(x.id)){x.deleted=true;x.deletedAt=Date.now()}});ui.attachments=ui.attachments.filter(x=>!ids.has(x));log(`В корзину: «${f.name}»`,f.project);persist();render();toast('Перемещено в корзину')}
+function trashChat(id){
+ const chat=state.chats.find(item=>item.id===id&&!item.deleted);
+ if(!chat)return;
+ if(state.activeChat===id)saveDraft();
+ const deletedAt=Date.now();
+ chat.deleted=true;chat.deletedAt=deletedAt;
+ if(state.activeChat===id){state.activeChat=null;restoreDraft();}
+ log(`Диалог «${chat.title}» перемещён в корзину`,chat.project);
+ void persist();render();
+ toast('Диалог перемещён в корзину',async()=>{
+  const current=state.chats.find(item=>item.id===id&&item.deletedAt===deletedAt);
+  if(current){current.deleted=false;delete current.deletedAt;await persist();}
+ });
+}
+function trashFile(id){
+ const file=state.files.find(item=>item.id===id&&!item.deleted);
+ if(!file)return;
+ const ids=descendants(id),deletedAt=Date.now();
+ const affected=state.files.filter(item=>ids.has(item.id)&&!item.deleted);
+ for(const entry of affected){entry.deleted=true;entry.deletedAt=deletedAt;}
+ const affectedIds=new Set(affected.map(entry=>entry.id));
+ ui.attachments=ui.attachments.filter(id=>!affectedIds.has(id));
+ log(`В корзину: «${file.name}»`,file.project);
+ void persist();render();
+ toast('Перемещено в корзину',async()=>{
+  for(const entry of state.files){
+   if(affectedIds.has(entry.id)&&entry.deletedAt===deletedAt){entry.deleted=false;delete entry.deletedAt;}
+  }
+  await persist();
+ });
+}
 function archiveChat(id,value=true){const c=state.chats.find(x=>x.id===id);if(!c)return;c.archived=value;if(value&&state.activeChat===id){state.activeChat=null;ui.draft=''}persist();render();toast(value?'Диалог в архиве':'Диалог возвращён')}
 function restore(type,id){if(type==='project'){const p=state.projects.find(x=>x.id===id);if(p)p.deleted=false}else if(type==='chat'){const c=state.chats.find(x=>x.id===id);if(c)c.deleted=false}else{const ids=descendants(id);state.files.forEach(f=>{if(ids.has(f.id))f.deleted=false});const f=state.files.find(x=>x.id===id);if(f&&state.files.find(x=>x.id===f.parent)?.deleted)f.parent=null}persist();render();toast('Восстановлено')}
 async function permanentDelete(type,id){if(type==='project'){const files=state.files.filter(f=>f.project===id);await Promise.all(files.filter(f=>f.kind!=='folder').map(f=>deleteBlob(f.id)));state.files=state.files.filter(f=>f.project!==id);state.chats=state.chats.filter(c=>c.project!==id);state.changes=state.changes.filter(c=>c.project!==id);state.projects=state.projects.filter(p=>p.id!==id)}else if(type==='chat'){state.chats=state.chats.filter(c=>c.id!==id)}else{const ids=descendants(id);await Promise.all(state.files.filter(f=>ids.has(f.id)&&f.kind!=='folder').map(f=>deleteBlob(f.id)));state.files=state.files.filter(f=>!ids.has(f.id))}}
