@@ -9,6 +9,7 @@ import {createWorkspace} from './workspace.mjs';
 import {createJobs} from './jobs.mjs';
 import {json,error,readJson} from './auth-http.mjs';
 import {ages,goals,roles,starterTemplate} from '../public/onboarding.js';
+import {exampleRoute} from '../public/examples.js';
 
 const MINUTE = 60_000;
 const CODE_TTL = 10 * MINUTE;
@@ -306,7 +307,7 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
    const job=await jobs.handle(request,url,user,now,context.runBackground);
    if(job)return job;
    if(user&&(path==='/'||path.startsWith('/api/')))touchSession.run(now,token,now-MINUTE);
-   if(path==='/login'&&user&&['GET','HEAD'].includes(request.method))return redirect('/');
+   if(path==='/login'&&user&&['GET','HEAD'].includes(request.method))return redirect(exampleRoute(url));
    if(path==='/api/auth/session'){
     return request.method==='GET'?json({enabled:true,user:user?sessionProfile(user,now):null}):error('Метод не поддерживается.',405);
    }
@@ -323,7 +324,7 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
      }
      return null;
     }
-    if((path==='/'||path==='/index.html')&&['GET','HEAD'].includes(request.method))return redirect('/login');
+    if((path==='/'||path==='/index.html')&&['GET','HEAD'].includes(request.method))return redirect(exampleRoute(url,'/login'));
     return path.startsWith('/api/')?error('Войдите в Focus, чтобы продолжить.',401):null;
    }
    if(!['/api/auth/request','/api/auth/verify','/api/auth/register','/api/auth/logout','/api/auth/profile','/api/auth/subscription','/api/auth/delete'].includes(path))return error('Страница не найдена.',404);

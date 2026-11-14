@@ -1,5 +1,8 @@
 import {AUTH_EVENT_KEY,uid} from './store.js';
 import {goals,roles} from './onboarding.js';
+import {exampleRoute} from './examples.js';
+
+const workspaceURL=()=>exampleRoute(new URL(location.href));
 
 const emailForm = document.querySelector('#email-form');
 const codeForm = document.querySelector('#code-form');
@@ -57,7 +60,7 @@ function startEmail(nextMode=mode,focus=true){
 
 function enterWorkspace(){
  try{localStorage.setItem(AUTH_EVENT_KEY,uid());}catch{}
- location.replace('/');
+ location.replace(workspaceURL());
 }
 
 function notice(message=''){
@@ -182,7 +185,7 @@ async function start(){
   const response=await fetch('/api/auth/session',{cache:'no-store'});
   const session=response.status===404?{enabled:false}:await response.json();
   if(!response.ok&&response.status!==404)throw new Error();
-  if(session.user){location.replace('/');return;}
+  if(session.user){location.replace(workspaceURL());return;}
   if(session.enabled){
    modes.hidden=false;
    startEmail(location.hash==='#register'?'register':'login',false);

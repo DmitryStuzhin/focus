@@ -36,6 +36,8 @@ test('a verified email opens a protected workspace and logout revokes the sessio
  const s=await start({...loginEnv,PUBLIC_ORIGIN:'https://focus.example'},{mailer:async message=>sent.push(message)});
  try{
   assert.equal((await s.get('/')).headers.get('location'),'/login');
+  assert.equal((await s.get('/?example=tables')).headers.get('location'),'/login?example=tables');
+  assert.equal((await s.get('/?example=https://other.example')).headers.get('location'),'/login');
   assert.equal((await s.get('/api/chat')).status,401);
   assert.deepEqual(await (await s.get('/api/auth/session')).json(),{enabled:true,user:null});
   const send=await s.post('/api/auth/request',{email:' Me@Example.com ',intent:'register'});
@@ -65,6 +67,7 @@ test('a verified email opens a protected workspace and logout revokes the sessio
   const session=cookie.split(';')[0];
   assert.equal((await s.get('/',session)).status,200);
   assert.equal((await s.get('/login',session)).headers.get('location'),'/');
+  assert.equal((await s.get('/login?example=document',session)).headers.get('location'),'/?example=document');
   assert.equal((await s.get('/api/chat',session)).status,200);
   assert.equal((await s.post('/api/auth/verify',{challenge:body.challenge,code:sent[0].code})).status,400);
   assert.equal((await s.post('/api/auth/logout',{},{cookie:session,origin:'https://foreign.example'})).status,403);

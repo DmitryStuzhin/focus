@@ -1,4 +1,5 @@
 import {citationFiles,fileCitations} from './file-citations.js';
+import {exampleProject,exampleRoute} from './examples.js';
 import {documentTemplates,templatePrompt} from './document-templates.js';
 import {importTemplates,saveTemplate} from './personal-templates.js';
 import {matchingCommands,commandUsed} from './commands.js';
@@ -19,7 +20,7 @@ import {sourcePills,sourcesDialog,linkCitations,researchDate,cleanSources} from 
 import {inlineMarkdown,answerTable,answerChart,prefersJsonCode} from './answer-format.js';
 import {STUDIO_LABELS,SITE_STARTERS,IMAGE_STARTERS,TOOL_STARTERS,CODE_STARTERS,FORGE_STARTERS,renderSites,renderImages,renderSkills,renderFocusCode,renderFocusForge} from './studios.js';
 import {icon,mark} from './icons.js';
-import {uid,readState,writeState,fresh,putBlob,getBlob,deleteBlob,replaceWorkspace,validBackup,selectStorageScope,AUTH_EVENT_KEY} from './store.js';
+import {uid,readState,writeState,fresh,putBlob,getBlob,deleteBlob,replaceWorkspace,saveWorkspaceFiles,validBackup,selectStorageScope,AUTH_EVENT_KEY} from './store.js';
 import {forgeIntent,forgeReport,namedCodeFiles} from './forge.js';
 const app=document.querySelector('#app');
 const MODEL_LABEL='Focus';
@@ -1846,13 +1847,43 @@ async function requestAnswer(c,approved=false){
   if(ui.view==='images')refreshImageStudio();
  }
 }
+function offerExampleProject(){
+ const url=new URL(location.href);
+ if(!url.searchParams.has('example'))return;
+ const sample=exampleProject(url.searchParams.get('example'));
+ url.searchParams.delete('example');
+ history.replaceState(null,'',url.pathname+url.search+url.hash);
+ if(!sample)return;
+ confirm('Скопировать пример в Focus?',`Focus создаст проект «${sample.name}» с ${sample.files.length} учебными файлами.`,async()=>{
+  const now=Date.now(),project=uid(),blobs=new Map();
+  const files=sample.files.map(file=>{
+   const id=uid(),type=file.name.endsWith('.csv')?'text/csv':'text/plain';
+   const blob=new Blob([file.text],{type});
+   blobs.set(id,blob);
+   return {id,project,parent:null,name:file.name,kind:'file',type,size:blob.size,created:now,updated:now,deleted:false};
+  });
+  const next={
+   ...state,
+   projects:[...state.projects,{id:project,name:sample.name,description:'Учебный проект Focus',instructions:'',created:now,deleted:false}],
+   files:[...state.files,...files],
+   activeProject:project,
+   activeChat:null,
+  };
+  saveDraft();
+  await saveWorkspaceFiles(next,blobs);
+  state=next;
+  ui.folder=null;ui.quote=null;ui.attachments=[];ui.view='chat';ui.archive=false;
+  restoreDraft();
+ },'Скопировать');
+}
+
 async function boot(){
  try{
   const response=await fetch('/api/auth/session',{cache:'no-store'});
   if(response.status!==404){
    if(!response.ok)throw new Error();
    const session=await response.json();
-   if(session.enabled&&!session.user){location.replace('/login');return;}
+   if(session.enabled&&!session.user){location.replace(exampleRoute(new URL(location.href),'/login'));return;}
    account=session.user;
   }
   selectStorageScope(account?.id);
@@ -1865,6 +1896,7 @@ async function boot(){
   ready=true;
   ui.view=studioRoute()||'chat';
   render();
+  offerExampleProject();
   if(account)for(const chat of state.chats.filter(item=>item.backgroundJob&&!item.deleted))void recoverJob(chat);
   fetch('/api/status').then(r=>r.ok?r.json():null).then(d=>{if(d){apiStatus=d;render()}}).catch(()=>{});
   const oldImageCode=account?savedImagePass():null;

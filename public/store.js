@@ -68,7 +68,10 @@ async function transact(name,mode,operation,database){
 export const putBlob=(id,blob)=>transact('blobs','readwrite',store=>store.put(blob,id));
 export const getBlob=id=>transact('blobs','readonly',store=>store.get(id));
 export const deleteBlob=id=>transact('blobs','readwrite',store=>store.delete(id));
-export async function replaceWorkspace(state,blobs){
+export const saveWorkspaceFiles=(state,blobs)=>writeWorkspaceFiles(state,blobs,false);
+export const replaceWorkspace=(state,blobs)=>writeWorkspaceFiles(state,blobs,true);
+async function writeWorkspaceFiles(state,blobs,replace){
+ const snapshot=structuredClone(state);
  const db=await fileDB();
  return new Promise((resolve,reject)=>{
   const tx=db.transaction(['workspace','blobs'],'readwrite');
@@ -77,9 +80,9 @@ export async function replaceWorkspace(state,blobs){
   tx.onerror=()=>reject(tx.error);
   tx.onabort=()=>reject(tx.error||new Error('Не удалось восстановить данные'));
   try{
-   files.clear();
+   if(replace)files.clear();
    for(const [id,blob] of blobs)files.put(blob,id);
-   tx.objectStore('workspace').put(state,'state');
+   tx.objectStore('workspace').put(snapshot,'state');
   }catch(error){tx.abort();reject(error);}
  });
 }
