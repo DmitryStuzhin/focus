@@ -119,7 +119,7 @@ function render(){
    const url=URL.createObjectURL(blob);generatedURLs.push(url);img.src=url;
   }).catch(()=>{img.alt='Изображение недоступно на этом устройстве'});
  }
- if(ui.view==='chat'){resizeComposer();updateCommands();}
+ if(ui.view==='chat'){resizeComposer();updateCommands();updateComposerSuggestion();}
 }
 function sidebar(){
  const studioLinks=Object.entries(STUDIO_LABELS).filter(([view])=>!['code','forge'].includes(view)).map(([view,label])=>`<a class="nav-row studio-nav ${ui.view===view?'active':''}" href="#${view}" data-action="studio-view" data-id="${view}" ${ui.view===view?'aria-current="page"':''}>${icon({sites:'globe',images:'image',tables:'table',skills:'command'}[view])}<span>${label}</span></a>`).join('');
@@ -399,7 +399,27 @@ function composerModesMarkup(){
  const active=composerMode();
  return composerModes.map(([id,label])=>`<button type="button" data-action="composer-mode" data-id="${id}" aria-pressed="${id===active}" ${generation?'disabled':''}>${label}</button>`).join('');
 }
-function composer(){return `<div class="composer-area"><div class="composer-wrap"><form class="composer" id="composer-form"><div id="composer-modes" class="composer-modes" aria-label="Инструменты диалога">${composerModesMarkup()}</div><div id="composer-quote">${ui.quote?quoteMarkup(ui.quote.text,true):''}</div><div class="attachment-list" ${ui.attachments.length?'':'hidden'}>${ui.attachments.map(id=>{const f=state.files.find(x=>x.id===id);return f?`<span class="attachment-chip">${icon(fileIcon(f))}<span class="truncate">${e(f.name)}</span>${ib('remove-attachment','close','Убрать вложение',`data-id="${id}"`)}</span>`:''}).join('')}</div><textarea id="composer-input" rows="2" placeholder="Задача, вопрос или идея…" aria-label="Сообщение" maxlength="100000">${e(ui.draft)}</textarea><div class="command-suggestions" id="command-suggestions" aria-label="Команды диалога" hidden></div><div class="composer-bottom"><div class="composer-left">${ib('attach','attach','Прикрепить файлы')}<button class="web-search-toggle ${state.settings.webSearch?'active':''}" type="button" data-action="toggle-web-search" aria-label="Поиск в интернете" aria-pressed="${!!state.settings.webSearch}" title="${apiStatus.searchConfigured?'Искать источники перед ответом':'Поиск ещё не подключён на сервере'}" ${generation?'disabled':''}>${icon('globe')}<span>Поиск</span></button><button class="composer-select" type="button" data-action="model-menu" aria-label="Выбрать модель">${e(MODEL_LABEL)}${icon('down')}</button><button class="composer-select" type="button" data-action="effort-menu" aria-label="Режим ответа">${apiStatus.provider==='openrouter'?'Настройки провайдера':effortLabel()}${icon('down')}</button><button class="composer-select project-context" type="button" data-action="context-menu" aria-label="Контекст проекта">${icon('folder')}<span class="truncate">Файлы проекта</span>${icon('down')}</button></div><button class="send" id="send-button" type="${generation?'button':'submit'}" ${generation?'data-action="stop-generation"':''} aria-label="${generation?'Остановить ответ':'Отправить сообщение'}" ${generation||ui.draft.trim()||ui.attachments.length?'':'disabled'}>${generation?'<span class="stop-square"></span>':icon('arrow')}</button></div></form><div class="composer-hint"><span>История хранится в браузере</span><button type="button" class="inline-link data-details" data-action="data-details">Куда уходят запросы</button><span class="enter-hint">· ${state.settings.sendOnEnter?'Enter — отправить, Shift + Enter — новая строка':'Ctrl + Enter — отправить'}</span></div></div></div>`}
+function composerSuggestion(){
+ const files=ui.attachments.map(id=>state.files.find(file=>file.id===id&&!file.deleted)).filter(Boolean);
+ if(ui.draft.trim()||!files.length)return '';
+ if(files.length===1&&/\.csv$/iu.test(files[0].name))return 'profile-csv';
+ if(files.length===2&&files.every(file=>/\.csv$/iu.test(file.name)))return 'compare-csv';
+ if(files.length===1&&/\.xlsx$/iu.test(files[0].name))return 'profile-xlsx';
+ if(files.length===2&&files.every(file=>/\.(?:csv|xlsx)$/iu.test(file.name)))return 'compare-tables';
+ return '';
+}
+function updateComposerSuggestion(){
+ const panel=el('composer-suggestion');
+ if(!panel)return;
+ const idea=composerSuggestion();
+ const numbers=!idea&&/^\s*[+-]?\d+(?:[.,]\d+)?(?:[;\s]+[+-]?\d+(?:[.,]\d+)?){1,49}\s*$/u.test(ui.draft);
+ const label={'profile-csv':'Проанализировать таблицу','profile-xlsx':'Проанализировать таблицу',
+  'compare-csv':'Сравнить таблицы','compare-tables':'Сравнить таблицы'}[idea]??(numbers?'Посчитать итог':'');
+ panel.hidden=!label||!!generation;
+ panel.textContent=label;
+ panel.dataset.id=idea||(numbers?'stats':'');
+}
+function composer(){return `<div class="composer-area"><div class="composer-wrap"><form class="composer" id="composer-form"><div id="composer-modes" class="composer-modes" aria-label="Инструменты диалога">${composerModesMarkup()}</div><div id="composer-quote">${ui.quote?quoteMarkup(ui.quote.text,true):''}</div><div class="attachment-list" ${ui.attachments.length?'':'hidden'}>${ui.attachments.map(id=>{const f=state.files.find(x=>x.id===id);return f?`<span class="attachment-chip">${icon(fileIcon(f))}<span class="truncate">${e(f.name)}</span>${ib('remove-attachment','close','Убрать вложение',`data-id="${id}"`)}</span>`:''}).join('')}</div><textarea id="composer-input" rows="2" placeholder="Задача, вопрос или идея…" aria-label="Сообщение" maxlength="100000">${e(ui.draft)}</textarea><div class="command-suggestions" id="command-suggestions" aria-label="Команды диалога" hidden></div><button type="button" class="inline-link composer-idea" id="composer-suggestion" data-action="composer-suggestion" hidden></button><div class="composer-bottom"><div class="composer-left">${ib('attach','attach','Прикрепить файлы')}<button class="web-search-toggle ${state.settings.webSearch?'active':''}" type="button" data-action="toggle-web-search" aria-label="Поиск в интернете" aria-pressed="${!!state.settings.webSearch}" title="${apiStatus.searchConfigured?'Искать источники перед ответом':'Поиск ещё не подключён на сервере'}" ${generation?'disabled':''}>${icon('globe')}<span>Поиск</span></button><button class="composer-select" type="button" data-action="model-menu" aria-label="Выбрать модель">${e(MODEL_LABEL)}${icon('down')}</button><button class="composer-select" type="button" data-action="effort-menu" aria-label="Режим ответа">${apiStatus.provider==='openrouter'?'Настройки провайдера':effortLabel()}${icon('down')}</button><button class="composer-select project-context" type="button" data-action="context-menu" aria-label="Контекст проекта">${icon('folder')}<span class="truncate">Файлы проекта</span>${icon('down')}</button></div><button class="send" id="send-button" type="${generation?'button':'submit'}" ${generation?'data-action="stop-generation"':''} aria-label="${generation?'Остановить ответ':'Отправить сообщение'}" ${generation||ui.draft.trim()||ui.attachments.length?'':'disabled'}>${generation?'<span class="stop-square"></span>':icon('arrow')}</button></div></form><div class="composer-hint"><span>История хранится в браузере</span><button type="button" class="inline-link data-details" data-action="data-details">Куда уходят запросы</button><span class="enter-hint">· ${state.settings.sendOnEnter?'Enter — отправить, Shift + Enter — новая строка':'Ctrl + Enter — отправить'}</span></div></div></div>`}
 function quoteMarkup(text,editable=false){
  return `<div class="message-quote"><div class="quote-copy"><strong>Цитата из диалога</strong><span>${e(text)}</span></div>${editable?ib('remove-quote','close','Убрать цитату'):''}</div>`;
 }
@@ -795,6 +815,34 @@ case 'export-chat':exportChat(id);break;
 case 'restore':restore(t.dataset.type,id);break;
 case 'permanent-delete':confirm('Удалить навсегда?','Элемент и его содержимое будут удалены без возможности восстановления.',()=>permanentDelete(t.dataset.type,id),'Удалить навсегда',true);break;
 case 'empty-trash':confirm('Очистить корзину?','Все элементы корзины будут удалены навсегда.',async()=>{for(const p of state.projects.filter(p=>p.deleted))await permanentDelete('project',p.id);for(const c of state.chats.filter(c=>c.deleted))await permanentDelete('chat',c.id);for(const f of state.files.filter(f=>f.deleted))await permanentDelete('file',f.id)},'Очистить',true);break;
+case 'composer-suggestion':{
+ if(id==='profile-xlsx'||id==='compare-tables'){
+  const selection=ui.attachments.map(id=>state.files.find(file=>file.id===id&&!file.deleted));
+  if(selection.some(file=>!file)){toast('Один из файлов недоступен в браузере.');break;}
+  const files=await Promise.all(selection.map(file=>getBlob(file.id)));
+  if(files.some(file=>!file)){toast('Один из файлов недоступен в браузере.');break;}
+  try{
+   const tables=await Promise.all(files.map((blob,index)=>openTable(new File([blob],selection[index].name))));
+   if(id==='profile-xlsx'){
+    const {profileTable}=await import('./table-profile.js');
+    const profile=profileTable(tables[0]);
+    modal('Профиль таблицы',`<p>Строк: ${profile.rows}. Повторных строк: ${profile.duplicates}.</p><ul>${profile.columns.map(column=>`<li>${e(column.name)}: пропусков ${column.missing}, уникальных ${column.distinct}</li>`).join('')}</ul>`);
+   }else modal('Сверка таблиц',`<form><label>Общий ключ <input name="key" value="id" required></label><button class="btn primary">Сравнить</button><p role="status"></p></form>`,{onSubmit:(data,form)=>{
+    try{
+     const {added,removed,modified,matched}=compareTables(tables[0],tables[1],tableKeys(String(data.get('key'))));
+     form.querySelector('[role=status]').textContent=`Добавлено: ${added}. Удалено: ${removed}. Изменено: ${modified}. Совпало: ${matched}.`;
+    }catch(error){form.querySelector('[role=status]').textContent=error.message;}
+   }});
+  }catch(error){toast(error.message);}
+  break;
+ }
+ if(id==='stats')ui.draft='/stats '+ui.draft.trim().replace(/\s*;\s*|\s+/gu,'; ');
+ else if(id==='profile-csv')ui.draft='/csv';
+ else if(id==='compare-csv')ui.draft='/csvdiff id';
+ else break;
+ saveDraft();render();el('composer-input')?.focus();
+ break;
+}
 case 'composer-mode':{
  if(generation)break;
  if(id==='tables'){setView('tables');break;}
@@ -987,7 +1035,7 @@ document.addEventListener('submit',event=>{
 });
 document.addEventListener('input',event=>{
  const input=event.target;
- if(input.id==='composer-input'){ui.draft=input.value;saveDraft();updateCommands();for(const button of document.querySelectorAll('#composer-modes button'))button.setAttribute('aria-pressed',String(button.dataset.id===composerMode()));el('send-button').disabled=!generation&&!ui.draft.trim()&&!ui.attachments.length;resizeComposer();}
+ if(input.id==='composer-input'){ui.draft=input.value;saveDraft();updateCommands();updateComposerSuggestion();for(const button of document.querySelectorAll('#composer-modes button'))button.setAttribute('aria-pressed',String(button.dataset.id===composerMode()));el('send-button').disabled=!generation&&!ui.draft.trim()&&!ui.attachments.length;resizeComposer();}
  if(input.id==='code-brief')studio.codeBrief=input.value;
  if(input.id==='forge-brief')studio.forgeBrief=input.value;
  if(input.id==='site-brief')studio.siteBrief=input.value;
