@@ -1,4 +1,5 @@
 import {citationFiles,fileCitations} from './file-citations.js';
+import {exampleProject} from './examples.js';
 import {documentTemplates,templatePrompt} from './document-templates.js';
 import {importTemplates,saveTemplate} from './personal-templates.js';
 import {matchingCommands,commandUsed} from './commands.js';
@@ -1846,13 +1847,42 @@ async function requestAnswer(c,approved=false){
   if(ui.view==='images')refreshImageStudio();
  }
 }
+function offerExampleProject(){
+ const url=new URL(location.href);
+ if(!url.searchParams.has('example'))return;
+ const sample=exampleProject(url.searchParams.get('example'));
+ url.searchParams.delete('example');
+ history.replaceState(null,'',url.pathname+url.search+url.hash);
+ if(!sample)return;
+ confirm('Скопировать пример в Focus?',`Focus создаст проект «${sample.name}» с ${sample.files.length} учебными файлами.`,async()=>{
+  const now=Date.now(),project=uid(),files=[],written=[];
+  try{
+   for(const file of sample.files){
+    const id=uid(),blob=new Blob([file.text],{type:'text/plain;charset=utf-8'});
+    await putBlob(id,blob);
+    written.push(id);
+    files.push({id,project,parent:null,name:file.name,kind:'file',type:'text/plain',size:blob.size,created:now,updated:now,deleted:false});
+   }
+  }catch(error){
+   await Promise.allSettled(written.map(id=>deleteBlob(id)));
+   throw error;
+  }
+  saveDraft();
+  state.projects.push({id:project,name:sample.name,description:'Учебный проект Focus',instructions:'',created:now,deleted:false});
+  state.files.push(...files);
+  state.activeProject=project;state.activeChat=null;
+  ui.folder=null;ui.quote=null;ui.attachments=[];ui.view='chat';ui.archive=false;
+  restoreDraft();
+ },'Скопировать');
+}
+
 async function boot(){
  try{
   const response=await fetch('/api/auth/session',{cache:'no-store'});
   if(response.status!==404){
    if(!response.ok)throw new Error();
    const session=await response.json();
-   if(session.enabled&&!session.user){location.replace('/login');return;}
+   if(session.enabled&&!session.user){const next=new URLSearchParams(location.search).get('example');location.replace(exampleProject(next)?'/login?example='+encodeURIComponent(next):'/login');return;}
    account=session.user;
   }
   selectStorageScope(account?.id);
@@ -1865,6 +1895,7 @@ async function boot(){
   ready=true;
   ui.view=studioRoute()||'chat';
   render();
+  offerExampleProject();
   if(account)for(const chat of state.chats.filter(item=>item.backgroundJob&&!item.deleted))void recoverJob(chat);
   fetch('/api/status').then(r=>r.ok?r.json():null).then(d=>{if(d){apiStatus=d;render()}}).catch(()=>{});
   const oldImageCode=account?savedImagePass():null;
