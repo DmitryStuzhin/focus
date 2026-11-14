@@ -11,3 +11,8 @@ button[aria-pressed=true] { background: light-dark(#d9eeea,#284743); }
 :focus-visible { outline: 3px solid light-dark(#22716f,#90e0d2); outline-offset: 3px; }
 section { padding: 1rem 1.3rem; border: 1px solid light-dark(#92aaa4,#526e68); border-radius: .75rem; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
+section+section { margin-top: 1.5rem; }
+form { display: grid; gap: .7rem; justify-items: start; }
+label { display: grid; gap: .25rem; width: min(100%,32rem); }
+input,select,textarea { font: inherit; padding: .5rem; }
+textarea { resize: vertical; }
