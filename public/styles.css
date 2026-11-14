@@ -571,3 +571,9 @@
 .toast-undo { margin-inline-start: 5px; color: inherit; text-decoration: underline; }
 
 .document-choice{display:block;overflow-wrap:anywhere;margin:.45rem 0}
+
+.answer-placeholder{display:grid;gap:9px;margin-top:14px}
+.answer-placeholder span{display:block;height:.55rem;width:65%;border-radius:8px;background:var(--line)}
+.answer-placeholder span:nth-child(2){width:88%}
+.answer-placeholder span:nth-child(3){width:48%}
+.stream-text:not(:empty)+.answer-placeholder{display:none}
