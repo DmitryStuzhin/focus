@@ -10,12 +10,7 @@ const PAGE_CSP="sandbox allow-scripts; default-src 'none'; script-src 'unsafe-in
 
 function validSnapshot(snapshot){
  if(!snapshot||!snapshot.blobs||Array.isArray(snapshot.blobs)||typeof snapshot.blobs!=='object')return false;
- try{
-  if(!validBackup(snapshot))return false;
-  const files=new Set(snapshot.files.filter(file=>file.kind==='file').map(file=>file.id));
-  return Object.entries(snapshot.blobs).every(([id,data])=>files.has(id)&&typeof data==='string'&&
-   /^data:[\w.+/-]*;base64,[A-Za-z0-9+/]*={0,2}$/u.test(data));
- }catch{return false;}
+ return validBackup(snapshot);
 }
 
 export function createWorkspace(db){

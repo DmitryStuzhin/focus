@@ -453,17 +453,17 @@ function searchResults(query){
   const next=new Map(),changed=[];
   const add=(key,revision,entry)=>{
    next.set(key,revision);
-   if(searchVersions.get(key)!==revision)changed.push({key,...entry});
+   if(searchVersions.get(key)!==revision)changed.push({key,...entry()});
   };
   for(const project of liveProjects()){
-   add('project:'+project.id,project.name,{id:project.id,title:project.name,project:project.id,action:'search-project',icon:'folder',subtitle:'Проект'});
+   add('project:'+project.id,project.name,()=>({id:project.id,title:project.name,project:project.id,action:'search-project',icon:'folder',subtitle:'Проект'}));
   }
   for(const chat of state.chats){
    if(chat.deleted||!live.has(chat.project))continue;
-   add('chat:'+chat.id,chat.updated+':'+chat.title+':'+chat.archived+':'+chat.messages.length,{
+   add('chat:'+chat.id,chat.updated+':'+chat.title+':'+chat.archived+':'+chat.messages.length,()=>({
     id:chat.id,title:chat.title,project:chat.project,action:'search-chat',icon:'chat',
     subtitle:projectName(chat.project)+(chat.archived?' · Архив':''),messages:chat.messages.map(message=>message.content),
-   });
+   }));
   }
   for(const file of state.files){
    if(file.deleted||!live.has(file.project))continue;
@@ -472,8 +472,8 @@ function searchResults(query){
    if(searchVersions.get(key)!==revision&&file.kind==='file'&&isText(file)&&file.size<=500000){
     blob=await getBlob(file.id);
    }
-   add(key,revision,{id:file.id,title:file.name,project:file.project,action:'search-file',icon:fileIcon(file),
-    subtitle:projectName(file.project),blob});
+   add(key,revision,()=>({id:file.id,title:file.name,project:file.project,action:'search-file',icon:fileIcon(file),
+    subtitle:projectName(file.project),blob}));
   }
   const removed=[...searchVersions.keys()].filter(key=>!next.has(key));
   searchWorker.postMessage({id,changed,removed,query});
