@@ -462,9 +462,18 @@ function updateComposerSuggestion(){
  panel.textContent=label;
  panel.dataset.id=idea||(numbers?'stats':'');
 }
+function documentChecklistDialog(){
+ modal('Проверить документ по критериям',`<form><label for="checklist">Критерии, по одному на строку</label><textarea id="checklist" name="criteria" rows="6" maxlength="4000" required placeholder="Выделен срок оплаты"></textarea><p>Ответ будет содержать статус и ссылку на место в документе, если его удалось определить.</p><button type="submit" class="btn primary">Подготовить запрос</button></form>`,{onSubmit:data=>{
+  const criteria=String(data.get('criteria')).split(/\r?\n/u).map(line=>line.trim()).filter(Boolean).slice(0,30);
+  if(!criteria.length)return;
+  ui.draft='/evidence Проверьте приложенный документ по каждому критерию. Дайте таблицу «Критерий | Выполнено / нет / не указано | Где в документе». Если сведений нет, укажите это.\n'+criteria.map((item,index)=>(index+1)+'. '+item).join('\n');
+  saveDraft();closeModal();render();el('composer-input')?.focus();
+ }});
+}
 function documentTemplateDialog(){
  modal('Шаблоны документов',`<p>Выберите шаблон, затем добавьте материалы и уточните задачу в сообщении.</p><div class="settings-buttons">
   ${documentTemplates.map(template=>button('document-template',e(template.title),'ghost',`data-id="${e(template.id)}"`)).join('')}
+  ${button('document-checklist','Проверить по критериям','ghost')}
  </div>`);
 }
 function composer(){return `<div class="composer-area"><div class="composer-wrap"><form class="composer" id="composer-form"><div id="composer-modes" class="composer-modes" aria-label="Инструменты диалога">${composerModesMarkup()}</div><div id="composer-quote">${ui.quote?quoteMarkup(ui.quote.text,true):''}</div><div class="attachment-list" ${ui.attachments.length?'':'hidden'}>${ui.attachments.map(id=>{const f=state.files.find(x=>x.id===id);return f?`<span class="attachment-chip">${icon(fileIcon(f))}<span class="truncate">${e(f.name)}</span>${ib('remove-attachment','close','Убрать вложение',`data-id="${id}"`)}</span>`:''}).join('')}</div><textarea id="composer-input" rows="2" placeholder="Задача, вопрос или идея…" aria-label="Сообщение" maxlength="100000">${e(ui.draft)}</textarea><div class="command-suggestions" id="command-suggestions" aria-label="Команды диалога" hidden></div><button type="button" class="inline-link composer-idea" id="composer-suggestion" data-action="composer-suggestion" hidden></button><div class="composer-bottom"><div class="composer-left">${ib('attach','attach','Прикрепить файлы')}<button class="web-search-toggle ${state.settings.webSearch?'active':''}" type="button" data-action="toggle-web-search" aria-label="Поиск в интернете" aria-pressed="${!!state.settings.webSearch}" title="${apiStatus.searchConfigured?'Искать источники перед ответом':'Поиск ещё не подключён на сервере'}" ${generation?'disabled':''}>${icon('globe')}<span>Поиск</span></button><button class="composer-select" type="button" data-action="model-menu" aria-label="Выбрать модель">${e(MODEL_LABEL)}${icon('down')}</button><button class="composer-select" type="button" data-action="effort-menu" aria-label="Режим ответа">${apiStatus.provider==='openrouter'?'Настройки провайдера':effortLabel()}${icon('down')}</button><button class="composer-select project-context" type="button" data-action="review-context" aria-label="Что видит ИИ">${icon('folder')}<span class="truncate">Что видит ИИ</span>${icon('down')}</button></div><button class="send" id="send-button" type="${generation?'button':'submit'}" ${generation?'data-action="stop-generation"':''} aria-label="${generation?'Остановить ответ':'Отправить сообщение'}" ${generation||ui.draft.trim()||ui.attachments.length?'':'disabled'}>${generation?'<span class="stop-square"></span>':icon('arrow')}</button></div></form><div class="composer-hint"><span>История хранится в браузере</span><button type="button" class="inline-link data-details" data-action="data-details">Куда уходят запросы</button><span class="enter-hint">· ${state.settings.sendOnEnter?'Enter — отправить, Shift + Enter — новая строка':'Ctrl + Enter — отправить'}</span></div></div></div>`}
@@ -970,6 +979,7 @@ case 'composer-suggestion':{
  saveDraft();render();el('composer-input')?.focus();
  break;
 }
+case 'document-checklist':documentChecklistDialog();break;
 case 'document-template':{
  const prompt=templatePrompt(id);
  if(!prompt)break;
