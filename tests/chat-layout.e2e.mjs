@@ -14,8 +14,10 @@ const server=http.createServer(async(req,res)=>{
  const url=new URL(req.url,'http://'+req.headers.host);
  const request=new Request(url,{method:req.method,headers:req.headers,
   ...(['GET','HEAD'].includes(req.method)?{}:{body:Readable.toWeb(req),duplex:'half'})});
- const response=url.pathname==='/api/chat'?await chat(request,{}):
-  await worker.fetch(request,{},url.pathname==='/api/status'?{userId:'browser-fixture'}:{});
+ let response;
+ if(url.pathname==='/api/auth/session')response=Response.json({enabled:false,user:null});
+ else if(url.pathname==='/api/chat')response=await chat(request,{});
+ else response=await worker.fetch(request,{},url.pathname==='/api/status'?{userId:'browser-fixture'}:{});
  res.writeHead(response.status,Object.fromEntries(response.headers));
  if(response.body)Readable.fromWeb(response.body).pipe(res);
  else res.end();
@@ -237,6 +239,11 @@ try{
  await planComposer.fill('Составь план подготовки выпуска');
  await planPage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
  await planPage.getByRole('checkbox',{name:'Собрать материалы'}).check();
+ await planPage.waitForFunction(async()=>{
+  const {readState}=await import('/store.js');
+  const {chats}=await readState();
+  return chats.some(chat=>chat.messages.some(message=>message.content.includes('- [x] Собрать материалы')));
+ });
  await planPage.reload();
  await planPage.waitForLoadState('networkidle');
  assert.equal(await planPage.getByRole('checkbox',{name:'Собрать материалы'}).isChecked(),true);
