@@ -1,6 +1,6 @@
 import {runLocalSkill} from './local-skills.js';
 import {openTable,createWorkbook} from './office.js';
-import {compareTables} from './tabular.js';
+import {compareTables,tableKeys} from './tabular.js';
 
 const localForm=document.querySelector('#local-form');
 const toolExamples={calc:'(125 + 18) * 1,2',stats:'12; 18; 21; 24',convert:'2,5 км в м',json:'{"сумма":1200}'};
@@ -26,7 +26,7 @@ compareForm.addEventListener('submit',async event=>{
  output.textContent='Читаем таблицы…';
  try{
   const [before,after]=await Promise.all([openTable(data.get('before')),openTable(data.get('after'))]);
-  report=compareTables(before,after,data.get('key').trim());
+  report=compareTables(before,after,tableKeys(data.get('key')));
   output.textContent=`Изменено: ${report.modified} · Добавлено: ${report.added} · Удалено: ${report.removed} · Совпало: ${report.matched}`;
   download.hidden=false;
  }catch(error){output.textContent=error.message;}

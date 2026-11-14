@@ -2,7 +2,7 @@ import {matchingCommands,commandUsed} from './commands.js';
 import {eventStream} from './event-stream.js';
 import {workspaceAPI,snapshotWorkspace,decodeWorkspace} from './workspace-features.js';
 import {openTable,createWorkbook,createDocument,createSlides,officeFilename,officeText} from './office.js';
-import {compareTables} from './tabular.js';
+import {compareTables,tableKeys} from './tabular.js';
 import {projectFiles,projectZip} from './project-bundle.js';
 import {resolveAction,SPLIT_ACTIONS} from './action-phrases.js';
 import {projectSearchQuery,projectPath,searchProjectFiles,readMatchContext} from './project-search.js';
@@ -1424,7 +1424,7 @@ function tablesView(){
   <form class="studio-panel studio-form focus-form" id="tables-form">
    <div class="form-field"><label for="table-before">Исходная выгрузка</label><input id="table-before" name="before" type="file" accept=".csv,.xlsx" required></div>
    <div class="form-field"><label for="table-after">Новая выгрузка</label><input id="table-after" name="after" type="file" accept=".csv,.xlsx" required></div>
-   <div class="form-field"><label for="table-key">Ключевой столбец</label><input id="table-key" name="key" value="id" maxlength="100" required></div>
+   <div class="form-field"><label for="table-key">Ключевые столбцы (через ;)</label><input id="table-key" name="key" value="id" maxlength="100" required></div>
    <button class="studio-primary" type="submit">Сравнить</button>
   </form>
   <section class="studio-section" id="table-result" aria-live="polite"></section>
@@ -1438,7 +1438,7 @@ async function compareUploads(form){
  try{
   const values=new FormData(form);
   const [before,after]=await Promise.all([openTable(values.get('before')),openTable(values.get('after'))]);
-  const comparison=compareTables(before,after,String(values.get('key')).trim());
+  const comparison=compareTables(before,after,tableKeys(String(values.get('key'))));
   result.innerHTML=`<div class="studio-panel"><h2>Результат сверки</h2>
    <dl class="table-totals">
     <div><dt>Добавлено</dt><dd>${comparison.added}</dd></div>
