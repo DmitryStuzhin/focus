@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ru">
+<head>
+ <meta charset="utf-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1">
+ <meta name="description" content="Сверка CSV и XLSX и точные расчёты в браузере.">
+ <title>Точные инструменты · Focus</title>
+ <link rel="stylesheet" href="/examples.css">
+ <script type="module" src="/tools.js"></script>
+</head>
+<body>
+ <main>
+  <nav><a href="/examples.html">Примеры Focus</a><a href="/login">Вход в аккаунт</a></nav>
+  <h1>Точные инструменты</h1>
+  <p>Введённые данные и файлы обрабатываются в вашем браузере.</p>
+  <section>
+   <h2>Рассчитать или проверить данные</h2>
+   <form id="local-form">
+    <label>Инструмент
+     <select name="mode">
+      <option value="calc">Калькулятор</option><option value="stats">Статистика</option>
+      <option value="convert">Перевод единиц</option><option value="json">Проверка JSON</option>
+     </select>
+    </label>
+    <label>Данные<textarea name="input" rows="4" maxlength="100000" required placeholder="Например, (125 + 18) * 1,2"></textarea></label>
+    <button>Выполнить</button>
+   </form>
+   <pre id="local-result" role="status"></pre>
+  </section>
+  <section>
+   <h2>Сверить две таблицы</h2>
+   <form id="compare-form">
+    <label>Исходная выгрузка <input type="file" name="before" accept=".csv,.xlsx" required></label>
+    <label>Новая выгрузка <input type="file" name="after" accept=".csv,.xlsx" required></label>
+    <label>Ключевые столбцы (через ;) <input name="key" value="id" maxlength="100" required></label>
+    <button>Сравнить</button>
+   </form>
+   <pre id="compare-result" role="status"></pre>
+   <button type="button" id="download-report" hidden>Скачать XLSX</button>
+  </section>
+  <section id="profile">
+   <h2>Профиль таблицы</h2>
+   <form id="profile-form">
+    <label>Выгрузка CSV или XLSX <input type="file" name="table" accept=".csv,.xlsx" required></label>
+    <button>Проанализировать</button>
+   </form>
+   <p id="profile-summary" role="status"></p>
+   <div id="profile-result" class="profile-table"></div>
+  </section>
+  <section id="clean">
+   <h2>Очистить таблицу</h2>
+   <form id="clean-form">
+    <label>Выгрузка CSV или XLSX <input type="file" name="table" accept=".csv,.xlsx" required></label>
+    <label>Название столбца <input name="column" required maxlength="150"></label>
+    <label>Правило <select name="mode"><option value="date">Даты</option><option value="phone">Телефоны РФ</option><option value="inn">ИНН</option><option value="name">Пробелы в ФИО</option></select></label>
+    <label><span><input type="checkbox" name="deduplicate"> Удалить полные дубликаты строк</span></label>
+    <button>Предпросмотр изменений</button>
+   </form>
+   <pre id="clean-result" role="status"></pre>
+   <button type="button" id="download-clean" hidden>Скачать очищенную копию</button>
+  </section>
+  <p>Войдите в аккаунт для сохранения в проекте, синхронизации или запросов к модели.</p>
+ </main>
+</body>
+</html>

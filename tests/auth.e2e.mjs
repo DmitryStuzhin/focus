@@ -20,7 +20,7 @@ try{
  const page=await browser.newPage({viewport:{width:1440,height:1000},reducedMotion:'reduce'});
  await page.goto(url);
  assert.equal(new URL(page.url()).pathname,'/login');
- await page.getByRole('heading',{name:'Войди в Focus'}).waitFor();
+ await page.getByRole('heading',{name:'Вход в Focus'}).waitFor();
  await page.getByLabel('Электронная почта').waitFor();
  await page.getByRole('heading',{name:/Место для работы/}).waitFor();
  await page.screenshot({path:new URL('focus-login-desktop.png',artifacts).pathname,fullPage:true});
@@ -28,21 +28,18 @@ try{
   if(register)await page.getByRole('button',{name:'Регистрация',exact:true}).click();
   await page.getByLabel('Электронная почта').fill(email);
   await page.getByRole('button',{name:'Получить код'}).click();
-  await page.getByRole('heading',{name:'Проверь почту'}).waitFor();
+  await page.getByRole('heading',{name:'Проверьте почту'}).waitFor();
   assert.equal(delivered.to,email);
   const otp=page.getByLabel('Код из письма');
   await otp.fill(delivered.code==='000000'?'000001':'000000');
   const submit=page.getByRole('button',{name:register?'Подтвердить почту':'Войти в Focus'});
   await submit.click();
-  await page.getByText('Код не совпал. Проверь письмо.').waitFor();
+  await page.getByText('Код не совпал. Проверьте письмо.').waitFor();
   await otp.fill(delivered.code);
   await submit.click();
   if(register){
-   await page.getByRole('heading',{name:'Расскажи о себе'}).waitFor();
-   await page.getByLabel('Имя',{exact:true}).fill('Анна');
-   await page.getByLabel('Фамилия').fill('Иванова');
-   await page.getByLabel('Возраст').selectOption('18-24');
-   await page.getByLabel('Чем ты занимаешься?').selectOption('student');
+   await page.getByRole('heading',{name:'Расскажите о себе'}).waitFor();
+   await page.getByLabel('Чем вы занимаетесь?').selectOption('student');
    await page.getByRole('checkbox',{name:'Учёба'}).check();
    await page.getByRole('checkbox',{name:'Программирование'}).check();
    await page.getByRole('button',{name:'Создать аккаунт'}).click();
@@ -55,7 +52,7 @@ try{
  assert.equal(await page.getByRole('link',{name:'Админ-панель'}).count(),0);
  await page.getByRole('button',{name:/Моё пространство/}).click();
  await page.getByText('first@example.com',{exact:true}).waitFor();
- assert.equal(await page.getByLabel('Имя в аккаунте').inputValue(),'Анна Иванова');
+ assert.equal(await page.getByLabel('Имя в аккаунте').inputValue(),'');
  await page.getByLabel('Название',{exact:true}).fill('Аккаунт номер один');
  await page.getByRole('button',{name:'Сохранить',exact:true}).click();
  await page.getByRole('button',{name:/Аккаунт номер один/}).click();
@@ -88,7 +85,7 @@ try{
  await phone.getByRole('button',{name:'Получить код'}).click();
  await phone.getByLabel('Код из письма').fill(delivered.code);
  await phone.getByRole('button',{name:'Подтвердить почту'}).click();
- await phone.getByRole('heading',{name:'Расскажи о себе'}).waitFor();
+ await phone.getByRole('heading',{name:'Расскажите о себе'}).waitFor();
  assert.equal(await phone.evaluate(()=>document.documentElement.scrollWidth),390);
  await phone.screenshot({path:new URL('focus-registration-mobile.png',artifacts).pathname,fullPage:true});
  await phone.close();

@@ -4,7 +4,7 @@ const scoped=key=>scope?key+'.'+scope:key;
 export const selectStorageScope=id=>{scope=id||'';};
 export const AUTH_EVENT_KEY='focus.auth.changed';
 export const uid=()=>crypto.randomUUID?.()||Array.from(crypto.getRandomValues(new Uint8Array(16)),x=>x.toString(16).padStart(2,'0')).join('');
-export const fresh=()=>({version:1,projects:[{id:'personal',name:'Личное пространство',description:'',created:Date.now(),deleted:false}],chats:[],files:[],changes:[],settings:{name:'Моё пространство',model:'flash',effort:'balanced',theme:'system',sendOnEnter:true,showFiles:true,webSearch:false},activeProject:'personal',activeChat:null});
+export const fresh=()=>({version:1,projects:[{id:'personal',name:'Личное пространство',description:'',created:Date.now(),deleted:false}],chats:[],files:[],changes:[],settings:{name:'Моё пространство',model:'flash',effort:'balanced',theme:'system',textSize:'normal',density:'normal',sendOnEnter:true,showFiles:true,webSearch:false},activeProject:'personal',activeChat:null});
 function normalizeState(data){
  if(data?.version!==1||!['projects','chats','files'].every(key=>Array.isArray(data[key])))return fresh();
  const defaults=fresh();
@@ -68,7 +68,10 @@ async function transact(name,mode,operation,database){
 export const putBlob=(id,blob)=>transact('blobs','readwrite',store=>store.put(blob,id));
 export const getBlob=id=>transact('blobs','readonly',store=>store.get(id));
 export const deleteBlob=id=>transact('blobs','readwrite',store=>store.delete(id));
-export async function replaceWorkspace(state,blobs){
+export const saveWorkspaceFiles=(state,blobs)=>writeWorkspaceFiles(state,blobs,false);
+export const replaceWorkspace=(state,blobs)=>writeWorkspaceFiles(state,blobs,true);
+async function writeWorkspaceFiles(state,blobs,replace){
+ const snapshot=structuredClone(state);
  const db=await fileDB();
  return new Promise((resolve,reject)=>{
   const tx=db.transaction(['workspace','blobs'],'readwrite');
@@ -77,9 +80,9 @@ export async function replaceWorkspace(state,blobs){
   tx.onerror=()=>reject(tx.error);
   tx.onabort=()=>reject(tx.error||new Error('Не удалось восстановить данные'));
   try{
-   files.clear();
+   if(replace)files.clear();
    for(const [id,blob] of blobs)files.put(blob,id);
-   tx.objectStore('workspace').put(state,'state');
+   tx.objectStore('workspace').put(snapshot,'state');
   }catch(error){tx.abort();reject(error);}
  });
 }
@@ -123,10 +126,10 @@ const report=optional(shape({
 }));
 const message=shape({
  id:safeId,content:text(500000),role:optional(value=>['user','assistant'].includes(value)),
- at:date,files:optional(list(safeId,1000)),quote:optional(text(4000)),webSearch:flag,
+ at:date,files:optional(list(safeId,1000)),quote:optional(text(4000)),webSearch:flag,noProjectInstructions:flag,noAutoContext:flag,
  model:short,siteMode:flag,previewKind:short,taskMode:short,codeMode:flag,imageFile:id,
  codeTargets:optional(list(shape({id:safeId,name:text(512),hash:short}),20)),
- usage,truncated:flag,search,forge:report,projectSearch,
+ usage,truncated:flag,search,forge:report,projectSearch,fileCitations:optional(list(shape({id:safeId,name:text(512),start:number,end:number}),24)),rating:optional(value=>value==='helpful'),
  researchPlan:optional(shape({question:text(600),queries:strings,sources:text(30),background:flag})),
 });
 const project=shape({id:safeId,name:text(120),description:optional(text(10000)),
@@ -138,6 +141,7 @@ const file=shape({id:safeId,project:safeId,parent:id,name:text(512),type:short,s
  kind:value=>['file','folder'].includes(value),created:date,updated:date,deleted:flag,deletedAt:date,
  forgeManaged:flag,sourcePath:path,imagePrompt:optional(text(150000)),favorite:flag});
 const settings=shape({name:text(512),theme:value=>['light','dark','system'].includes(value),
+ textSize:optional(value=>['normal','large'].includes(value)),density:optional(value=>['normal','compact'].includes(value)),
  model:short,effort:short,sendOnEnter:flag,showFiles:flag,webSearch:flag});
 const blobs=value=>value==null||value&&typeof value==='object'&&!Array.isArray(value);
 const backup=shape({version:value=>value===1,projects:list(project,2000),chats:list(chat,5000),

@@ -1,7 +1,12 @@
+import {citationFiles,fileCitations} from './file-citations.js';
+import {exampleProject,exampleRoute} from './examples.js';
+import {documentTemplates,templatePrompt} from './document-templates.js';
+import {importTemplates,saveTemplate} from './personal-templates.js';
+import {matchingCommands,commandUsed} from './commands.js';
 import {eventStream} from './event-stream.js';
 import {workspaceAPI,snapshotWorkspace,decodeWorkspace} from './workspace-features.js';
 import {openTable,createWorkbook,createDocument,createSlides,officeFilename,officeText} from './office.js';
-import {compareTables} from './tabular.js';
+import {compareTables,tableKeys} from './tabular.js';
 import {projectFiles,projectZip} from './project-bundle.js';
 import {resolveAction,SPLIT_ACTIONS} from './action-phrases.js';
 import {projectSearchQuery,projectPath,searchProjectFiles,readMatchContext} from './project-search.js';
@@ -11,11 +16,11 @@ import {compareText} from './text-diff.js';
 import {imageIntent,latestImage,imageReference} from './image-intent.js';
 import {buildChatContext,searchQuery,MAX_QUOTE_LENGTH} from './chat-context.js';
 import {bindQuoteSelection} from './quote-selection.js';
-import {sourcePills,sourcesDialog,linkCitations} from './search-ui.js';
+import {sourcePills,sourcesDialog,linkCitations,researchDate,cleanSources} from './search-ui.js';
 import {inlineMarkdown,answerTable,answerChart,prefersJsonCode} from './answer-format.js';
 import {STUDIO_LABELS,SITE_STARTERS,IMAGE_STARTERS,TOOL_STARTERS,CODE_STARTERS,FORGE_STARTERS,renderSites,renderImages,renderSkills,renderFocusCode,renderFocusForge} from './studios.js';
 import {icon,mark} from './icons.js';
-import {uid,readState,writeState,fresh,putBlob,getBlob,deleteBlob,replaceWorkspace,validBackup,selectStorageScope,AUTH_EVENT_KEY} from './store.js';
+import {uid,readState,writeState,fresh,putBlob,getBlob,deleteBlob,replaceWorkspace,saveWorkspaceFiles,validBackup,selectStorageScope,AUTH_EVENT_KEY} from './store.js';
 import {forgeIntent,forgeReport,namedCodeFiles} from './forge.js';
 const app=document.querySelector('#app');
 const MODEL_LABEL='Focus';
@@ -29,7 +34,7 @@ const hasImageAccess=()=>account?account.subscriptionUntil>Date.now()||!!savedIm
 let ui={view:'chat',archive:false,filesTab:'files',folder:null,collapsed:new Set(),sidebarClosed:false,mobileNav:false,mobileFiles:false,draft:'',quote:null,attachments:[],menu:null,sort:'name'};
 const studio={siteBrief:'',codeBrief:'',forgeBrief:'',image:{brief:'',mode:'free',ratio:'1:1',style:'',reference:null,favorites:false},imageError:'',imageController:null};
 const studioRoute=()=>{const view=location.hash.slice(1);return Object.hasOwn(STUDIO_LABELS,view)?view:null};
-let toastTimer,uploadAttach=false,objectURLs=[],modalOpener=null,generation=null,apiStatus={configured:false,model:'',label:MODEL_LABEL};
+let pendingUndo,toastTimer,uploadAttach=false,objectURLs=[],modalOpener=null,generation=null,apiStatus={configured:false,model:'',label:MODEL_LABEL};
 const e=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const el=id=>document.getElementById(id);
 const activeProject=()=>state.projects.find(p=>p.id===state.activeProject&&!p.deleted)||state.projects.find(p=>!p.deleted);
@@ -90,9 +95,36 @@ async function saveForgeCheckpoint(chat,content){
  return {id:checkpoint.id,count:files.length,name:checkpointName};
 }
 function forgeCard(report,message){if(!report)return '';const ready=report.status==='ready';return `<section class="forge-report ${ready?'ready':'needs-work'}" aria-label="Проверка Focus Forge"><div class="forge-report-head"><div><strong>Focus Forge</strong><span>${ready?'Результат подготовлен':'Нужна доработка'}</span></div><span class="forge-status">${ready?'Проверено':'Есть замечания'}</span></div><div class="forge-checks">${report.checks.map(item=>`<div class="forge-check ${item.status}"><span aria-hidden="true">${item.status==='pass'?'✓':item.status==='warn'?'!':'×'}</span><div><strong>${e(item.label)}</strong><small>${e(item.detail)}</small></div></div>`).join('')}</div>${report.checkpoint?`<button class="btn ghost forge-open" data-action="open-forge-checkpoint" data-id="${e(report.checkpoint.id)}">Открыть контрольную точку</button>`:report.files.length&&!message.truncated?`<button class="btn ghost" data-action="save-forge-checkpoint" data-id="${e(message.id)}">Сохранить файлы Forge</button>`:''}<small class="forge-limitation">${e(report.limitation)}</small></section>`}
-function toast(text){clearTimeout(toastTimer);const t=el('toast');t.textContent=text;t.classList.add('show');toastTimer=setTimeout(()=>t.classList.remove('show'),4200)}
+function toast(text,undo){
+ clearTimeout(toastTimer);
+ pendingUndo=undo;
+ const element=el('toast');
+ element.textContent=text;
+ if(undo){
+  const control=document.createElement('button');
+  control.type='button';
+  control.textContent='Отменить';
+  control.className='inline-link toast-undo';
+  control.addEventListener('click',async()=>{
+   const action=pendingUndo;pendingUndo=null;
+   if(!action)return;
+   try{await action();render();toast('Действие отменено');}
+   catch{toast('Не удалось отменить действие');}
+  });
+  element.append(' ',control);
+ }
+ element.classList.add('show');
+ toastTimer=setTimeout(()=>{pendingUndo=null;element.classList.remove('show');},undo?8000:4200);
+}
+
 let generatedURLs=[];
+let renderedScrollKey;
+const scrollPositions=new Map();
 function render(){
+ const scrollKey=ui.view+':'+(state.activeChat??state.activeProject);
+ if(renderedScrollKey&&el('main-scroll')){
+  scrollPositions.set(renderedScrollKey,el('main-scroll').scrollTop);
+ }
  hideSelectionAction();
  if(!Object.hasOwn(STUDIO_LABELS,ui.view)&&studioRoute())history.replaceState(null,'',location.pathname+location.search);
  if(ui.quote&&ui.quote.chatId!==activeChat()?.id)ui.quote=null;
@@ -104,7 +136,10 @@ function render(){
  app.innerHTML=`<div class="shell ${showFiles?'':'no-files'} ${ui.sidebarClosed?'sidebar-collapsed':''} ${artifact?'has-site-preview':''}">
  ${sidebar()}<button class="sidebar-shade" aria-label="Закрыть навигацию" data-action="close-nav"></button>
  <main class="main" ${ui.mobileNav||ui.mobileFiles?'inert':''}>${header()}<div class="main-scroll" id="main-scroll">${mainView()}</div>${ui.view==='chat'?composer():''}</main>
- ${artifact?'<div class="preview-space" aria-hidden="true"></div>':ui.view==='chat'?filesPanel(showFiles):''}</div>`;
+ ${artifact?'<div class="preview-space" aria-hidden="true"></div>':ui.view==='chat'?filesPanel(showFiles):''}${mobileNavigation()}</div>`;
+ const stored=scrollPositions.get(scrollKey);
+ if(stored!=null&&el('main-scroll'))el('main-scroll').scrollTop=stored;
+ renderedScrollKey=scrollKey;
  syncPreviewPanel(artifact);
  if(ui.view==='chat'){
   const answers=activeChat()?.messages.filter(message=>message.role==='assistant')||[];
@@ -118,7 +153,7 @@ function render(){
    const url=URL.createObjectURL(blob);generatedURLs.push(url);img.src=url;
   }).catch(()=>{img.alt='Изображение недоступно на этом устройстве'});
  }
- if(ui.view==='chat')resizeComposer();
+ if(ui.view==='chat'){resizeComposer();updateCommands();updateComposerSuggestion();}
 }
 function sidebar(){
  const studioLinks=Object.entries(STUDIO_LABELS).filter(([view])=>!['code','forge'].includes(view)).map(([view,label])=>`<a class="nav-row studio-nav ${ui.view===view?'active':''}" href="#${view}" data-action="studio-view" data-id="${view}" ${ui.view===view?'aria-current="page"':''}>${icon({sites:'globe',images:'image',tables:'table',skills:'command'}[view])}<span>${label}</span></a>`).join('');
@@ -129,7 +164,7 @@ function sidebar(){
  <div class="projects-heading"><span>Проекты</span>${ib('create-project','plus','Создать проект')}</div>
  <div class="sidebar-tabs" role="tablist" aria-label="Состояние диалогов"><button class="tab ${!ui.archive?'active':''}" role="tab" aria-selected="${!ui.archive}" data-action="tab-dialogs">Диалоги</button><button class="tab ${ui.archive?'active':''}" role="tab" aria-selected="${ui.archive}" data-action="tab-archive">Архив</button></div>
  <nav class="project-tree" aria-label="Проекты и диалоги">${liveProjects().map(p=>{const chats=state.chats.filter(c=>c.project===p.id&&!c.deleted&&!!c.archived===ui.archive).sort((a,b)=>b.updated-a.updated);return `<div class="project-row ${p.id===state.activeProject?'active':''}"><button class="project-link" data-action="select-project" data-id="${p.id}">${icon('chevron',`caret ${ui.collapsed.has(p.id)?'':'open'}`)}${icon('folder')}<span class="truncate">${e(p.name)}</span></button><button class="icon-btn row-more" data-action="project-menu" data-id="${p.id}" aria-label="Действия с проектом ${e(p.name)}">${icon('more')}</button></div>${ui.collapsed.has(p.id)?'':`<div class="chat-list">${chats.map(c=>`<div class="chat-row ${c.id===state.activeChat&&ui.view==='chat'?'active':''}"><button class="chat-link truncate" data-action="select-chat" data-id="${c.id}">${e(c.title)}</button><button class="icon-btn row-more" data-action="chat-menu" data-id="${c.id}" aria-label="Действия с диалогом ${e(c.title)}">${icon('more')}</button></div>`).join('')}</div>`}`}).join('')}${liveProjects().length?'':`<p class="empty-nav">Создайте проект, чтобы начать</p>`}</nav>
- <div class="sidebar-footer"><button class="nav-row ${ui.view==='trash'?'active':''}" data-action="trash">${icon('trash')}<span>Корзина</span>${trashCount()?`<span style="margin-left:auto;font-size:11px">${trashCount()}</span>`:''}</button><button class="profile" data-action="settings"><span class="avatar">${e((state.settings.name||'М')[0].toUpperCase())}</span><span class="profile-label"><strong class="truncate">${e(state.settings.name)}</strong><small>Личное пространство</small></span>${icon('settings')}</button></div></aside>`;
+ <div class="sidebar-footer"><a class="nav-row" href="/help.html#feedback" target="_blank" rel="noopener">${icon('info')}<span>Обратная связь</span></a><button class="nav-row ${ui.view==='trash'?'active':''}" data-action="trash">${icon('trash')}<span>Корзина</span>${trashCount()?`<span style="margin-left:auto;font-size:11px">${trashCount()}</span>`:''}</button><button class="profile" data-action="settings"><span class="avatar">${e((state.settings.name||'М')[0].toUpperCase())}</span><span class="profile-label"><strong class="truncate">${e(state.settings.name)}</strong><small>Личное пространство</small></span>${icon('settings')}</button></div></aside>`;
 }
 function studioSites(){
  const projects=new Set(liveProjects().map(project=>project.id));
@@ -260,7 +295,7 @@ async function generateStudioImage(approved=false){
  const paid=mode==='paid';
  const pass=paid&&!(account?.subscriptionUntil>Date.now())?savedImagePass():null;
  if(paid&&!hasImageAccess()){imageSubscriptionDialog();return;}
- if(!approved){confirm('Запустить генерацию изображения?',IMAGE_COST_NOTICE,()=>{queueMicrotask(()=>void generateStudioImage(true));},'Запустить');return;}
+ if(!approved){confirm('Запустить генерацию изображения?',IMAGE_COST_NOTICE+quotaNotice(),()=>{queueMicrotask(()=>void generateStudioImage(true));},'Запустить');return;}
  const controller=new AbortController();
  studio.imageController=controller;
  studio.imageError='';
@@ -303,13 +338,17 @@ async function generateStudioImage(approved=false){
 }
 
 let quotaRefresh=0;
+function quotaNotice(){
+ const percent=apiStatus.budget?.remainingPercent;
+ return Number.isFinite(percent)?' Остаток на 5 часов — '+percent+'%.':'';
+}
 function quotaMarkup(){
  const budget=apiStatus.budget;
  if(!budget)return '';
  const percent=budget.remainingPercent;
  const reset=budget.resetAt?new Date(budget.resetAt).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'через 5 часов после первого запроса';
  const description=`Лимит на 5 часов: осталось ${percent}%. Сброс: ${reset}`;
- return `<button type="button" class="quota-chip" data-action="quota-info" aria-label="${e(description)}" title="${e(description)}">
+ return `<button type="button" class="quota-chip ${percent<=20?'quota-low':''}" data-action="quota-info" aria-label="${e(description)}" title="${e(description)}">
  <span class="quota-window">5 ч</span><span class="quota-value">${percent}%</span>
  <meter min="0" max="100" value="${percent}" aria-hidden="true"></meter></button>`;
 }
@@ -335,24 +374,166 @@ window.addEventListener('focus',refreshQuota);
 setInterval(()=>{if(document.visibilityState==='visible')void refreshQuota();},60_000);
 
 function header(){let title=STUDIO_LABELS[ui.view]||(ui.view==='workspace'?'Рабочее пространство':ui.view==='trash'?'Корзина':ui.view==='archive'?'Архив':activeProject()?.name||'Новый диалог');return `<header class="topbar"><div class="topbar-title">${ib('toggle-sidebar','menu','Открыть навигацию',ui.sidebarClosed?'':`class="mobile-only"`)}<span class="truncate">${e(title)}</span>${ui.view==='chat'&&activeChat()?`<span class="top-divider desktop-only"></span><span class="truncate desktop-only" style="color:var(--muted);font-size:12px;font-weight:400">${e(activeChat().title)}</span>`:''}</div><div class="topbar-actions"><span id="quota-slot">${quotaMarkup()}</span>${themeButton()}${ui.view==='chat'?`<button class="status" data-action="model-info" title="Статус подключения"><span class="status-dot"></span>${apiStatus.configured?e(MODEL_LABEL):'Не подключено'}</button><span class="top-divider"></span>${activeChat()?ib('current-chat-menu','more','Действия с диалогом'):''}${ib('toggle-files','panel','Показать или скрыть файлы',`aria-pressed="${state.settings.showFiles}"`)}`:button('new-chat',`${icon('plus')} <span>Новый диалог</span>`,'ghost topbar-new-chat','aria-label="Новый диалог"')}</div></header>`}
+function modelProvenance(message){
+ if(!message.model)return '';
+ const local=message.model.startsWith('local-');
+ return `<small class="model-provenance">${local?'Встроенный инструмент':'Модель: '+e(message.model)}</small>`;
+}
+function starterSuggestion(){
+ let template;
+ try{template=sessionStorage.getItem('focus.starter.'+account?.id);}catch{}
+ const suggestion={
+  tables:['composer-mode','tables','Сверить две выгрузки'],
+  document:['composer-mode','document','Найти ответ в документе'],
+  code:['composer-mode','code','Подготовить код'],
+ }[template];
+ if(!suggestion)return '';
+ const [action,id,label]=suggestion;
+ return button(action,label,'ghost',`data-id="${id}"`);
+}
+function citationMarkup(message){
+ if(!message.fileCitations?.length)return '';
+ return `<aside class="answer-file-sources" aria-label="Цитаты из файлов">${message.fileCitations.map((source,index)=>button('open-file-citation',e(source.name)+' · '+source.start+'–'+source.end,'ghost',`data-id="${e(message.id)}" data-index="${index}"`)).join('')}</aside>`;
+}
+function extraAnswerActions(message){
+ return ib('share-answer','arrow','Поделиться ответом',`data-id="${e(message.id)}"`)+
+  button('rate-answer',message.rating==='helpful'?'Полезно ✓':'Полезно','ghost',
+   `data-id="${e(message.id)}" aria-pressed="${message.rating==='helpful'}"`);
+}
 function chatView(){const c=activeChat();if(!c||!c.messages.length)return `<section class="welcome"><div class="welcome-inner">${mark}
- <h1>Над чем поработаем?</h1><div class="suggestions focus-start" aria-label="Быстрые задачи">
+ <h1>Над чем поработаем?</h1><p class="welcome-sub">Например, прикрепите две выгрузки и проверьте, какие записи изменились.</p><div class="suggestions focus-start" aria-label="Быстрые задачи">
   <button class="suggestion" aria-label="Создать сайт" data-action="prompt" data-prompt="Сделай сайт">${icon('globe')}<span>Создать сайт<small>Предпросмотр и исходники</small></span></button>
   <button class="suggestion" data-action="studio-view" data-id="tables">${icon('table')}<span>Сверить таблицы<small>Изменения между двумя выгрузками</small></span></button>
   <button class="suggestion" data-action="research-plan">${icon('search')}<span>Исследовать тему<small>Поиск с источниками</small></span></button>
   <button class="suggestion" data-action="studio-view" data-id="images">${icon('image')}<span>Создать изображение<small>Генерация и правки</small></span></button>
  </div><div class="version-actions focus-code-shortcut">
+  ${starterSuggestion()}
   <button class="inline-link" aria-label="Написать код" data-action="prompt" data-prompt="Напиши код для ">Написать код</button>
   <button class="inline-link" aria-label="Продумать план" data-action="prompt" data-prompt="Составь план для ">Продумать план</button>
  </div></div></section>`;
  let lastUserContent='';
  return `<section class="messages" aria-label="Сообщения диалога">${c.messages.map(m=>{
   if(m.role==='user')lastUserContent=m.content;
-  return m.role==='assistant'?`<article class="assistant-message"><div class="assistant-label">Focus <span>${e(m.model==='local-calculator'?'Калькулятор':m.model==='local-statistics'?'Статистика':m.model==='local-conversion'?'Конвертер':m.model==='local-csv'?'Анализ CSV':m.model==='local-diff'?'Сравнение файлов':m.model==='local-project-search'?'Поиск по проекту':m.taskMode==='plan'?'План':m.taskMode==='review'?'Ревью кода':MODEL_LABEL)}</span></div>${sourcePills({...m.search,owner:m.id})}${m.search?.failedQueries?.length?`<p class="settings-note">Не удалось выполнить запросов: ${m.search.failedQueries.length}</p>`:''}<div class="markdown">${m.model==='local-project-search'?renderProjectMatches(m):m.model==='local-diff'?'<div class="code-block"><pre><code>'+e(m.content)+'</code></pre></div>':linkCitations(markdown(m.content,m,lastUserContent),m.search)}</div>${m.imageFile&&state.files.some(f=>f.id===m.imageFile&&!f.deleted)?'<figure class="generated-image"><img data-generated-file="'+e(m.imageFile)+'" alt="Сгенерированное изображение" /><button class="btn" data-action="download-file" data-id="'+e(m.imageFile)+'">Скачать изображение</button></figure>':''}<div class="assistant-actions">${ib('copy-message','copy','Скопировать ответ',`data-id="${m.id}"`)}${ib('save-answer','file','Сохранить ответ в файл',`data-id="${m.id}"`)}${ib('download-answer','download','Скачать ответ',`data-id="${m.id}"`)}${ib('office-export','file','Экспорт в Word или PowerPoint',`data-id="${m.id}"`)}${!m.truncated&&/\x60\x60\x60\w+\s+[^\s]+/u.test(m.content)?button('download-project','Скачать файлы ZIP','ghost',`data-id="${m.id}"`):''}${ib('retry-answer','refresh','Повторить ответ')}${m.truncated?'<small>Достигнута максимальная длина ответа</small>':''}</div></article>`:`<article class="message">${m.files?.length?`<div class="message-files">${m.files.map(id=>{const f=state.files.find(x=>x.id===id&&!x.deleted);return f?`<button class="message-file" data-action="preview-file" data-id="${f.id}">${icon(fileIcon(f))}<span class="truncate">${e(f.name)}</span></button>`:''}).join('')}</div>`:''}<div class="message-bubble">${typeof m.quote==='string'&&m.quote?quoteMarkup(m.quote):''}<div>${e(m.content)}</div></div><div class="message-time"><span>${time(m.at)}</span>${ib('copy-message','copy','Скопировать сообщение',`data-id="${m.id}"`)}${ib('edit-message','rename','Изменить сообщение',`data-id="${m.id}"`)}${ib('delete-message','trash','Удалить сообщение',`data-id="${m.id}"`)}</div></article>`;}).join('')}${generation?.chatId===c.id?`<div class="assistant-message" role="status"><div class="assistant-label">Focus</div>${generation.sources?.length?sourcePills({sources:generation.sources,query:generation.query,owner:'pending'}):''}<div class="generating ${generation.phase==='searching'?'web-searching':''}">${generation.phase==='searching'?'Ищу в интернете':generation.phase==='imaging'?'Создаю изображение':generation.forge?'Подготавливаю файлы и предпросмотр':'Готовлю ответ'}<span class="typing-dots"><i></i><i></i><i></i></span></div><div class="stream-text" id="stream-text" aria-live="polite" aria-atomic="false">${e(generation.text)}</div></div>`:c.backgroundJob?`<div class="pending-note">${icon('clock')}<span>Исследование выполняется в фоне</span>
+  return m.role==='assistant'?`<article class="assistant-message"><div class="assistant-label">Focus <span>${e(m.model==='local-calculator'?'Калькулятор':m.model==='local-statistics'?'Статистика':m.model==='local-conversion'?'Конвертер':m.model==='local-csv'?'Анализ CSV':m.model==='local-diff'?'Сравнение файлов':m.model==='local-project-search'?'Поиск по проекту':m.taskMode==='plan'?'План':m.taskMode==='review'?'Ревью кода':MODEL_LABEL)}</span>${modelProvenance(m)}</div>${sourcePills({...m.search,owner:m.id})}${m.search?.failedQueries?.length?`<p class="settings-note">Не удалось выполнить запросов: ${m.search.failedQueries.length}</p>`:''}<div class="markdown">${m.model==='local-project-search'?renderProjectMatches(m):m.model==='local-diff'?'<div class="code-block"><pre><code>'+e(m.content)+'</code></pre></div>':linkCitations(markdown(m.content,m,lastUserContent),m.search)}</div>${citationMarkup(m)}${m.imageFile&&state.files.some(f=>f.id===m.imageFile&&!f.deleted)?'<figure class="generated-image"><img data-generated-file="'+e(m.imageFile)+'" alt="Сгенерированное изображение" /><button class="btn" data-action="download-file" data-id="'+e(m.imageFile)+'">Скачать изображение</button></figure>':''}<div class="assistant-actions">${ib('copy-message','copy','Скопировать ответ',`data-id="${m.id}"`)}${extraAnswerActions(m)}${ib('save-answer','file','Сохранить ответ в файл',`data-id="${m.id}"`)}${ib('download-answer','download','Скачать ответ',`data-id="${m.id}"`)}${ib('office-export','file','Экспорт в Word или PowerPoint',`data-id="${m.id}"`)}${!m.truncated&&/\x60\x60\x60\w+\s+[^\s]+/u.test(m.content)?button('download-project','Скачать файлы ZIP','ghost',`data-id="${m.id}"`):''}${m===c.messages.at(-1)&&!c.error&&!generation?ib('retry-answer','refresh','Получить ещё один ответ'):''}${m.truncated?'<small>Достигнута максимальная длина ответа</small>':''}</div></article>`:`<article class="message">${m.files?.length?`<div class="message-files">${m.files.map(id=>{const f=state.files.find(x=>x.id===id&&!x.deleted);return f?`<button class="message-file" data-action="preview-file" data-id="${f.id}">${icon(fileIcon(f))}<span class="truncate">${e(f.name)}</span></button>`:''}).join('')}</div>`:''}<div class="message-bubble">${typeof m.quote==='string'&&m.quote?quoteMarkup(m.quote):''}<div>${e(m.content)}</div></div><div class="message-time"><span>${time(m.at)}</span>${ib('copy-message','copy','Скопировать сообщение',`data-id="${m.id}"`)}${ib('edit-message','rename','Изменить сообщение',`data-id="${m.id}"`)}${ib('delete-message','trash','Удалить сообщение',`data-id="${m.id}"`)}</div></article>`;}).join('')}${generation?.chatId===c.id?`<div class="assistant-message"><div class="assistant-label">Focus</div>${generation.sources?.length?sourcePills({sources:generation.sources,query:generation.query,owner:'pending'}):''}<div role="status" class="generating ${generation.phase==='searching'?'web-searching':''}">${generation.phase==='searching'?'Ищу в интернете':generation.phase==='imaging'?'Создаю изображение':generation.forge?'Подготавливаю файлы и предпросмотр':'Готовлю ответ'}<span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span></div><div class="stream-text" id="stream-text" aria-live="polite" aria-atomic="false">${e(generation.text)}</div><div class="answer-placeholder" aria-hidden="true"><span></span><span></span><span></span></div></div>`:c.backgroundJob?`<div class="pending-note">${icon('clock')}<span>Исследование выполняется в фоне</span>
  <button class="inline-link" data-action="resume-background">Проверить результат</button>
- <button class="inline-link" data-action="cancel-background">Остановить</button></div>`:c.error?`<div class="request-error" role="alert">${icon('info')}<div>${c.pendingSearch?.sources?.length?sourcePills({...c.pendingSearch,owner:'pending'}):''}<p>${e(c.error)}</p><button class="inline-link" data-action="retry-answer">Повторить запрос</button></div></div>`:c.messages.at(-1)?.role==='user'?`<div class="pending-note">${icon('info')}<span>${apiStatus.configured?'Ответ не получен. Вы можете повторить запрос.':'Запрос сохранён. Модель ещё не подключена.'} <button class="inline-link" data-action="retry-answer">Повторить</button></span></div>`:''}</section>`}
+ <button class="inline-link" data-action="cancel-background">Остановить</button></div>`:c.error?`<div class="request-error" role="alert">${icon('info')}<div>${c.pendingSearch?.sources?.length?sourcePills({...c.pendingSearch,owner:'pending'}):''}<strong>Запрос не завершился</strong><p>${e(c.error)}</p><button class="inline-link" data-action="retry-answer">Повторить запрос</button></div></div>`:c.messages.at(-1)?.role==='user'?`<div class="pending-note">${icon('info')}<span>${apiStatus.configured?'Ответ не получен. Вы можете повторить запрос.':'Запрос сохранён. Модель ещё не подключена.'} <button class="inline-link" data-action="retry-answer">Повторить</button></span></div>`:''}</section>`}
 
-function composer(){return `<div class="composer-area"><div class="composer-wrap"><form class="composer" id="composer-form"><div id="composer-quote">${ui.quote?quoteMarkup(ui.quote.text,true):''}</div><div class="attachment-list" ${ui.attachments.length?'':'hidden'}>${ui.attachments.map(id=>{const f=state.files.find(x=>x.id===id);return f?`<span class="attachment-chip">${icon(fileIcon(f))}<span class="truncate">${e(f.name)}</span>${ib('remove-attachment','close','Убрать вложение',`data-id="${id}"`)}</span>`:''}).join('')}</div><textarea id="composer-input" rows="2" placeholder="Задача, вопрос или идея…" aria-label="Сообщение" maxlength="100000">${e(ui.draft)}</textarea><div class="composer-bottom"><div class="composer-left">${ib('attach','attach','Прикрепить файлы')}<button class="web-search-toggle ${state.settings.webSearch?'active':''}" type="button" data-action="toggle-web-search" aria-label="Поиск в интернете" aria-pressed="${!!state.settings.webSearch}" title="${apiStatus.searchConfigured?'Искать источники перед ответом':'Поиск ещё не подключён на сервере'}" ${generation?'disabled':''}>${icon('globe')}<span>Поиск</span></button><button class="composer-select" type="button" data-action="model-menu" aria-label="Выбрать модель">${e(MODEL_LABEL)}${icon('down')}</button><button class="composer-select" type="button" data-action="effort-menu" aria-label="Режим ответа">${apiStatus.provider==='openrouter'?'Обычный ответ':effortLabel()}${icon('down')}</button><button class="composer-select project-context" type="button" data-action="context-menu" aria-label="Контекст проекта">${icon('folder')}<span class="truncate">Файлы проекта</span>${icon('down')}</button></div><button class="send" id="send-button" type="${generation?'button':'submit'}" ${generation?'data-action="stop-generation"':''} aria-label="${generation?'Остановить ответ':'Отправить сообщение'}" ${generation||ui.draft.trim()||ui.attachments.length?'':'disabled'}>${generation?'<span class="stop-square"></span>':icon('arrow')}</button></div></form><div class="composer-hint"><span>История сохраняется в этом браузере</span><span class="enter-hint">· ${state.settings.sendOnEnter?'Enter — отправить, Shift + Enter — новая строка':'Ctrl + Enter — отправить'}</span></div></div></div>`}
+function recentCommands(){
+ try{
+  const saved=JSON.parse(localStorage.getItem('focus.commands.'+(account?.id??'guest')));
+  return Array.isArray(saved)?saved.filter(value=>typeof value==='string'):[];
+ }catch{return [];}
+}
+function updateCommands(){
+ const panel=el('command-suggestions');
+ if(!panel)return;
+ const commands=generation?[]:matchingCommands(ui.draft,recentCommands());
+ panel.hidden=!commands.length;
+ panel.innerHTML=commands.map(([id,label,example])=>`<button type="button" data-action="command-fill" data-id="${id}"><code>/${id}</code><span>${e(label)}<small>${e('/'+id+(example?' '+example:''))}</small></span></button>`).join('');
+}
+const composerModes=[
+ ['tables','Таблицы'],['document','Документ'],['code','Код'],['sites','Сайт'],['images','Изображение'],['search','Поиск'],
+];
+function composerMode(){
+ if(state.settings.webSearch)return 'search';
+ return {'/evidence':'document','/code':'code','/site':'sites','/image':'images'}[ui.draft.trim().split(/\s/u)[0]]??ui.composerMode;
+}
+function composerModesMarkup(){
+ const active=composerMode();
+ return composerModes.map(([id,label])=>`<button type="button" data-action="composer-mode" data-id="${id}" aria-pressed="${id===active}" ${generation?'disabled':''}>${label}</button>`).join('');
+}
+function composerSuggestion(){
+ const files=ui.attachments.map(id=>state.files.find(file=>file.id===id&&!file.deleted)).filter(Boolean);
+ if(ui.draft.trim()||!files.length)return '';
+ if(files.length===1&&/\.(?:csv|xlsx)$/iu.test(files[0].name))return 'profile-table';
+ if(files.length===2&&files.every(file=>/\.csv$/iu.test(file.name)))return 'compare-csv';
+ if(files.length===2&&files.every(file=>/\.(?:csv|xlsx)$/iu.test(file.name)))return 'compare-tables';
+ return '';
+}
+function updateComposerSuggestion(){
+ const panel=el('composer-suggestion');
+ if(!panel)return;
+ const idea=composerSuggestion();
+ const numbers=!idea&&/^\s*[+-]?\d+(?:[.,]\d+)?(?:[;\s]+[+-]?\d+(?:[.,]\d+)?){1,49}\s*$/u.test(ui.draft);
+ const label={'profile-table':'Проанализировать таблицу',
+  'compare-csv':'Сравнить таблицы','compare-tables':'Сравнить таблицы'}[idea]??(numbers?'Посчитать итог':'');
+ panel.hidden=!label||!!generation;
+ panel.textContent=label;
+ panel.dataset.id=idea||(numbers?'stats':'');
+}
+function documentChecklistDialog(){
+ modal('Проверить документ по критериям',`<form><label for="checklist">Критерии, по одному на строку</label><textarea id="checklist" name="criteria" rows="6" maxlength="4000" required placeholder="Выделен срок оплаты"></textarea><p>Ответ будет содержать статус и ссылку на место в документе, если его удалось определить.</p><button type="submit" class="btn primary">Подготовить запрос</button></form>`,{onSubmit:data=>{
+  const criteria=String(data.get('criteria')).split(/\r?\n/u).map(line=>line.trim()).filter(Boolean).slice(0,30);
+  if(!criteria.length)return;
+  ui.draft='/evidence Проверьте приложенный документ по каждому критерию. Дайте таблицу «Критерий | Выполнено / нет / не указано | Где в документе». Если сведений нет, укажите это.\n'+criteria.map((item,index)=>(index+1)+'. '+item).join('\n');
+  saveDraft();closeModal();render();el('composer-input')?.focus();
+ }});
+}
+function compareDocumentsDialog(){
+ const files=projectTextFiles(activeProject()?.id).filter(file=>file.size<500000)
+  .sort((a,b)=>a.path.localeCompare(b.path,'ru'));
+ if(files.length<2){toast('Добавьте в проект два текстовых или офисных файла.');return;}
+ if(ui.draft.trim()||ui.attachments.length){toast('Для сравнения откройте новый диалог или отправьте текущий черновик.');return;}
+ modal('Сравнить документы',`<form><p>Выберите от двух до восьми файлов проекта.</p>
+  <fieldset><legend>Документы</legend>${files.map(file=>`<label class="document-choice"><input type="checkbox" name="document" value="${e(file.id)}"> ${e(file.path)}</label>`).join('')}</fieldset>
+  <div class="form-field"><label for="document-question">Что проверить</label><textarea id="document-question" name="question" rows="3" maxlength="1800" placeholder="Например, сравни сроки, суммы и ответственность"></textarea></div>
+  <p id="document-error" class="error-text" role="alert" hidden></p>
+  <button class="btn primary" type="submit">Подготовить сравнение</button></form>`,{onSubmit:data=>{
+  const selected=data.getAll('document');
+  const error=el('document-error');
+  if(selected.length<2||selected.length>8){
+   error.hidden=false;error.textContent='Выберите от двух до восьми документов.';return;
+  }
+  ui.attachments=selected;
+  ui.contextAuto=false;
+  ui.draft='/evidence Сопоставьте выбранные документы. Выделите совпадения, противоречия и данные, которых нет. Для каждого вывода укажите файл и место в тексте. Укажите документы, для которых не хватило доступного текста.\n'+String(data.get('question')).trim();
+  saveDraft();closeModal();render();el('composer-input')?.focus();
+ }});
+}
+function personalTemplateKey(){return 'focus.personal-templates.'+(account?.id??'guest');}
+function personalTemplates(){
+ try{return importTemplates(JSON.parse(localStorage.getItem(personalTemplateKey())||'{"version":1,"templates":[]}'));}
+ catch{return [];}
+}
+function storeTemplates(templates){
+ localStorage.setItem(personalTemplateKey(),JSON.stringify({version:1,templates}));
+}
+function personalTemplateDialog(){
+ const templates=personalTemplates();
+ modal('Мои шаблоны',`<form>
+  <div class="form-field"><label for="template-title">Название</label><input id="template-title" name="title" maxlength="70" required></div>
+  <div class="form-field"><label for="template-prompt">Текст шаблона</label><textarea id="template-prompt" name="prompt" rows="5" maxlength="5000" required></textarea></div>
+  <p class="settings-note">Если название уже используется, сохранение обновит этот шаблон.</p><button class="btn primary" type="submit">Сохранить шаблон</button>
+ </form><div class="settings-section"><h3>Сохранённые шаблоны</h3>
+  ${templates.map(({title},index)=>`<div class="settings-buttons">${button('use-personal-template',e(title),'ghost',`data-id="${index}"`)}${button('remove-personal-template','Удалить','ghost',`data-id="${index}" aria-label="Удалить шаблон ${e(title)}"`)}</div>`).join('')}
+  <div class="form-field"><label for="template-import">Добавить шаблоны из JSON</label><input id="template-import" type="file" accept=".json,application/json"></div>
+  ${button('export-personal-templates','Скачать шаблоны JSON','ghost')}
+ </div>`,{onSubmit:data=>{
+  try{storeTemplates(saveTemplate(templates,{title:String(data.get('title')),prompt:String(data.get('prompt'))}));personalTemplateDialog();toast('Шаблон сохранён');}
+  catch(error){toast(error.message||'Не удалось сохранить шаблон.');}
+ }});
+ el('template-import').addEventListener('change',async event=>{
+  const file=event.target.files[0];
+  if(!file)return;
+  try{
+   if(file.size>300000)throw new Error('Размер файла должен быть не больше 300 КБ.');
+   let value;
+   try{value=JSON.parse(await file.text());}catch{throw new Error('Файл должен содержать корректный JSON.');}
+   const additions=importTemplates(value);
+   storeTemplates(importTemplates({version:1,templates:[...personalTemplates(),...additions]}));
+   personalTemplateDialog();toast('Шаблоны добавлены');
+  }catch(error){toast(error.message||'Не удалось импортировать шаблоны.');}
+ });
+}
+function documentTemplateDialog(){
+ modal('Шаблоны документов',`<p>Выберите шаблон, затем добавьте материалы и уточните задачу в сообщении.</p><div class="settings-buttons">
+  ${documentTemplates.map(template=>button('document-template',e(template.title),'ghost',`data-id="${e(template.id)}"`)).join('')}
+  ${button('document-checklist','Проверить по критериям','ghost')}
+  ${button('compare-documents','Сравнить документы','ghost')}
+  ${button('personal-templates','Мои шаблоны','ghost')}
+ </div>`);
+}
+function composer(){return `<div class="composer-area"><div class="composer-wrap"><form class="composer" id="composer-form"><div id="composer-modes" class="composer-modes" aria-label="Инструменты диалога">${composerModesMarkup()}</div><div id="composer-quote">${ui.quote?quoteMarkup(ui.quote.text,true):''}</div><div class="attachment-list" ${ui.attachments.length?'':'hidden'}>${ui.attachments.map(id=>{const f=state.files.find(x=>x.id===id);return f?`<span class="attachment-chip">${icon(fileIcon(f))}<span class="truncate">${e(f.name)}</span>${ib('remove-attachment','close','Убрать вложение',`data-id="${id}"`)}</span>`:''}).join('')}</div><textarea id="composer-input" rows="2" placeholder="Задача, вопрос или идея…" aria-label="Сообщение" maxlength="100000">${e(ui.draft)}</textarea><div class="command-suggestions" id="command-suggestions" aria-label="Команды диалога" hidden></div><button type="button" class="inline-link composer-idea" id="composer-suggestion" data-action="composer-suggestion" hidden></button><div class="composer-bottom"><div class="composer-left">${ib('attach','attach','Прикрепить файлы')}<button type="button" class="camera-control" data-action="attach-camera" aria-label="Прикрепить снимок с камеры">${icon('image')}</button><button class="web-search-toggle ${state.settings.webSearch?'active':''}" type="button" data-action="toggle-web-search" aria-label="Поиск в интернете" aria-pressed="${!!state.settings.webSearch}" title="${apiStatus.searchConfigured?'Искать источники перед ответом':'Поиск ещё не подключён на сервере'}" ${generation?'disabled':''}>${icon('globe')}<span>Поиск</span></button><button class="composer-select" type="button" data-action="model-menu" aria-label="Выбрать модель">${e(MODEL_LABEL)}${icon('down')}</button><button class="composer-select" type="button" data-action="effort-menu" aria-label="Режим ответа">${apiStatus.provider==='openrouter'?'Настройки провайдера':effortLabel()}${icon('down')}</button><button class="composer-select project-context" type="button" data-action="review-context" aria-label="Что видит ИИ">${icon('folder')}<span class="truncate">Что видит ИИ</span>${icon('down')}</button></div><button class="send" id="send-button" type="${generation?'button':'submit'}" ${generation?'data-action="stop-generation"':''} aria-label="${generation?'Остановить ответ':'Отправить сообщение'}" ${generation||ui.draft.trim()||ui.attachments.length?'':'disabled'}>${generation?'<span class="stop-square"></span>':icon('arrow')}</button></div></form><div class="composer-hint"><span>История хранится в браузере</span><button type="button" class="inline-link data-details" data-action="data-details">Куда уходят запросы</button><span class="enter-hint">· ${state.settings.sendOnEnter?'Enter — отправить, Shift + Enter — новая строка':'Ctrl + Enter — отправить'}</span></div></div></div>`}
 function quoteMarkup(text,editable=false){
  return `<div class="message-quote"><div class="quote-copy"><strong>Цитата из диалога</strong><span>${e(text)}</span></div>${editable?ib('remove-quote','close','Убрать цитату'):''}</div>`;
 }
@@ -362,12 +543,27 @@ function updateComposerQuote(){
  preview.innerHTML=ui.quote?quoteMarkup(ui.quote.text,true):'';
  el('composer-input')?.focus({preventScroll:true});
 }
-function effortLabel(){return {fast:'Быстро',balanced:'Вдумчиво',deep:'Подробно'}[state.settings.effort]||'Вдумчиво'}
-function filesPanel(show){const files=visibleFiles();const current=state.files.find(f=>f.id===ui.folder);const rows=files.filter(f=>(f.parent||null)===ui.folder).sort((a,b)=>(a.kind==='folder'?-1:1)-(b.kind==='folder'?-1:1)||(ui.sort==='date'?b.updated-a.updated:a.name.localeCompare(b.name,'ru')));const size=files.reduce((n,f)=>n+(f.size||0),0);return `<aside class="files-panel ${ui.mobileFiles?'mobile-open':''}" aria-label="Файлы проекта" ${show||ui.mobileFiles?'':'hidden'}><div class="files-header"><div class="files-tabs" role="tablist" aria-label="Панель проекта"><button class="tab ${ui.filesTab==='files'?'active':''}" role="tab" aria-selected="${ui.filesTab==='files'}" data-action="files-tab">Файлы</button><button class="tab ${ui.filesTab==='changes'?'active':''}" role="tab" aria-selected="${ui.filesTab==='changes'}" data-action="changes-tab">Изменения</button>${activeChat()?.siteVersion?button('preview-result','Результат','ghost'):''}</div><div style="display:flex">${ib('refresh-files','refresh','Обновить список файлов')}${ib('close-files','close','Закрыть файлы',`class="mobile-only"`)}</div></div>${ui.filesTab==='files'?`<div class="files-toolbar"><div class="file-path">${ib('folder-up','arrow','На уровень выше',!ui.folder?'disabled':'')}<span class="truncate" title="${e(current?.name||'Корень проекта')}">${e(current?.name||'/')}</span></div><div class="file-actions">${ib('create-file','plus','Создать файл')}${ib('create-folder','folder','Создать папку')}${ib('upload','upload','Загрузить файлы')}</div></div><div class="files-body" id="files-dropzone">${rows.length?rows.map(f=>`<div class="file-row">${icon(fileIcon(f))}<button class="file-open" data-action="${f.kind==='folder'?'open-folder':'preview-file'}" data-id="${f.id}"><strong class="truncate">${e(f.name)}</strong><small>${f.kind==='folder'?'Папка':humanSize(f.size||0)}</small></button><button class="icon-btn row-more" data-action="file-menu" data-id="${f.id}" aria-label="Действия с файлом ${e(f.name)}">${icon('more')}</button></div>`).join(''):`<div class="files-empty">${icon('folder','empty-file-icon')}<span>Здесь пока пусто</span><small>Добавьте материалы для работы</small><button data-action="upload">Выбрать файлы</button></div>`}</div><footer class="files-foot"><span>${files.filter(f=>f.kind!=='folder').length} ${plural(files.filter(f=>f.kind!=='folder').length,'файл','файла','файлов')} · ${humanSize(size)}</span><button data-action="sort-files" style="font-size:10px;padding:0;color:var(--muted)">${ui.sort==='name'?'По имени':'По дате'}</button></footer>`:`<div class="files-body"><div class="change-list">${state.changes.filter(c=>c.project===activeProject()?.id).length?`<p class="change-day">История проекта</p>${state.changes.filter(c=>c.project===activeProject()?.id).slice(0,50).map(c=>`<div class="change-item">${e(c.text)}<small>${date(c.at)}, ${time(c.at)}</small></div>`).join('')}`:`<div class="files-empty">${icon('clock')}<span>Изменений пока нет</span><small>Здесь появятся действия с проектом и файлами</small></div>`}</div></div>`}</aside>`}
+function effortLabel(){return {fast:'Быстро',balanced:'Обычно',deep:'Подробно'}[state.settings.effort]||'Обычно'}
+function fileBreadcrumbs(current){
+ const byId=new Map(visibleFiles().filter(file=>file.kind==='folder').map(file=>[file.id,file]));
+ const parts=[],seen=new Set();
+ for(let folder=current;folder&&!seen.has(folder.id)&&parts.length<64;folder=byId.get(folder.parent)){
+  seen.add(folder.id);
+  parts.unshift(folder);
+ }
+ return `<nav class="file-breadcrumbs" aria-label="Путь к папке">${button('files-root','Проект','ghost')}${parts.map((folder,index)=>`<span aria-hidden="true">/</span>${index===parts.length-1?`<span class="truncate" aria-current="location">${e(folder.name)}</span>`:button('open-folder',e(folder.name),'ghost',`data-id="${e(folder.id)}"`) }`).join('')}</nav>`;
+}
+function mobileNavigation(){
+ const selected=ui.mobileNav?'projects':ui.mobileFiles?'files':'chat';
+ return `<nav class="mobile-navigation" aria-label="Разделы рабочего пространства">${[
+  ['projects','Проекты','folder'],['chat','Чат','chat'],['files','Материалы','file'],
+ ].map(([id,label,name])=>`<button type="button" data-action="mobile-section" data-id="${id}" aria-current="${selected===id?'page':'false'}">${icon(name)}${label}</button>`).join('')}</nav>`;
+}
+function filesPanel(show){const files=visibleFiles();const current=state.files.find(f=>f.id===ui.folder);const rows=files.filter(f=>(f.parent||null)===ui.folder).sort((a,b)=>(a.kind==='folder'?-1:1)-(b.kind==='folder'?-1:1)||(ui.sort==='date'?b.updated-a.updated:a.name.localeCompare(b.name,'ru')));const size=files.reduce((n,f)=>n+(f.size||0),0);return `<aside class="files-panel ${ui.mobileFiles?'mobile-open':''}" aria-label="Файлы проекта" ${show||ui.mobileFiles?'':'hidden'}><div class="files-header"><div class="files-tabs" role="tablist" aria-label="Панель проекта"><button class="tab ${ui.filesTab==='files'?'active':''}" role="tab" aria-selected="${ui.filesTab==='files'}" data-action="files-tab">Файлы</button><button class="tab ${ui.filesTab==='changes'?'active':''}" role="tab" aria-selected="${ui.filesTab==='changes'}" data-action="changes-tab">Изменения</button>${activeChat()?.siteVersion?button('preview-result','Результат','ghost'):''}</div><div style="display:flex">${ib('refresh-files','refresh','Обновить список файлов')}${ib('close-files','close','Закрыть файлы',`class="mobile-only"`)}</div></div>${ui.filesTab==='files'?`<div class="files-toolbar"><div class="file-path">${ib('folder-up','arrow','На уровень выше',!ui.folder?'disabled':'')}${fileBreadcrumbs(current)}</div><div class="file-actions">${ib('create-file','plus','Создать файл')}${ib('create-folder','folder','Создать папку')}${ib('upload','upload','Загрузить файлы')}</div></div><div class="files-body" id="files-dropzone">${rows.length?rows.map(f=>`<div class="file-row">${icon(fileIcon(f))}<button class="file-open" data-action="${f.kind==='folder'?'open-folder':'preview-file'}" data-id="${f.id}"><strong class="truncate">${e(f.name)}</strong><small>${f.kind==='folder'?'Папка':humanSize(f.size||0)}</small></button><button class="icon-btn row-more" data-action="file-menu" data-id="${f.id}" aria-label="Действия с файлом ${e(f.name)}">${icon('more')}</button></div>`).join(''):`<div class="files-empty">${icon('folder','empty-file-icon')}<span>Здесь пока пусто</span><small>Добавьте, например, отчёт или таблицу для сверки.</small><button data-action="upload">Выбрать файлы</button></div>`}</div><footer class="files-foot"><span>${files.filter(f=>f.kind!=='folder').length} ${plural(files.filter(f=>f.kind!=='folder').length,'файл','файла','файлов')} · ${humanSize(size)}</span><button data-action="sort-files" style="font-size:10px;padding:0;color:var(--muted)">${ui.sort==='name'?'По имени':'По дате'}</button></footer>`:`<div class="files-body"><div class="change-list">${state.changes.filter(c=>c.project===activeProject()?.id).length?`<p class="change-day">История проекта</p>${state.changes.filter(c=>c.project===activeProject()?.id).slice(0,50).map(c=>`<div class="change-item">${e(c.text)}<small>${date(c.at)}, ${time(c.at)}</small></div>`).join('')}`:`<div class="files-empty">${icon('clock')}<span>Изменений пока нет</span><small>Здесь появятся действия с проектом и файлами</small></div>`}</div></div>`}</aside>`}
 function workspaceTools(){const tools=[['sites','Сайты','Создавай страницы и сразу открывай предпросмотр.','globe'],['images','Изображения','Генерируй и продолжай править готовые изображения.','image']];return `<nav class="workspace-tools" aria-label="Инструменты Focus">${tools.map(([view,title,description,symbol])=>`<a class="workspace-tool" href="#${view}" data-action="studio-view" data-id="${view}"><span class="workspace-tool-icon">${icon(symbol)}</span><span><strong>${title}</strong><small>${description}</small></span>${icon('chevron')}</a>`).join('')}</nav>`}
 function workspaceView(){return `<section class="workspace"><div class="workspace-heading"><span class="studio-kicker">Focus workspace</span><h1>Ваше пространство</h1><p class="workspace-intro">Проекты объединяют диалоги и файлы по задаче</p></div>${workspaceTools()}<div class="section-heading"><h2>Проекты</h2>${button('create-project',`${icon('plus')} Создать проект`,'ghost')}</div>${liveProjects().map(p=>`<article class="workspace-card"><div class="workspace-symbol">${icon('folder')}</div><div class="workspace-details"><h3>${e(p.name)}</h3><p>${e(p.description)||`${state.chats.filter(c=>c.project===p.id&&!c.deleted).length} ${plural(state.chats.filter(c=>c.project===p.id&&!c.deleted).length,'диалог','диалога','диалогов')} · ${state.files.filter(f=>f.project===p.id&&!f.deleted&&f.kind!=='folder').length} ${plural(state.files.filter(f=>f.project===p.id&&!f.deleted&&f.kind!=='folder').length,'файл','файла','файлов')}`}</p></div>${button('open-workspace',`Открыть ${icon('chevron')}`,'primary',`data-id="${p.id}"`)}${ib('project-menu','more','Действия с проектом',`data-id="${p.id}"`)}</article>`).join('')||`<div class="list-empty">${icon('folder')}<h2>Начните с проекта</h2><p>Соберите диалоги и материалы по одной задаче</p>${button('create-project','Создать проект','primary')}</div>`}<p class="settings-note" style="margin-top:32px">Сейчас пространство хранится на этом устройстве. Резервную копию можно скачать в настройках.</p></section>`}
 function trashCount(){return state.projects.filter(p=>p.deleted).length+state.chats.filter(c=>c.deleted&&!state.projects.find(p=>p.id===c.project)?.deleted).length+state.files.filter(f=>f.deleted&&!state.projects.find(p=>p.id===f.project)?.deleted&&!state.files.find(p=>p.id===f.parent)?.deleted).length}
-function collectionView(){const trash=ui.view==='trash';const projects=trash?state.projects.filter(p=>p.deleted):[];const chats=state.chats.filter(c=>trash?c.deleted&&!state.projects.find(p=>p.id===c.project)?.deleted:c.archived&&!c.deleted&&!state.projects.find(p=>p.id===c.project)?.deleted);const files=trash?state.files.filter(f=>f.deleted&&!state.projects.find(p=>p.id===f.project)?.deleted&&!state.files.find(p=>p.id===f.parent)?.deleted):[];const count=projects.length+chats.length+files.length;return `<section class="workspace"><h1>${trash?'Корзина':'Архив диалогов'}</h1><p class="workspace-intro">${trash?'Удалённые материалы можно восстановить':'Завершённые диалоги остаются под рукой'}</p><div class="section-heading"><h2>${count?`${count} ${trash?plural(count,'элемент','элемента','элементов'):plural(count,'диалог','диалога','диалогов')}`:''}</h2>${trash&&count?button('empty-trash','Очистить корзину','ghost'):''}</div>${[...projects.map(p=>({item:p,type:'project',title:p.name,sub:'Проект',ico:'folder'})),...chats.map(c=>({item:c,type:'chat',title:c.title,sub:projectName(c.project),ico:'chat'})),...files.map(f=>({item:f,type:'file',title:f.name,sub:projectName(f.project),ico:fileIcon(f)}))].map(({item,type,title,sub,ico})=>`<div class="collection-item">${icon(ico)}<button class="item-main" data-action="${trash?'restore':'select-chat'}" data-id="${item.id}" data-type="${type}"><strong class="truncate">${e(title)}</strong><small>${e(sub)}</small></button><div class="row-actions">${ib(trash?'restore':'unarchive','restore',trash?'Восстановить':'Вернуть в диалоги',`data-id="${item.id}" data-type="${type}"`)}${ib(trash?'permanent-delete':'trash-chat','trash',trash?'Удалить навсегда':'В корзину',`data-id="${item.id}" data-type="${type}"`)}</div></div>`).join('')||`<div class="list-empty">${icon(trash?'trash':'archive')}<h2>${trash?'Корзина пуста':'В архиве пока пусто'}</h2><p>${trash?'Удалённые проекты, диалоги и файлы появятся здесь':'Архивируйте завершённый диалог через меню рядом с его названием'}</p>${button('new-chat','Начать диалог','ghost')}</div>`}</section>`}
+function collectionView(){const trash=ui.view==='trash';const projects=trash?state.projects.filter(p=>p.deleted):[];const chats=state.chats.filter(c=>trash?c.deleted&&!state.projects.find(p=>p.id===c.project)?.deleted:c.archived&&!c.deleted&&!state.projects.find(p=>p.id===c.project)?.deleted);const files=trash?state.files.filter(f=>f.deleted&&!state.projects.find(p=>p.id===f.project)?.deleted&&!state.files.find(p=>p.id===f.parent)?.deleted):[];const count=projects.length+chats.length+files.length;return `<section class="workspace"><h1>${trash?'Корзина':'Архив диалогов'}</h1><p class="workspace-intro">${trash?'Удалённые материалы можно восстановить':'Завершённые диалоги остаются под рукой'}</p><div class="section-heading"><h2>${count?`${count} ${trash?plural(count,'элемент','элемента','элементов'):plural(count,'диалог','диалога','диалогов')}`:''}</h2>${trash&&count?button('empty-trash','Очистить корзину','ghost'):''}</div>${[...projects.map(p=>({item:p,type:'project',title:p.name,sub:'Проект',ico:'folder'})),...chats.map(c=>({item:c,type:'chat',title:c.title,sub:projectName(c.project),ico:'chat'})),...files.map(f=>({item:f,type:'file',title:f.name,sub:projectName(f.project),ico:fileIcon(f)}))].map(({item,type,title,sub,ico})=>`<div class="collection-item">${icon(ico)}<button class="item-main" data-action="${trash?'restore':'select-chat'}" data-id="${item.id}" data-type="${type}"><strong class="truncate">${e(title)}</strong><small>${e(sub)}</small></button><div class="row-actions">${ib(trash?'restore':'unarchive','restore',trash?'Восстановить':'Вернуть в диалоги',`data-id="${item.id}" data-type="${type}"`)}${ib(trash?'permanent-delete':'trash-chat','trash',trash?'Удалить навсегда':'В корзину',`data-id="${item.id}" data-type="${type}"`)}</div></div>`).join('')||`<div class="list-empty">${icon(trash?'trash':'archive')}<h2>${trash?'Корзина пуста':'В архиве пока пусто'}</h2><p>${trash?'Например, удалённый диалог появится здесь, и его можно будет восстановить':'Архивируйте завершённый диалог через меню рядом с его названием'}</p>${button('new-chat','Начать диалог','ghost')}</div>`}</section>`}
 function resizeComposer(){const t=el('composer-input');if(t){t.style.height='auto';t.style.height=Math.min(Math.max(t.scrollHeight,56),180)+'px'}}
 function themeButton(){
  const dark=document.documentElement.dataset.theme==='dark';
@@ -377,6 +573,8 @@ function applyTheme(){
  const mode=state.settings.theme;
  const dark=mode==='dark'||(mode==='system'&&matchMedia('(prefers-color-scheme:dark)').matches);
  document.documentElement.dataset.theme=dark?'dark':'light';
+ document.documentElement.dataset.textSize=state.settings.textSize??'normal';
+ document.documentElement.dataset.density=state.settings.density??'normal';
  document.querySelector('meta[name=theme-color]').content=dark?'#191b19':'#fafafa';
  const toggle=app.querySelector('[data-action="toggle-theme"]');
  if(toggle){
@@ -389,12 +587,34 @@ window.addEventListener('hashchange',()=>{
  if(ready&&(studioRoute()||Object.hasOwn(STUDIO_LABELS,ui.view)))setView(studioRoute()||'chat');
  if(ready&&account&&ui.view==='images')void refreshAccount().then(refreshImageStudio);
 });
-function selectProject(id,toggle=false){const p=state.projects.find(p=>p.id===id&&!p.deleted);if(!p)return;const same=id===state.activeProject;if(same&&toggle){ui.collapsed.has(id)?ui.collapsed.delete(id):ui.collapsed.add(id)}else{state.activeProject=id;state.activeChat=null;ui.folder=null;ui.draft='';ui.quote=null;ui.attachments=[];ui.collapsed.delete(id)}ui.view='chat';ui.mobileNav=false;persist();render()}
-function newChat(){if(!activeProject()){projectDialog();return}state.activeChat=null;ui.draft='';ui.quote=null;ui.attachments=[];ui.archive=false;ui.view='chat';ui.mobileNav=false;persist();render();el('composer-input')?.focus()}
-function selectChat(id){const c=state.chats.find(c=>c.id===id&&!c.deleted);if(!c)return;state.activeChat=id;state.activeProject=c.project;ui.archive=!!c.archived;ui.folder=null;ui.draft='';ui.quote=null;ui.attachments=[];ui.view='chat';ui.mobileNav=false;persist();render();el('main-scroll').scrollTop=el('main-scroll').scrollHeight}
-function send(){if(activeChat()?.backgroundJob){toast('В этом диалоге уже выполняется исследование');return;}if(generation){toast('Дождитесь ответа или остановите запрос');return}const content=ui.draft.trim();if(!content&&!ui.attachments.length)return;if(!activeProject()){projectDialog();return}let c=activeChat();if(!c){c={id:uid(),title:(content.replace(/^\/site\s+/iu,'')||'Диалог с файлами').replace(/\s+/g,' ').slice(0,48),project:activeProject().id,created:Date.now(),updated:Date.now(),messages:[],archived:false,deleted:false};state.chats.unshift(c);state.activeChat=c.id;log(`Создан диалог «${c.title}»`)}c.messages.push({id:uid(),content,files:[...ui.attachments],at:Date.now(),role:'user',...(ui.quote?{quote:ui.quote.text}:{}),webSearch:!!state.settings.webSearch,...(pendingResearch?{researchPlan:pendingResearch}:{})});pendingResearch=null;c.updated=Date.now();ui.draft='';ui.quote=null;ui.attachments=[];persist();render();el('main-scroll').scrollTop=el('main-scroll').scrollHeight;el('composer-input')?.focus();requestAnswer(c)}
-function closeMenu(){document.querySelector('.menu-popup')?.remove();ui.menu=null}
-function menu(anchor,options){closeMenu();const div=document.createElement('div');div.className='menu-popup';div.role='menu';div.innerHTML=options.map(o=>o.separator?'<div class="menu-separator"></div>':o.label?`<div class="menu-label">${e(o.label)}</div>`:`<button class="menu-option ${o.danger?'danger':''}" role="menuitem" data-action="${o.action}" ${o.id?`data-id="${e(o.id)}"`:''} ${o.type?`data-type="${e(o.type)}"`:''} ${o.value?`data-value="${e(o.value)}"`:''}>${o.icon?icon(o.icon):''}<span class="menu-option-copy"><span>${e(o.text)}</span>${o.description?`<small>${e(o.description)}</small>`:''}</span>${o.checked?icon('check','check'):''}</button>`).join('');document.body.append(div);const r=anchor.getBoundingClientRect(),d=div.getBoundingClientRect();div.style.left=Math.max(8,Math.min(r.left,innerWidth-d.width-8))+'px';div.style.top=(r.bottom+d.height+8>innerHeight?Math.max(8,r.top-d.height-8):r.bottom+8)+'px';ui.menu=div;div.querySelector('button')?.focus()}
+function draftKey(){
+ return 'focus.draft.'+(account?.id??'guest')+'.'+(state.activeChat??'new-'+state.activeProject);
+}
+function saveDraft(){
+ try{
+  if(ui.draft)sessionStorage.setItem(draftKey(),ui.draft);
+  else sessionStorage.removeItem(draftKey());
+ }catch{}
+}
+function restoreDraft(){
+ ui.contextInstructions=true;ui.contextAuto=true;
+ try{ui.draft=sessionStorage.getItem(draftKey())??'';}
+ catch{ui.draft='';}
+}
+function selectProject(id,toggle=false){const p=state.projects.find(p=>p.id===id&&!p.deleted);if(!p)return;saveDraft();const same=id===state.activeProject;if(same&&toggle){ui.collapsed.has(id)?ui.collapsed.delete(id):ui.collapsed.add(id)}else{state.activeProject=id;state.activeChat=null;ui.folder=null;restoreDraft();ui.quote=null;ui.attachments=[];ui.collapsed.delete(id)}ui.view='chat';ui.mobileNav=false;persist();render()}
+function newChat(){if(!activeProject()){projectDialog();return}saveDraft();state.activeChat=null;restoreDraft();ui.quote=null;ui.attachments=[];ui.archive=false;ui.view='chat';ui.mobileNav=false;persist();render();el('composer-input')?.focus()}
+function selectChat(id){const c=state.chats.find(c=>c.id===id&&!c.deleted);if(!c)return;saveDraft();state.activeChat=id;state.activeProject=c.project;ui.archive=!!c.archived;ui.folder=null;restoreDraft();ui.quote=null;ui.attachments=[];ui.view='chat';ui.mobileNav=false;persist();render();if(!scrollPositions.has('chat:'+c.id))el('main-scroll').scrollTop=el('main-scroll').scrollHeight}
+function send(){if(activeChat()?.backgroundJob){toast('В этом диалоге уже выполняется исследование');return;}if(generation){toast('Дождитесь ответа или остановите запрос');return}const content=ui.draft.trim();if(!content&&!ui.attachments.length)return;if(!activeProject()){projectDialog();return}const previousDraftKey=draftKey();let c=activeChat();if(!c){c={id:uid(),title:(content.replace(/^\/site\s+/iu,'')||'Диалог с файлами').replace(/\s+/g,' ').slice(0,48),project:activeProject().id,created:Date.now(),updated:Date.now(),messages:[],archived:false,deleted:false};state.chats.unshift(c);state.activeChat=c.id;log(`Создан диалог «${c.title}»`)}c.messages.push({id:uid(),content,files:[...ui.attachments],at:Date.now(),role:'user',...(ui.quote?{quote:ui.quote.text}:{}),webSearch:!!state.settings.webSearch,...(ui.contextInstructions===false?{noProjectInstructions:true}:{}),...(ui.contextAuto===false?{noAutoContext:true}:{}),...(pendingResearch?{researchPlan:pendingResearch}:{})});pendingResearch=null;ui.contextInstructions=true;ui.contextAuto=true;c.updated=Date.now();try{localStorage.setItem('focus.commands.'+(account?.id??'guest'),JSON.stringify(commandUsed(content,recentCommands())));}catch{}ui.draft='';try{sessionStorage.removeItem(previousDraftKey);}catch{}ui.quote=null;ui.attachments=[];persist();render();el('main-scroll').scrollTop=el('main-scroll').scrollHeight;el('composer-input')?.focus();requestAnswer(c)}
+let menuOpener=null;
+function closeMenu(restoreFocus=false){
+ const opener=menuOpener;
+ const focusInMenu=ui.menu?.contains(document.activeElement);
+ document.querySelector('.menu-popup')?.remove();
+ ui.menu=null;
+ menuOpener=null;
+ if((restoreFocus||focusInMenu)&&opener?.isConnected)opener.focus({preventScroll:true});
+}
+function menu(anchor,options){closeMenu();const div=document.createElement('div');div.className='menu-popup';div.role='menu';div.setAttribute('aria-label',anchor.getAttribute('aria-label')||anchor.textContent.trim()||'Действия');menuOpener=anchor;div.innerHTML=options.map(o=>o.separator?'<div class="menu-separator"></div>':o.label?`<div class="menu-label">${e(o.label)}</div>`:`<button class="menu-option ${o.danger?'danger':''}" role="menuitem" data-action="${o.action}" ${o.id?`data-id="${e(o.id)}"`:''} ${o.type?`data-type="${e(o.type)}"`:''} ${o.value?`data-value="${e(o.value)}"`:''}>${o.icon?icon(o.icon):''}<span class="menu-option-copy"><span>${e(o.text)}</span>${o.description?`<small>${e(o.description)}</small>`:''}</span>${o.checked?icon('check','check'):''}</button>`).join('');document.body.append(div);const r=anchor.getBoundingClientRect(),d=div.getBoundingClientRect();div.style.left=Math.max(8,Math.min(r.left,innerWidth-d.width-8))+'px';div.style.top=(r.bottom+d.height+8>innerHeight?Math.max(8,r.top-d.height-8):r.bottom+8)+'px';ui.menu=div;div.querySelector('button')?.focus()}
 function closeModal(){const d=document.querySelector('dialog');if(d){d.close();d.remove();const opener=modalOpener;modalOpener=null;if(opener?.isConnected)opener.focus();}for(const u of objectURLs)URL.revokeObjectURL(u);objectURLs=[]}
 function modal(title,body,{wide=false,onSubmit=null}={}){closeModal();closeMenu();modalOpener=document.activeElement;const d=document.createElement('dialog');d.className=`dialog ${wide?'wide':''}`;d.setAttribute('aria-label',title);d.innerHTML=`<div class="dialog-header"><h2>${e(title)}</h2>${ib('close-modal','close','Закрыть')}</div><div class="dialog-body">${body}</div>`;el('overlay-root').append(d);d.showModal();d.addEventListener('click',ev=>{if(ev.target===d)closeModal()});d.addEventListener('cancel',event=>{event.preventDefault();closeModal()});if(onSubmit)d.querySelector('form')?.addEventListener('submit',ev=>{ev.preventDefault();onSubmit(new FormData(ev.target),ev.target)});return d}
 function projectDialog(id){const p=state.projects.find(p=>p.id===id);modal(p?'Настройки проекта':'Новый проект',`<form><p class="dialog-description">Объедините диалоги и файлы по одной задаче</p><div class="form-field"><label for="project-name">Название</label><input id="project-name" name="name" placeholder="Например, запуск продукта" value="${e(p?.name||'')}" maxlength="70" required autofocus /></div><div class="form-field"><label for="project-description">Описание <span style="color:var(--muted);font-weight:400">· необязательно</span></label><textarea id="project-description" name="description" rows="3" placeholder="Для чего этот проект" maxlength="300">${e(p?.description||'')}</textarea></div><div class="form-field"><label for="project-instructions">Инструкции для всех диалогов</label><textarea id="project-instructions" name="instructions" rows="3" maxlength="4000" placeholder="Например, отвечай кратко и используй данные проекта">${e(p?.instructions||'')}</textarea></div><p class="error-text" id="form-error" hidden></p><div class="dialog-footer">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">${p?'Сохранить':'Создать проект'}</button></div></form>`,{onSubmit:(data)=>{const name=data.get('name').trim();if(!name)return;if(liveProjects().some(x=>x.name.toLowerCase()===name.toLowerCase()&&x.id!==id)){el('form-error').textContent='Проект с таким названием уже существует';el('form-error').hidden=false;return}if(p){p.name=name;p.description=data.get('description').trim();p.instructions=String(data.get('instructions')||'').trim();log(`Обновлён проект «${name}»`,p.id)}else{const np={id:uid(),name,description:data.get('description').trim(),instructions:String(data.get('instructions')||'').trim(),created:Date.now(),deleted:false};state.projects.push(np);state.activeProject=np.id;state.activeChat=null;ui.folder=null;ui.draft='';ui.attachments=[];ui.view='chat';ui.archive=false;ui.mobileNav=false;log(`Создан проект «${name}»`,np.id)}persist();closeModal();render();toast(p?'Проект обновлён':'Проект создан')}})}
@@ -402,8 +622,37 @@ function renameDialog(type,id){const item=type==='chat'?state.chats.find(x=>x.id
 function confirm(title,text,action,label='Подтвердить',danger=false){modal(title,`<p class="dialog-description">${e(text)}</p><div class="dialog-footer">${button('close-modal','Отмена','ghost')}<button id="confirm-button" class="btn ${danger?'danger':'primary'}">${e(label)}</button></div>`);el('confirm-button').onclick=async event=>{const submit=event.currentTarget;submit.disabled=true;try{await action();closeModal();persist();render()}catch{submit.disabled=false;toast('Не удалось выполнить действие. Попробуйте ещё раз.')}}}
 function descendants(id){const ids=new Set([id]);let n=-1;while(n!==ids.size){n=ids.size;state.files.forEach(f=>{if(ids.has(f.parent))ids.add(f.id)})}return ids}
 function trashProject(id){const p=state.projects.find(x=>x.id===id);if(!p)return;confirm('Переместить проект в корзину?',`«${p.name}», его диалоги и файлы можно будет восстановить.`,()=>{p.deleted=true;p.deletedAt=Date.now();if(state.activeProject===id){state.activeProject=liveProjects()[0]?.id;state.activeChat=null;ui.view=state.activeProject?'chat':'workspace';ui.draft='';ui.attachments=[];ui.folder=null}log(`Проект «${p.name}» перемещён в корзину`,id)},'В корзину')}
-function trashChat(id){const c=state.chats.find(x=>x.id===id);if(!c)return;c.deleted=true;c.deletedAt=Date.now();if(state.activeChat===id){state.activeChat=null;ui.draft=''}log(`Диалог «${c.title}» перемещён в корзину`,c.project);persist();render();toast('Диалог перемещён в корзину')}
-function trashFile(id){const f=state.files.find(x=>x.id===id);if(!f)return;const ids=descendants(id);state.files.forEach(x=>{if(ids.has(x.id)){x.deleted=true;x.deletedAt=Date.now()}});ui.attachments=ui.attachments.filter(x=>!ids.has(x));log(`В корзину: «${f.name}»`,f.project);persist();render();toast('Перемещено в корзину')}
+function trashChat(id){
+ const chat=state.chats.find(item=>item.id===id&&!item.deleted);
+ if(!chat)return;
+ if(state.activeChat===id)saveDraft();
+ const deletedAt=Date.now();
+ chat.deleted=true;chat.deletedAt=deletedAt;
+ if(state.activeChat===id){state.activeChat=null;restoreDraft();}
+ log(`Диалог «${chat.title}» перемещён в корзину`,chat.project);
+ void persist();render();
+ toast('Диалог перемещён в корзину',async()=>{
+  const current=state.chats.find(item=>item.id===id&&item.deletedAt===deletedAt);
+  if(current){current.deleted=false;delete current.deletedAt;await persist();}
+ });
+}
+function trashFile(id){
+ const file=state.files.find(item=>item.id===id&&!item.deleted);
+ if(!file)return;
+ const ids=descendants(id),deletedAt=Date.now();
+ const affected=state.files.filter(item=>ids.has(item.id)&&!item.deleted);
+ for(const entry of affected){entry.deleted=true;entry.deletedAt=deletedAt;}
+ const affectedIds=new Set(affected.map(entry=>entry.id));
+ ui.attachments=ui.attachments.filter(id=>!affectedIds.has(id));
+ log(`В корзину: «${file.name}»`,file.project);
+ void persist();render();
+ toast('Перемещено в корзину',async()=>{
+  for(const entry of state.files){
+   if(affectedIds.has(entry.id)&&entry.deletedAt===deletedAt){entry.deleted=false;delete entry.deletedAt;}
+  }
+  await persist();
+ });
+}
 function archiveChat(id,value=true){const c=state.chats.find(x=>x.id===id);if(!c)return;c.archived=value;if(value&&state.activeChat===id){state.activeChat=null;ui.draft=''}persist();render();toast(value?'Диалог в архиве':'Диалог возвращён')}
 function restore(type,id){if(type==='project'){const p=state.projects.find(x=>x.id===id);if(p)p.deleted=false}else if(type==='chat'){const c=state.chats.find(x=>x.id===id);if(c)c.deleted=false}else{const ids=descendants(id);state.files.forEach(f=>{if(ids.has(f.id))f.deleted=false});const f=state.files.find(x=>x.id===id);if(f&&state.files.find(x=>x.id===f.parent)?.deleted)f.parent=null}persist();render();toast('Восстановлено')}
 async function permanentDelete(type,id){if(type==='project'){const files=state.files.filter(f=>f.project===id);await Promise.all(files.filter(f=>f.kind!=='folder').map(f=>deleteBlob(f.id)));state.files=state.files.filter(f=>f.project!==id);state.chats=state.chats.filter(c=>c.project!==id);state.changes=state.changes.filter(c=>c.project!==id);state.projects=state.projects.filter(p=>p.id!==id)}else if(type==='chat'){state.chats=state.chats.filter(c=>c.id!==id)}else{const ids=descendants(id);await Promise.all(state.files.filter(f=>ids.has(f.id)&&f.kind!=='folder').map(f=>deleteBlob(f.id)));state.files=state.files.filter(f=>!ids.has(f.id))}}
@@ -412,7 +661,18 @@ function fileExists(name){return visibleFiles().some(f=>(f.parent||null)===ui.fo
 function createFile(){if(!activeProject()){projectDialog();return}modal('Новый файл',`<form><div class="form-field"><label for="file-name">Название с расширением</label><input id="file-name" name="name" value="Заметка.md" maxlength="100" required autofocus /><small>Текстовый файл: .md, .txt, .csv или .json</small></div><div class="form-field"><label for="file-content">Содержимое</label><textarea id="file-content" name="content" rows="10" placeholder="Текст, заметки или данные" maxlength="1000000"></textarea></div><p class="error-text" id="form-error" hidden></p><div class="dialog-footer">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">Создать файл</button></div></form>`,{onSubmit:async(data,form)=>{const name=data.get('name').trim();if(!name)return;if(!/\.(md|txt|csv|json|html|css|js|py|xml|yaml|yml)$/i.test(name)||/[\\/]/.test(name)||fileExists(name)){el('form-error').textContent=fileExists(name)?'Такое название уже есть в этой папке':'Укажите текстовое расширение, например .md или .txt';el('form-error').hidden=false;return}const b=form.querySelector('[type=submit]');b.disabled=true;try{const blob=new Blob([data.get('content')],{type:'text/plain;charset=utf-8'});const id=uid();await putBlob(id,blob);state.files.push({id,project:activeProject().id,parent:ui.folder,name,kind:'file',type:'text/plain',size:blob.size,created:Date.now(),updated:Date.now(),deleted:false});log(`Создан файл «${name}»`);persist();closeModal();render();toast('Файл создан')}catch{b.disabled=false;el('form-error').textContent='Не удалось сохранить файл в браузере';el('form-error').hidden=false}}})}
 async function uploadFiles(files,attach=false){if(!activeProject()){projectDialog();return}let added=0,failed=0;for(const file of files){if(file.size>25*1048576){toast(`«${file.name}»: максимум 25 МБ на файл`);continue}try{const id=uid();let name=file.name,n=1;const dot=name.lastIndexOf('.'),base=dot>0?name.slice(0,dot):name,ext=dot>0?name.slice(dot):'';while(fileExists(name))name=`${base} (${n++})${ext}`;await putBlob(id,file);state.files.push({id,project:activeProject().id,parent:ui.folder,name,kind:'file',type:file.type||'application/octet-stream',size:file.size,created:Date.now(),updated:Date.now(),deleted:false});if(attach)ui.attachments.push(id);log(`Загружен файл «${name}»`);added++}catch{failed++}}persist();render();if(added)toast(`Загружено файлов: ${added}${failed?`. Не удалось загрузить: ${failed}`:''}`);else if(failed)toast('Не удалось сохранить файлы. Проверьте доступное место в браузере')}
 function pickFiles(attach=false){if(!activeProject()){projectDialog();return}uploadAttach=attach;el('file-input').value='';el('file-input').click()}
-function answerMarkdown(m){return m.content+(m.search?.sources?.length?'\n\nИсточники:\n'+m.search.sources.map(s=>`[${s.id}] ${s.title} — ${s.url}`).join('\n'):'')}
+function answerMarkdown(message){
+ const search=message.search;
+ const sources=cleanSources(search);
+ if(!sources.length)return message.content;
+ const searched=researchDate(search);
+ const details=[searched&&'Время поиска: '+searched,
+  search.query&&'Вопрос исследования: '+search.query,
+  Array.isArray(search.queries)&&search.queries.length?'Запросы: '+search.queries.join(' · '):null,
+  search.failedQueries?.length?'Запросов с ошибкой: '+search.failedQueries.length:null].filter(Boolean);
+ const links=sources.map(source=>'- ['+source.id+'] '+source.title.replace(/\s+/gu,' ')+' — '+source.url);
+ return [message.content,...details,'## Источники\n'+links.join('\n')].join('\n\n');
+}
 function download(blob,name){const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),1000)}
 async function downloadFile(id){const f=state.files.find(x=>x.id===id);const b=await getBlob(id);if(!b){toast('Файл недоступен на этом устройстве');return}download(b,f.name)}
 function isText(f){return f.type?.startsWith('text/')||/\.(md|txt|csv|json|html?|css|js|jsx|tsx?|py|xml|ya?ml|log|svg|c|h|cpp|cc|hpp|cs|java|kt|kts|go|rs|rb|php|swift|sql|sh|bash|ps1|lua|toml|ini|vue|svelte|dart|scala|r|ipynb)$/i.test(f.name)||/^(?:Dockerfile|Makefile|CMakeLists\.txt)$/i.test(f.name)}
@@ -454,12 +714,49 @@ async function openProjectMatch(messageId,index){
   ${rows.map(row=>`<div class="diff-line ${row.line===match.line?'diff-added':''}"><span>${row.line}</span><code>${e(row.text.slice(0,1000))}${row.text.length>1000?'…':''}</code></div>`).join('')}
  </div><div class="dialog-footer" style="margin-top:16px">${button('preview-file','Открыть файл','primary',`data-id="${e(file.id)}"`)}</div>`,{wide:true});
 }
-async function previewFile(id){const f=state.files.find(x=>x.id===id&&!x.deleted);if(!f)return;const blob=await getBlob(id);if(!blob){toast('Файл недоступен на этом устройстве');return}const text=isText(f)&&blob.size<=2*1048576?await blob.text():null;let content;if(text!==null)content=`<pre>${e(text)||'Файл пуст'}</pre>`;else if(f.type?.startsWith('image/')){const url=URL.createObjectURL(blob);content=`<img src="${url}" alt="${e(f.name)}" />`}else content=`<div class="list-empty">${icon(fileIcon(f))}<h2>${e(f.name)}</h2><p>Скачайте файл, чтобы открыть его в подходящем приложении</p></div>`;
+async function previewFile(id){const f=state.files.find(x=>x.id===id&&!x.deleted);if(!f)return;const blob=await getBlob(id);if(!blob){toast('Файл недоступен на этом устройстве');return}if(officeFilename(f.name)){
+ try{
+  const document=new File([blob],f.name);
+  const content=/\.xlsx$/iu.test(f.name)
+   ?`<div class="table-wrap"><table><tbody>${(await openTable(document)).slice(0,51).map((row,index)=>`<tr>${row.map(value=>index===0?`<th scope="col">${e(value)}</th>`:`<td>${e(value)}</td>`).join('')}</tr>`).join('')}</tbody></table></div><p>Показаны первые 50 строк данных первого листа.</p>`
+   :`<pre>${e((await officeText(document)).text)||'Текст не найден'}</pre>`;
+  modal(f.name,content,{wide:true});
+ }catch(error){toast(error.message);}
+ return;
+}
+const text=isText(f)&&blob.size<=2*1048576?await blob.text():null;let content;if(text!==null)content=`<pre>${e(text)||'Файл пуст'}</pre>`;else if(f.type?.startsWith('image/')){const url=URL.createObjectURL(blob);content=`<img src="${url}" alt="${e(f.name)}" />`}else content=`<div class="list-empty">${icon(fileIcon(f))}<h2>${e(f.name)}</h2><p>Скачайте файл, чтобы открыть его в подходящем приложении</p></div>`;
  const urlToKeep=content.match(/src="(blob:[^"]+)"/)?.[1];modal(f.name,`<div class="file-preview-header"><span class="file-preview-meta">${humanSize(f.size)} · ${date(f.updated)}</span><div style="display:flex;gap:8px">${text!==null?button('edit-file',`${icon('rename')} Изменить`,'',`data-id="${id}"`):''}${button('download-file',`${icon('download')} Скачать`,'',`data-id="${id}"`)}</div></div><div class="file-preview-content">${content}</div>`,{wide:true});if(urlToKeep)objectURLs.push(urlToKeep)}
 async function editFile(id){const f=state.files.find(x=>x.id===id),blob=await getBlob(id);if(!f||!blob)return;const text=await blob.text();modal(f.name,`<form><div class="form-field"><label for="editor-text">Содержимое файла</label><textarea id="editor-text" class="file-editor" name="content" maxlength="2000000" spellcheck="false">${e(text)}</textarea></div><p class="error-text" id="form-error" hidden></p><div class="dialog-footer">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">Сохранить изменения</button></div></form>`,{wide:true,onSubmit:async(data,form)=>{form.querySelector('[type=submit]').disabled=true;try{const b=new Blob([data.get('content')],{type:f.type||'text/plain'});await putBlob(id,b);f.size=b.size;f.updated=Date.now();log(`Изменён файл «${f.name}»`,f.project);persist();closeModal();render();toast('Изменения сохранены')}catch{form.querySelector('[type=submit]').disabled=false;el('form-error').textContent='Не удалось сохранить файл';el('form-error').hidden=false}}})}
 let searchWorker,searchRevision=0,searchQueue=Promise.resolve();
 const searchVersions=new Map();
 
+const paletteCommands=[
+ ['new-chat','Новый диалог','Ctrl / ⌘ + N'],
+ ['create-project','Создать проект',''],
+ ['search','Поиск проектов, диалогов и файлов','Ctrl / ⌘ + K'],
+ ['settings','Настройки',''],
+ ['stop-generation','Остановить ответ','Ctrl / ⌘ + Shift + .'],
+ ['shortcuts','Горячие клавиши','?'],
+];
+function commandPalette(){
+ const projectActions=liveProjects().map(project=>['search-project',project.name,'Проект',project.id]);
+ modal('Команды Focus',`<label for="palette-query">Найти действие</label><input id="palette-query" type="search" autofocus><div id="palette-items" class="search-results"></div>`);
+ const input=el('palette-query'),list=el('palette-items');
+ const update=()=>{
+  const query=input.value.toLocaleLowerCase('ru').trim();
+  list.innerHTML=[...paletteCommands,...projectActions].filter(([,label])=>label.toLocaleLowerCase('ru').includes(query))
+   .map(([action,label,keys,id])=>`<button type="button" class="search-result" data-action="palette-run" data-command="${action}" data-id="${e(id??'')}"><span><strong>${e(label)}</strong><small>${e(keys)}</small></span></button>`).join('')||'<p>Действия не найдены.</p>';
+ };
+ input.addEventListener('input',update);
+ input.addEventListener('keydown',event=>{
+  if(event.key==='ArrowDown'){event.preventDefault();list.querySelector('button')?.focus();}
+  if(event.key==='Enter'){event.preventDefault();list.querySelector('button')?.click();}
+ });
+ update();
+}
+function shortcutDialog(){
+ modal('Горячие клавиши',`<dl>${paletteCommands.filter(([, ,keys])=>keys).map(([,label,keys])=>`<dt>${e(keys)}</dt><dd>${e(label)}</dd>`).join('')}<dt>Ctrl / ⌘ + Enter</dt><dd>Отправить сообщение</dd></dl>`);
+}
 function searchDialog(){
  modal('Поиск по пространству',`<div class="search-input-wrap">${icon('search')}<input id="search-input" aria-label="Поиск диалогов, проектов и файлов" placeholder="Название или текст" autocomplete="off" autofocus /></div><div class="search-results" id="search-results" aria-live="polite"></div>`);
  searchResults('');
@@ -517,7 +814,8 @@ function searchResults(query){
   if(el('search-results'))el('search-results').textContent='Не удалось выполнить поиск.';
  });
 }
-function settingsDialog(){modal('Настройки',`<form id="settings-form">${account?`<div class="settings-section"><h3>Аккаунт Focus</h3><p class="settings-note">${e(account.email)}</p><div class="form-field"><label for="account-name">Имя в аккаунте</label><input id="account-name" name="accountName" value="${e(account.name||'')}" maxlength="80" autocomplete="name" /></div>${button('cloud-workspace','Синхронизация пространства','','type="button"')} ${button('logout','Выйти из аккаунта','ghost','type="button"')} ${button('delete-account','Удалить аккаунт','danger','type="button"')}</div>`:''}<div class="settings-section"><h3>Ваше пространство</h3><div class="form-field"><label for="settings-name">Название</label><input id="settings-name" name="name" value="${e(state.settings.name)}" maxlength="60" required /></div><div class="form-field" style="margin-bottom:0"><label for="settings-theme">Оформление</label><select name="theme" id="settings-theme">${[['light','Светлое'],['dark','Тёмное'],['system','Как на устройстве']].map(([v,l])=>`<option value="${v}" ${state.settings.theme===v?'selected':''}>${l}</option>`).join('')}</select></div><div class="setting-row"><div>Отправлять по Enter<p>Shift + Enter добавляет новую строку</p></div><button class="switch" type="button" role="switch" aria-label="Отправлять по Enter" aria-checked="${state.settings.sendOnEnter}" data-action="toggle-enter"></button></div></div><div class="settings-section"><h3>Данные</h3><p class="settings-note" style="margin-bottom:16px">По умолчанию история и файлы остаются в этом браузере. Между устройствами они передаются после включения синхронизации. Браузер может очистить локальные данные при нехватке места или при очистке сайта. Регулярно скачивай резервную копию.</p><div class="settings-buttons">${button('export-backup',`${icon('download')} Скачать копию`,'','type="button"')}${button('import-backup',`${icon('upload')} Восстановить`,'','type="button"')}</div></div><div class="settings-section"><h3>Подключение модели</h3><p class="settings-note">${e(MODEL_LABEL)} · ${apiStatus.configured?'подключена':'не настроена'}. Запросы проходят через сервер приложения. Ключ API не хранится в браузере. Текст диалога и поддерживаемые вложения передаются выбранному провайдеру: Google, OpenRouter, Cloudflare или OpenAI. Поисковые запросы передаются Tavily. <a href="/privacy.html">Политика конфиденциальности</a> · <a href="/terms.html">Условия использования</a>. В бесплатном режиме режимы глубины ответа не применяются.</p></div><p class="settings-note"><a href="/about.html">О проекте</a></p><div class="dialog-footer" style="margin-top:24px">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">Сохранить</button></div></form>`,{onSubmit:saveSettings})}
+function settingsDialog(){modal('Настройки',`<form id="settings-form">${account?`<div class="settings-section"><h3>Аккаунт</h3><p class="settings-note">${e(account.email)}</p><div class="form-field"><label for="account-name">Имя в аккаунте</label><input id="account-name" name="accountName" value="${e(account.name||'')}" maxlength="80" autocomplete="name" /></div>${button('cloud-workspace','Синхронизация пространства','','type="button"')} ${button('logout','Выйти из аккаунта','ghost','type="button"')} ${button('delete-account','Удалить аккаунт','danger','type="button"')}</div>`:''}<div class="settings-section"><h3>Внешний вид</h3><div class="form-field"><label for="settings-name">Название</label><input id="settings-name" name="name" value="${e(state.settings.name)}" maxlength="60" required /></div><div class="form-field" style="margin-bottom:0"><label for="settings-theme">Оформление</label><select name="theme" id="settings-theme">${[['light','Светлое'],['dark','Тёмное'],['system','Как на устройстве']].map(([v,l])=>`<option value="${v}" ${state.settings.theme===v?'selected':''}>${l}</option>`).join('')}</select></div><div class="form-field"><label for="settings-text">Размер текста в диалоге</label><select name="textSize" id="settings-text"><option value="normal">Обычный</option><option value="large" ${state.settings.textSize==='large'?'selected':''}>Крупный</option></select></div>
+<div class="form-field"><label for="settings-density">Плотность списков и сообщений</label><select name="density" id="settings-density"><option value="normal">Обычная</option><option value="compact" ${state.settings.density==='compact'?'selected':''}>Компактная</option></select></div></div><div class="settings-section"><h3>Ответы</h3><div class="setting-row"><div>Отправлять по Enter<p>Shift + Enter добавляет новую строку</p></div><button class="switch" type="button" role="switch" aria-label="Отправлять по Enter" aria-checked="${state.settings.sendOnEnter}" data-action="toggle-enter"></button></div></div><div class="settings-section"><h3>Данные</h3><p class="settings-note" style="margin-bottom:16px">По умолчанию история и файлы остаются в этом браузере. Между устройствами они передаются после включения синхронизации. Браузер может очистить локальные данные при нехватке места или при очистке сайта. Регулярно скачивайте резервную копию.</p><div class="settings-buttons">${button('export-backup',`${icon('download')} Скачать копию`,'','type="button"')}${button('import-backup',`${icon('upload')} Восстановить`,'','type="button"')}</div></div><details class="settings-section"><summary>Расширенные настройки подключения</summary><p class="settings-note">${e(MODEL_LABEL)} · ${apiStatus.configured?'подключена':'не настроена'}. Запросы проходят через сервер приложения. Ключ API не хранится в браузере. Текст диалога и поддерживаемые вложения передаются выбранному провайдеру: Google, OpenRouter, Cloudflare или OpenAI. Поисковые запросы передаются Tavily. <a href="/privacy.html">Политика конфиденциальности</a> · <a href="/terms.html">Условия использования</a>. В бесплатном режиме режимы глубины ответа не применяются.</p></details><p class="settings-note"><a href="/about.html">О проекте</a> · <a href="/help.html">Справка и обратная связь</a></p><div class="dialog-footer" style="margin-top:24px">${button('reset-preferences','Сбросить настройки','ghost')}${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">Сохранить</button></div></form>`,{onSubmit:saveSettings})}
 async function updateAccount(path,body){
  const response=await fetch('/api/auth/'+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
  const result=await response.json();
@@ -542,6 +840,8 @@ async function saveSettings(data,form){
   if(account&&typeof name==='string'&&name.trim()!==(account.name||''))await updateAccount('profile',{name});
   state.settings.name=data.get('name').trim()||'Моё пространство';
   state.settings.theme=data.get('theme');
+  state.settings.textSize=data.get('textSize')==='large'?'large':'normal';
+  state.settings.density=data.get('density')==='compact'?'compact':'normal';
   state.settings.sendOnEnter=sendOnEnter;
   persist();if(form.isConnected)closeModal();render();toast('Настройки сохранены');
  }catch(error){toast(error.message);}
@@ -696,6 +996,8 @@ case 'select-project':selectProject(id,true);break;
 case 'open-workspace':selectProject(id);break;
 case 'select-chat':selectChat(id);break;
 case 'search':searchDialog();break;
+case 'shortcuts':shortcutDialog();break;
+case 'palette-run':{const action=t.dataset.command;closeModal();await handleAction(action,t);break;}
 case 'open-project-match':await openProjectMatch(id,Number(t.dataset.match));break;
 case 'search-project':closeModal();selectProject(id);break;
 case 'search-chat':closeModal();selectChat(id);break;
@@ -725,7 +1027,95 @@ case 'export-chat':exportChat(id);break;
 case 'restore':restore(t.dataset.type,id);break;
 case 'permanent-delete':confirm('Удалить навсегда?','Элемент и его содержимое будут удалены без возможности восстановления.',()=>permanentDelete(t.dataset.type,id),'Удалить навсегда',true);break;
 case 'empty-trash':confirm('Очистить корзину?','Все элементы корзины будут удалены навсегда.',async()=>{for(const p of state.projects.filter(p=>p.deleted))await permanentDelete('project',p.id);for(const c of state.chats.filter(c=>c.deleted))await permanentDelete('chat',c.id);for(const f of state.files.filter(f=>f.deleted))await permanentDelete('file',f.id)},'Очистить',true);break;
-case 'prompt':ui.draft=t.dataset.prompt;render();el('composer-input').focus();el('composer-input').setSelectionRange(ui.draft.length,ui.draft.length);break;
+case 'composer-suggestion':{
+ if(id==='profile-table'||id==='compare-tables'){
+  const selection=ui.attachments.map(id=>state.files.find(file=>file.id===id&&!file.deleted));
+  if(selection.some(file=>!file)){toast('Один из файлов недоступен в браузере.');break;}
+  const files=await Promise.all(selection.map(file=>getBlob(file.id)));
+  if(files.some(file=>!file)){toast('Один из файлов недоступен в браузере.');break;}
+  try{
+   const tables=await Promise.all(files.map((blob,index)=>openTable(new File([blob],selection[index].name))));
+   if(id==='profile-table'){
+    const {showTableProfile}=await import('./table-profile-ui.js');
+    const panel=modal('Анализ таблицы','<p role="status"></p><div class="table-wrap"></div>',{wide:true});
+    showTableProfile(tables[0],panel.querySelector('[role=status]'),panel.querySelector('.table-wrap'));
+   }else modal('Сверка таблиц',`<form><label>Общий ключ <input name="key" value="id" required></label><button class="btn primary">Сравнить</button><p role="status"></p></form>`,{onSubmit:(data,form)=>{
+    try{
+     const {added,removed,modified,matched}=compareTables(tables[0],tables[1],tableKeys(String(data.get('key'))));
+     form.querySelector('[role=status]').textContent=`Добавлено: ${added}. Удалено: ${removed}. Изменено: ${modified}. Совпало: ${matched}.`;
+    }catch(error){form.querySelector('[role=status]').textContent=error.message;}
+   }});
+  }catch(error){toast(error.message);}
+  break;
+ }
+ if(id==='stats')ui.draft='/stats '+ui.draft.trim().replace(/\s*;\s*|\s+/gu,'; ');
+ else if(id==='compare-csv')ui.draft='/csvdiff id';
+ else break;
+ saveDraft();render();el('composer-input')?.focus();
+ break;
+}
+case 'personal-templates':personalTemplateDialog();break;
+case 'use-personal-template':{
+ const template=personalTemplates()[Number(id)];
+ if(!template)break;
+ closeModal();ui.draft=template.prompt;saveDraft();render();el('composer-input')?.focus();
+ break;
+}
+case 'remove-personal-template':{
+ const index=Number(id);
+ try{storeTemplates(personalTemplates().filter((_,position)=>position!==index));personalTemplateDialog();}
+ catch{toast('Не удалось удалить шаблон.');}
+ break;
+}
+case 'export-personal-templates':{
+ const data=JSON.stringify({version:1,templates:personalTemplates()},null,2);
+ download(new Blob([data],{type:'application/json'}),'focus-templates.json');
+ break;
+}
+case 'document-checklist':documentChecklistDialog();break;
+case 'compare-documents':compareDocumentsDialog();break;
+case 'document-template':{
+ const prompt=templatePrompt(id);
+ if(!prompt)break;
+ closeModal();
+ ui.draft=prompt;
+ saveDraft();render();el('composer-input')?.focus();
+ break;
+}
+case 'composer-mode':{
+ if(generation)break;
+ if(id==='tables'){setView('tables');break;}
+ if(id==='document'&&!ui.draft.trim()){documentTemplateDialog();break;}
+ if(id==='search'){
+  if(!apiStatus.searchConfigured){toast('Поиск ещё не подключён на сервере');break;}
+  state.settings.webSearch=!state.settings.webSearch;
+  ui.composerMode=null;
+  persist();render();el('composer-input')?.focus();
+  break;
+ }
+ const prefixes={document:'/evidence',code:'/code',sites:'/site',images:'/image'};
+ const prefix=prefixes[id];
+ if(!prefix)break;
+ const current=ui.draft.replace(/^\/(?:evidence|code|site|image)(?=\s|$)\s*/u,'');
+ ui.draft=ui.draft.trim().startsWith(prefix+' ')?current:prefix+' '+current;
+ ui.composerMode=null;
+ state.settings.webSearch=false;
+ saveDraft();persist();render();
+ const field=el('composer-input');field.focus();field.setSelectionRange(field.value.length,field.value.length);
+ break;
+}
+case 'command-fill':{
+ ui.draft='/'+id+' ';
+ saveDraft();
+ const composer=el('composer-input');
+ composer.value=ui.draft;
+ el('send-button').disabled=false;
+ updateCommands();
+ resizeComposer();
+ composer.focus();
+ break;
+}
+case 'prompt':ui.draft=t.dataset.prompt;saveDraft();render();el('composer-input').focus();el('composer-input').setSelectionRange(ui.draft.length,ui.draft.length);break;
 case 'product-menu':menu(t,[
  {text:'Focus',description:'Общение, поиск и работа с проектами',action:'select-product',value:'workspace',icon:'grid',checked:!['code','forge'].includes(ui.view)},
  {text:'Focus Code',description:'Создание и изменение кода',action:'select-product',value:'code',icon:'code',checked:ui.view==='code'},
@@ -736,7 +1126,7 @@ case 'remove-quote':ui.quote=null;updateComposerQuote();break;
 case 'model-menu':menu(t,[{label:'Подключённая модель'},{text:MODEL_LABEL,action:'set-model',value:apiStatus.provider||'default',checked:true},{separator:true},{text:'О подключении',action:'model-info',icon:'info'}]);break;
 case 'image-subscription':imageSubscriptionDialog();break;
 case 'set-model':state.settings.model=t.dataset.value;persist();render();break;
-case 'effort-menu':if(apiStatus.provider==='openrouter'){toast('В бесплатном режиме параметры ответа выбирает провайдер');break;}menu(t,[{text:'Быстро',action:'set-effort',value:'fast',checked:state.settings.effort==='fast'},{text:'Вдумчиво',action:'set-effort',value:'balanced',checked:state.settings.effort==='balanced'},{text:'Подробно',action:'set-effort',value:'deep',checked:state.settings.effort==='deep'}]);break;
+case 'effort-menu':if(apiStatus.provider==='openrouter'){toast('В бесплатном режиме параметры ответа выбирает провайдер');break;}menu(t,[{text:'Быстро',description:'Меньше времени на обдумывание',action:'set-effort',value:'fast',checked:state.settings.effort==='fast'},{text:'Обычно',description:'Для повседневных вопросов',action:'set-effort',value:'balanced',checked:state.settings.effort==='balanced'},{text:'Подробно',description:'Может занять больше времени и токенов',action:'set-effort',value:'deep',checked:state.settings.effort==='deep'}]);break;
 case 'set-effort':state.settings.effort=t.dataset.value;persist();render();break;
 case 'context-menu':menu(t,[{label:'Работать в проекте'},...liveProjects().map(p=>({text:p.name,action:'switch-context',id:p.id,checked:p.id===state.activeProject,icon:'folder'}))]);break;
 case 'switch-context':{const d=ui.draft;selectProject(id);ui.draft=d;render();break;}
@@ -744,9 +1134,30 @@ case 'quota-info':{
  const budget=apiStatus.budget;
  if(!budget)break;
  const reset=budget.resetAt?new Date(budget.resetAt).toLocaleString('ru-RU'):'через пять часов после первого запроса';
- modal('Лимит на 5 часов',`<p class="dialog-description">Осталось <strong>${budget.remainingPercent}%</strong>. Обновление лимита: ${e(reset)}.</p><p class="settings-note">Бюджет на окно — около ${e(budget.approximateTokenLimit.toLocaleString('ru-RU'))} расчётных токенов. Изображения и поиск расходуют денежную часть лимита. Процент показывает остаток по более строгому из двух ограничений.</p>`);
+ modal('Лимит на 5 часов',`<p class="dialog-description">Осталось <strong>${budget.remainingPercent}%</strong>. Обновление лимита: ${e(reset)}.</p><p class="settings-note">Бюджет на окно — около ${e(budget.approximateTokenLimit.toLocaleString('ru-RU'))} расчётных токенов. Изображения и поиск расходуют денежную часть лимита. Процент показывает остаток по более строгому из двух ограничений. Подписка на изображения открывает соответствующий режим. Она не увеличивает показанный лимит.</p>`);
  break;
 }
+case 'review-context':{
+ const chat=activeChat();
+ const project=activeProject();
+ const readyFiles=ui.attachments.map(id=>state.files.find(file=>file.id===id&&!file.deleted)).filter(Boolean);
+ modal('Что видит ИИ',`<form><p>Список включает выбранные вложения. Без автоматического контекста Focus использует только выбранные файлы, текущий вопрос и недавние реплики диалога.</p>
+  <fieldset><legend>Вложения</legend>${readyFiles.map(file=>`<label><input type="checkbox" name="contextFile" value="${e(file.id)}" checked> ${e(file.name)}</label>`).join('')||'<p>Вложения не выбраны.</p>'}</fieldset>
+  <label><input type="checkbox" name="contextInstructions" ${ui.contextInstructions!==false?'checked':''} ${project?.instructions?.trim()?'':'disabled'}> Инструкции проекта</label>
+  <label><input type="checkbox" name="contextAuto" ${ui.contextAuto!==false?'checked':''}> Подобрать материалы из проекта</label>
+  <p>Текст вопроса и недавних реплик: около ${Math.ceil(new TextEncoder().encode(ui.draft+(chat?.messages.slice(-8).map(message=>message.content).join('')??'')).length/3).toLocaleString('ru-RU')} токенов до выбора файлов.</p>
+  <div class="dialog-footer"><button class="btn primary">Применить</button></div></form>`,{onSubmit:data=>{
+   ui.attachments=data.getAll('contextFile');
+   ui.contextInstructions=data.has('contextInstructions');
+   ui.contextAuto=data.has('contextAuto');
+   closeModal();render();el('composer-input')?.focus();
+  }});
+ break;
+}
+case 'data-details':
+ modal('Данные и провайдеры',
+  `<p>По умолчанию диалоги и файлы остаются в браузере. Облачная копия включается отдельно.</p><p>Текст и выбранные вложения для ответа получает ${apiStatus.provider==='openrouter'?'OpenRouter':apiStatus.provider==='google'?'Google Gemini':'настроенный провайдер'}. Изображения могут обрабатываться Cloudflare, OpenAI или OpenRouter. Поисковый запрос получает Tavily.</p><p><a href="/privacy.html">Политика конфиденциальности</a></p>`);
+ break;
 case 'model-info':modal('Подключение модели',`<p class="dialog-description">${e(MODEL_LABEL)} ${apiStatus.configured?'подключена через сервер приложения.':'ещё не настроена на этом сервере.'}</p><p class="settings-note">История хранится в браузере. Для ответа текст диалога и прикреплённые поддерживаемые файлы передаются провайдеру модели. Focus выбирает модель из настроек сервера. В бесплатном режиме ответы обрабатывает внешний провайдер, базовая модель может меняться. Ключ API хранится на сервере и не передаётся в браузер.</p><p class="settings-note">Встроенные навыки работают без ключа. Попробуйте «Посчитай (125 + 18) * 1,2», «Статистика для чисел 12; 18; 21; 24» или «Переведи 2,5 км в м».</p><p class="settings-note">Прикрепите таблицу и напишите «Проанализируй CSV». Чтобы увидеть правки, прикрепите старую и новую версии и напишите «Сравни два файла построчно».</p><div class="dialog-footer" style="margin-top:24px">${button('close-modal','Понятно','primary')}</div>`);break;
 case 'toggle-web-search':if(!apiStatus.searchConfigured){toast('Поиск ещё не подключён на сервере');break;}state.settings.webSearch=!state.settings.webSearch;persist();render();el('composer-input')?.focus();break;
 case 'search-sources':{const owner=t.dataset.searchOwner;const search=owner==='pending'?(generation?.sources?{sources:generation.sources,query:generation.query}:activeChat()?.pendingSearch):activeChat()?.messages.find(m=>m.id===owner)?.search;if(search)modal('Источники поиска',sourcesDialog(search));break;}
@@ -756,12 +1167,28 @@ case 'files-tab':ui.filesTab='files';render();break;
 case 'changes-tab':ui.filesTab='changes';render();break;
 case 'refresh-files':render();toast('Список обновлён');break;
 case 'sort-files':ui.sort=ui.sort==='name'?'date':'name';render();break;
+case 'files-root':ui.folder=null;render();break;
+case 'mobile-section':{
+ if(id==='projects'){ui.mobileNav=true;ui.mobileFiles=false;}
+ else{
+  ui.view='chat';ui.mobileNav=false;ui.mobileFiles=id==='files';
+  if(ui.mobileFiles&&activeChat())activeChat().preview=null;
+ }
+ render();
+ break;
+}
 case 'open-folder':ui.folder=id;render();break;
 case 'folder-up':if(ui.folder){ui.folder=state.files.find(f=>f.id===ui.folder)?.parent||null;render()}break;
 case 'create-folder':createFolder();break;
 case 'create-file':createFile();break;
 case 'upload':pickFiles();break;
 case 'attach':pickFiles(true);break;
+case 'attach-camera':{
+ if(!activeProject()){projectDialog();break;}
+ const camera=el('camera-input');
+ camera.value='';camera.click();
+ break;
+}
 case 'remove-attachment':ui.attachments=ui.attachments.filter(x=>x!==id);render();break;
 case 'file-menu':{const f=state.files.find(x=>x.id===id);if(f)menu(t,[{text:'Переименовать',action:'rename-file',id,icon:'rename'},...(f.kind!=='folder'?[{text:'Прикрепить к сообщению',action:'attach-existing',id,icon:'attach'},{text:'Скачать',action:'download-file',id,icon:'download'}]:[]),{separator:true},{text:'В корзину',action:'trash-file',id,icon:'trash',danger:true}]);break;}
 case 'rename-file':renameDialog('file',id);break;
@@ -808,8 +1235,16 @@ case 'logout':{
   const response=await fetch('/api/auth/logout',{method:'POST'});
   if(!response.ok)throw new Error();
   try{localStorage.setItem(AUTH_EVENT_KEY,uid());}catch{}
+  ready=false;
   location.replace('/login');
  }catch{t.disabled=false;toast('Не удалось выйти. Попробуй ещё раз.');}
+ break;
+}
+case 'reset-preferences':{
+ const previous=state.settings;
+ state.settings=fresh().settings;
+ if(await persist()){settingsDialog();render();toast('Настройки сброшены');}
+ else state.settings=previous;
  break;
 }
 case 'toggle-theme':state.settings.theme=document.documentElement.dataset.theme==='dark'?'light':'dark';applyTheme();persist();break;
@@ -835,7 +1270,7 @@ case 'cancel-background':{
  }
  break;
 }
-case 'retry-answer':{const c=activeChat();if(c&&!generation){const lastUser=c.messages.findLastIndex(m=>m.role==='user');if(lastUser>=0){c.messages=c.messages.slice(0,lastUser+1);persist();requestAnswer(c)}}break;}
+case 'retry-answer':{const c=activeChat();if(c&&!generation&&!c.backgroundJob&&c.messages.some(m=>m.role==='user'))void requestAnswer(c);break;}
 case 'save-answer':{const m=activeChat()?.messages.find(x=>x.id===id);if(m){confirm('Сохранить ответ?','Ответ будет добавлен в текущую папку проекта как файл Markdown.',async()=>{const fId=uid(),blob=new Blob([answerMarkdown(m)],{type:'text/markdown;charset=utf-8'});await putBlob(fId,blob);let name=(activeChat().title.slice(0,40).replace(/[\\/:*?"<>|]/g,'')||'Ответ')+'.md',n=1;while(fileExists(name))name='Ответ ('+(n++)+').md';state.files.push({id:fId,project:state.activeProject,parent:ui.folder,name,kind:'file',type:'text/markdown',size:blob.size,created:Date.now(),updated:Date.now(),deleted:false});log(`Сохранён ответ «${name}»`);persist();render();toast('Ответ сохранён в файлы проекта')},'Сохранить')}break;}
 case 'copy-code':{const block=codeBlockAction(t);if(block)await copy(block.code);break;}
 case 'download-code':{const block=codeBlockAction(t);if(block)download(new Blob([block.code],{type:'text/plain;charset=utf-8'}),block.filename||(/^(?:html|htm)$/i.test(block.language)?'index.html':'code.txt'));break;}
@@ -856,6 +1291,50 @@ case 'resize-preview':{
 case 'reload-preview':syncPreviewPanel(previewArtifact(activeChat()),true);break;
 case 'download-project':{const m=activeChat()?.messages.find(x=>x.id===id);if(!m||m.truncated)break;try{download(projectZip(projectFiles(m.content)),'project.zip');}catch(error){toast(error.message)}break;}
 case 'download-answer':{const m=activeChat()?.messages.find(x=>x.id===id);if(m)download(new Blob([answerMarkdown(m)],{type:'text/markdown;charset=utf-8'}),'Ответ.md');break;}
+case 'open-file-citation':{
+ const chat=activeChat(),answer=chat?.messages.find(message=>message.id===id);
+ const source=answer?.fileCitations?.[Number(t.dataset.index)];
+ if(!source)break;
+ const file=state.files.find(file=>file.id===source.id&&file.project===chat.project&&!file.deleted);
+ const content=file?await readProjectText(file.id):null;
+ if(content===null){toast('Файл больше недоступен.');break;}
+ const lines=content.split(/\r\n?|\n/u);
+ if(source.end>lines.length){toast('Фрагмент больше недоступен.');break;}
+ modal(source.name,`<p>Текущая версия файла. Цитата из строк ${source.start}–${source.end}.</p><pre>${lines.slice(source.start-1,source.end).map((line,index)=>`<mark>${source.start+index} | ${e(line)}</mark>`).join('\n')}</pre>`,{wide:true});
+ break;
+}
+case 'rate-answer':{
+ const message=activeChat()?.messages.find(item=>item.id===id&&item.role==='assistant');
+ if(!message)break;
+ if(message.rating==='helpful')delete message.rating;
+ else message.rating='helpful';
+ t.setAttribute('aria-pressed',String(message.rating==='helpful'));
+ t.textContent=message.rating==='helpful'?'Полезно ✓':'Полезно';
+ void persist();
+ break;
+}
+case 'share-answer':{
+ const message=activeChat()?.messages.find(item=>item.id===id&&item.role==='assistant');
+ if(!message)break;
+ const content=answerMarkdown(message);
+ if(navigator.share){
+  try{await navigator.share({title:'Ответ Focus',text:content});break;}
+  catch(error){if(error.name==='AbortError')break;}
+ }
+ await copy(content);
+ break;
+}
+case 'copy-answer-table':{
+ const table=t.closest('.table-wrap')?.querySelector('table');
+ if(!table)break;
+ const plain=[...table.rows].map(row=>[...row.cells].map(cell=>cell.textContent.replace(/[\t\r\n]+/gu,' ')).join('\t')).join('\n');
+ try{
+  await navigator.clipboard.write([new ClipboardItem({'text/html':new Blob([table.outerHTML],{type:'text/html'}),
+   'text/plain':new Blob([plain],{type:'text/plain'})})]);
+  toast('Таблица скопирована');
+ }catch{await copy(plain);}
+ break;
+}
 case 'copy-message':{const m=activeChat()?.messages.find(x=>x.id===id);if(m)await copy(m.content);break;}
 case 'edit-message':{const m=activeChat()?.messages.find(x=>x.id===id);if(m)modal('Изменить сообщение',`<form><div class="form-field"><textarea name="content" aria-label="Текст сообщения" rows="6" required autofocus>${e(m.content)}</textarea></div><div class="dialog-footer">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">Сохранить</button></div></form>`,{onSubmit:data=>{m.content=data.get('content').trim();activeChat().updated=Date.now();persist();closeModal();render()}});break;}
 case 'delete-message':{const c=activeChat();if(c){c.messages=c.messages.filter(m=>m.id!==id);c.updated=Date.now();persist();render()}break;}
@@ -880,13 +1359,14 @@ document.addEventListener('submit',event=>{
 });
 document.addEventListener('input',event=>{
  const input=event.target;
- if(input.id==='composer-input'){ui.draft=input.value;el('send-button').disabled=!generation&&!ui.draft.trim()&&!ui.attachments.length;resizeComposer();}
+ if(input.id==='composer-input'){ui.draft=input.value;saveDraft();updateCommands();updateComposerSuggestion();for(const button of document.querySelectorAll('#composer-modes button'))button.setAttribute('aria-pressed',String(button.dataset.id===composerMode()));el('send-button').disabled=!generation&&!ui.draft.trim()&&!ui.attachments.length;resizeComposer();}
  if(input.id==='code-brief')studio.codeBrief=input.value;
  if(input.id==='forge-brief')studio.forgeBrief=input.value;
  if(input.id==='site-brief')studio.siteBrief=input.value;
  if(input.id==='image-brief')studio.image.brief=input.value;
 });
-document.addEventListener('keydown',ev=>{if(!ready)return;if(ev.key==='Escape'){if(hideSelectionAction()){ev.preventDefault();return}closeMenu();if(activeChat()?.preview&&ui.view==='chat'){setPreview(null);return}if(ui.mobileNav||ui.mobileFiles){ui.mobileNav=false;ui.mobileFiles=false;render()}}if((ev.metaKey||ev.ctrlKey)&&ev.key.toLowerCase()==='k'){ev.preventDefault();searchDialog()}if((ev.metaKey||ev.ctrlKey)&&ev.key.toLowerCase()==='n'){ev.preventDefault();closeModal();newChat()}if(ev.target.id==='composer-input'&&ev.key==='Enter'&&!ev.isComposing){if((state.settings.sendOnEnter&&!ev.shiftKey&&!ev.altKey)||(ev.ctrlKey||ev.metaKey)){ev.preventDefault();send()}}if(ui.menu&&(ev.key==='ArrowDown'||ev.key==='ArrowUp')){ev.preventDefault();const buttons=[...ui.menu.querySelectorAll('button')];const i=buttons.indexOf(document.activeElement);buttons[(i+(ev.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length]?.focus()}});
+document.addEventListener('keydown',ev=>{if(!ready)return;if(ev.defaultPrevented||ev.target.closest('dialog'))return;if(ui.menu&&ev.key==='Escape'){ev.preventDefault();closeMenu(true);return;}if(ui.menu&&ev.key==='Tab'){closeMenu(true);return;}if(!ev.metaKey&&!ev.ctrlKey&&!ev.altKey&&ev.key==='?'&&!ev.target.closest('input,textarea,select,[contenteditable]')){ev.preventDefault();shortcutDialog();return;}if((ev.metaKey||ev.ctrlKey)&&ev.shiftKey&&ev.code==='Period'){ev.preventDefault();el('send-button')?.matches('[data-action=stop-generation]')&&el('send-button').click();return;}if(ev.key==='Escape'){if(hideSelectionAction()){ev.preventDefault();return}closeMenu();if(activeChat()?.preview&&ui.view==='chat'){setPreview(null);return}if(ui.mobileNav||ui.mobileFiles){ui.mobileNav=false;ui.mobileFiles=false;render()}}if((ev.metaKey||ev.ctrlKey)&&ev.key.toLowerCase()==='k'){ev.preventDefault();commandPalette()}if((ev.metaKey||ev.ctrlKey)&&ev.key.toLowerCase()==='n'){ev.preventDefault();closeModal();newChat()}if(ev.target.id==='composer-input'&&ev.key==='Enter'&&!ev.isComposing){if((state.settings.sendOnEnter&&!ev.shiftKey&&!ev.altKey)||(ev.ctrlKey||ev.metaKey)){ev.preventDefault();send()}}if(ui.menu&&['ArrowDown','ArrowUp','Home','End'].includes(ev.key)){ev.preventDefault();const buttons=[...ui.menu.querySelectorAll('button')];const i=buttons.indexOf(document.activeElement);const next=ev.key==='Home'?0:ev.key==='End'?buttons.length-1:(i+(ev.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length;buttons[next]?.focus()}});
+el('camera-input').addEventListener('change',ev=>uploadFiles([...ev.target.files],true));
 el('file-input').addEventListener('change',ev=>uploadFiles([...ev.target.files],uploadAttach));
 el('import-input').addEventListener('change',ev=>importBackup(ev.target.files[0]));
 let dragDepth=0;
@@ -1127,7 +1607,7 @@ function markdown(text,message,request=''){
    const table=answerTable(lines,j);
    if(table){
     closeParagraph();closeList();
-    out+=table.html;j=table.end-1;
+    out+=table.html.replace('</table></div>', '</table><button type="button" class="btn ghost" data-action="copy-answer-table">Скопировать таблицу</button></div>');j=table.end-1;
     continue;
    }
    const item=line.match(/^\s*(?:([-*+])|(\d+)\.)\s+(.+)/u);
@@ -1214,18 +1694,22 @@ async function attachmentPayload(ids){
 async function requestAnswer(c,approved=false){
  if(generation)return;
  c.error=null;c.pendingSearch=null;
- const controller=new AbortController();const lastUser=c.messages.findLast(m=>m.role==='user');
+ const controller=new AbortController();
+ const lastUserIndex=c.messages.findLastIndex(m=>m.role==='user');
+ if(lastUserIndex<0)return;
+ const requestHistory=c.messages.slice(0,lastUserIndex+1);
+ const lastUser=requestHistory.at(-1);
  const action=resolveAction(lastUser?.content,{local:localIntent,task:taskIntent,site:buildIntent,image:imageIntent,native:nativeBuildIntent,project:projectSearchQuery});
  const projectQuery=action.projectQuery??null;
  const localMode=action.local?.mode;
  const localSkill=!!localMode||!!(action.locals&&!action.task)||projectQuery!==null;
  const fileModes=['csv','diff','json','csvdiff'];
  const fileSkill=fileModes.includes(localMode)||action.locals?.some(skill=>fileModes.includes(skill.mode));
- const recentAnswer=c.messages.slice(0,c.messages.lastIndexOf(lastUser)).findLast(message=>message.role==='assistant');
+ const recentAnswer=requestHistory.slice(0,-1).findLast(message=>message.role==='assistant');
  const codeFollowUp=recentAnswer?.codeMode&&codeFollowUpIntent(lastUser?.content);
  const taskMode=action.task?.mode||(codeFollowUp?'code':null);
  const explicitSearch=action.web;
- const previousImage=latestImage(c.messages);
+ const previousImage=latestImage(requestHistory);
  const preferredVersion=c.messages.find(message=>message.id===c.siteVersion);
  const priorWebsite=previewArtifact(c)||previewArtifact(c,findWebsite(preferredVersion))||previewArtifact(c,findWebsite(recentAnswer));
  const revisionPhrases=action.phrases||[{visible:action.input}];
@@ -1244,7 +1728,7 @@ async function requestAnswer(c,approved=false){
  const needsSiteBrief=previewKind==='site'&&!updating&&!siteDetails&&/^сделай\s+сайт[.!?]*$/iu.test(action.input.trim());
  const automaticAction=imageRequest?'изображение':website&&!needsSiteBrief?{site:'сайт',app:'приложение',game:'игра'}[previewKind]:action.nativeProject?'проект с кодом':null;
  if(automaticAction&&!approved){
-  const notice=imageRequest?IMAGE_COST_NOTICE:'Focus отправит запрос модели для подготовки результата.';
+  const notice=(imageRequest?IMAGE_COST_NOTICE:'Focus отправит запрос модели для подготовки результата и зарезервирует часть лимита.')+quotaNotice();
   confirm('Распознано действие: '+automaticAction,notice,()=>{
    queueMicrotask(()=>void requestAnswer(c,true));
   },'Запустить');
@@ -1275,7 +1759,7 @@ async function requestAnswer(c,approved=false){
   }
   let searchId;
   if(withSearch&&!background){
-   const query=researchPlan?.question||(explicitSearch?searchQuery([{role:'user',content:action.input}]):searchQuery(c.messages));
+   const query=researchPlan?.question||(explicitSearch?searchQuery([{role:'user',content:action.input}]):searchQuery(requestHistory));
    if(!query)throw new Error('Для поиска добавьте текст вопроса.');
    generation.query=query;
    const response=await fetch('/api/search',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({query,...(researchPlan?{queries:researchPlan.queries}:{})}),signal:controller.signal});
@@ -1286,7 +1770,7 @@ async function requestAnswer(c,approved=false){
    c.pendingSearch={query:research.query,sources:research.sources,searchedAt:research.searchedAt,queries:research.queries,failedQueries:research.failedQueries};
    generation.sources=research.sources;generation.phase='answering';persist();refresh();
   }
-  const projectFiles=localSkill||action.locals||imageRequest?[]:projectTextFiles(c.project).filter(file=>file.size<100000);
+  const projectFiles=localSkill||action.locals||imageRequest||lastUser.noAutoContext?[]:projectTextFiles(c.project).filter(file=>file.size<100000);
   let reference;
   if(imageRequest?.mode==='edit'){
    const file=state.files.find(f=>f.id===previousImage?.imageFile&&!f.deleted);
@@ -1296,10 +1780,10 @@ async function requestAnswer(c,approved=false){
   }
   const messages=(localSkill||imageRequest)
    ?[{role:'user',content:lastUser.content,...(lastUser.quote?{quote:lastUser.quote}:{}),...(fileSkill?{attachments:await attachmentPayload(lastUser.files||[])}:{})}]
-   :await buildChatContext(c.messages,projectFiles,attachmentPayload,
+   :await buildChatContext(requestHistory,projectFiles,attachmentPayload,
     updating?{name:'Текущая версия предпросмотра — '+priorWebsite.filename,text:priorWebsite.code}:null);
   const instructions=state.projects.find(item=>item.id===c.project)?.instructions;
-  if(instructions&&!localSkill&&!imageRequest)messages.at(-1).projectInstructions=instructions;
+  if(instructions&&!localSkill&&!imageRequest&&!lastUser.noProjectInstructions)messages.at(-1).projectInstructions=instructions;
   if(researchPlan?.sources==='files'&&!messages.at(-1)?.attachments?.length){
    throw new Error('Добавь материалы в проект для исследования по файлам.');
   }
@@ -1345,7 +1829,8 @@ async function requestAnswer(c,approved=false){
   }
   if(!data.text)throw new Error('Получен пустой ответ');
   const imageFile=data.image?await saveGeneratedImage(data.image,c.project):null;
-  const answer={id:uid(),role:'assistant',...(website?{siteMode:true,previewKind}:{}),...(taskMode?{taskMode}:{}),...(codeMode?{codeMode,codeTargets}:{}),...(imageFile?{imageFile}:{}),content:data.text,at:Date.now(),model:data.model||apiStatus.model||'Модель',usage:data.usage,truncated:!!data.truncated,...(data.search?{search:data.search}:{})};
+  const references=taskMode==='evidence'?fileCitations(data.text,citationFiles(messages.flatMap(message=>message.attachments??[]))):[];
+  const answer={id:uid(),role:'assistant',...(references.length?{fileCitations:references}:{}),...(website?{siteMode:true,previewKind}:{}),...(taskMode?{taskMode}:{}),...(codeMode?{codeMode,codeTargets}:{}),...(imageFile?{imageFile}:{}),content:data.text,at:Date.now(),model:data.model||apiStatus.model||'Модель',usage:data.usage,truncated:!!data.truncated,...(data.search?{search:data.search}:{})};
   const nextPreview=findWebsite(answer);
   if(forge){
    answer.forge=forgeReport(data.text,{kind:forge.kind,truncated:!!data.truncated,previewReady:!!nextPreview});
@@ -1353,7 +1838,7 @@ async function requestAnswer(c,approved=false){
   c.messages.push(answer);
   if(nextPreview){c.preview=null;c.siteVersion=nextPreview.messageId;}
   c.pendingSearch=null;c.updated=Date.now();if(data.provider!=='local'&&data.provider!=='image')apiStatus.configured=true;
- }catch(err){c.error=err.name==='AbortError'?'Запрос остановлен. Его можно повторить.':err.message||'Не удалось получить ответ';}
+ }catch(err){c.error=err.name==='AbortError'?'Запрос остановлен. Его можно повторить.':err instanceof TypeError?'Не удалось связаться с сервером. Проверьте подключение и повторите запрос.':err.message||'Не удалось получить ответ';}
  finally{
   generation=null;persist();refresh();
   void refreshQuota();
@@ -1361,17 +1846,48 @@ async function requestAnswer(c,approved=false){
   if(ui.view==='images')refreshImageStudio();
  }
 }
+function offerExampleProject(){
+ const url=new URL(location.href);
+ if(!url.searchParams.has('example'))return;
+ const sample=exampleProject(url.searchParams.get('example'));
+ url.searchParams.delete('example');
+ history.replaceState(null,'',url.pathname+url.search+url.hash);
+ if(!sample)return;
+ confirm('Скопировать пример в Focus?',`Focus создаст проект «${sample.name}» с ${sample.files.length} учебными файлами.`,async()=>{
+  const now=Date.now(),project=uid(),blobs=new Map();
+  const files=sample.files.map(file=>{
+   const id=uid(),type=file.name.endsWith('.csv')?'text/csv':'text/plain';
+   const blob=new Blob([file.text],{type});
+   blobs.set(id,blob);
+   return {id,project,parent:null,name:file.name,kind:'file',type,size:blob.size,created:now,updated:now,deleted:false};
+  });
+  const next={
+   ...state,
+   projects:[...state.projects,{id:project,name:sample.name,description:'Учебный проект Focus',instructions:'',created:now,deleted:false}],
+   files:[...state.files,...files],
+   activeProject:project,
+   activeChat:null,
+  };
+  saveDraft();
+  await saveWorkspaceFiles(next,blobs);
+  state=next;
+  ui.folder=null;ui.quote=null;ui.attachments=[];ui.view='chat';ui.archive=false;
+  restoreDraft();
+ },'Скопировать');
+}
+
 async function boot(){
  try{
   const response=await fetch('/api/auth/session',{cache:'no-store'});
   if(response.status!==404){
    if(!response.ok)throw new Error();
    const session=await response.json();
-   if(session.enabled&&!session.user){location.replace('/login');return;}
+   if(session.enabled&&!session.user){location.replace(exampleRoute(new URL(location.href),'/login'));return;}
    account=session.user;
   }
   selectStorageScope(account?.id);
   state=await readState();
+  restoreDraft();
   if(account)try{
    cloudRevision=Number(localStorage.getItem('focus.cloud-revision.'+account.id))||null;
    cloudAuto=localStorage.getItem('focus.cloud-auto.'+account.id)==='1';
@@ -1379,6 +1895,7 @@ async function boot(){
   ready=true;
   ui.view=studioRoute()||'chat';
   render();
+  offerExampleProject();
   if(account)for(const chat of state.chats.filter(item=>item.backgroundJob&&!item.deleted))void recoverJob(chat);
   fetch('/api/status').then(r=>r.ok?r.json():null).then(d=>{if(d){apiStatus=d;render()}}).catch(()=>{});
   const oldImageCode=account?savedImagePass():null;
@@ -1390,6 +1907,7 @@ async function boot(){
   app.innerHTML='<section class="welcome"><div class="welcome-inner"><h1>Не удалось открыть Focus</h1><p class="welcome-sub">Проверь подключение и обнови страницу.</p></div></section>';
  }
 }
+window.addEventListener('pagehide',()=>{if(ready)saveDraft();});
 window.addEventListener('storage',event=>{if(event.key===AUTH_EVENT_KEY)location.reload();});
 window.addEventListener('pageshow',event=>{if(event.persisted&&account)location.reload();});
 
@@ -1401,7 +1919,7 @@ function tablesView(){
   <form class="studio-panel studio-form focus-form" id="tables-form">
    <div class="form-field"><label for="table-before">Исходная выгрузка</label><input id="table-before" name="before" type="file" accept=".csv,.xlsx" required></div>
    <div class="form-field"><label for="table-after">Новая выгрузка</label><input id="table-after" name="after" type="file" accept=".csv,.xlsx" required></div>
-   <div class="form-field"><label for="table-key">Ключевой столбец</label><input id="table-key" name="key" value="id" maxlength="100" required></div>
+   <div class="form-field"><label for="table-key">Ключевые столбцы (через ;)</label><input id="table-key" name="key" value="id" maxlength="100" required></div>
    <button class="studio-primary" type="submit">Сравнить</button>
   </form>
   <section class="studio-section" id="table-result" aria-live="polite"></section>
@@ -1415,7 +1933,7 @@ async function compareUploads(form){
  try{
   const values=new FormData(form);
   const [before,after]=await Promise.all([openTable(values.get('before')),openTable(values.get('after'))]);
-  const comparison=compareTables(before,after,String(values.get('key')).trim());
+  const comparison=compareTables(before,after,tableKeys(String(values.get('key'))));
   result.innerHTML=`<div class="studio-panel"><h2>Результат сверки</h2>
    <dl class="table-totals">
     <div><dt>Добавлено</dt><dd>${comparison.added}</dd></div>

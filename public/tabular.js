@@ -44,30 +44,38 @@ export function csvTable(text,option,preserveSpaces=false){
  return rows;
 }
 
-function indexRows(rows,key,label){
+function indexRows(rows,keys,label){
  const [header,...records]=rows;
  const columns=header?.map(value=>value.trim())||[];
  if(!columns.length||columns.some(value=>!value)||new Set(columns).size!==columns.length){
   throw new Error(label+' — заполни уникальные названия столбцов.');
  }
- const position=columns.indexOf(key);
- if(position<0)throw new Error(label+' — столбец «'+key+'» отсутствует.');
+ const positions=keys.map(key=>{
+  const position=columns.indexOf(key);
+  if(position<0)throw new Error(label+' — столбец «'+key+'» отсутствует.');
+  return position;
+ });
  const entries=new Map();
  for(const [index,row] of records.entries()){
-  const id=row[position]??'';
-  if(!id.trim()||entries.has(id))throw new Error(label+' — пустой или повторный ключ в записи '+(index+1)+'.');
+  const values=positions.map(position=>row[position]??'');
+  const id=values.length===1?values[0]:JSON.stringify(values);
+  if(values.some(value=>!value.trim())||entries.has(id))throw new Error(label+' — пустой или повторный ключ в записи '+(index+1)+'.');
   entries.set(id,{row,number:index+1});
  }
  return {columns,entries};
 }
 
 export function compareTables(before,after,key){
- const old=indexRows(before,key,'Первый файл');
- const next=indexRows(after,key,'Второй файл');
+ const keys=Array.isArray(key)?key:[key];
+ if(!keys.length||keys.length>8||keys.some(key=>typeof key!=='string'||!key.trim())||new Set(keys).size!==keys.length){
+  throw new Error('Укажите от одного до восьми разных ключевых столбцов.');
+ }
+ const old=indexRows(before,keys,'Первый файл');
+ const next=indexRows(after,keys,'Второй файл');
  const added=[],removed=[],changed=[];
  const shared=old.columns.flatMap((name,index)=>{
   const newIndex=next.columns.indexOf(name);
-  return newIndex<0||name===key?[]:[{name,index,newIndex}];
+  return newIndex<0||keys.includes(name)?[]:[{name,index,newIndex}];
  });
  let modified=0;
  for(const [id,{row,number}] of old.entries){
@@ -88,4 +96,8 @@ export function compareTables(before,after,key){
    {name:'Столбцы',rows:[['Действие','Имя'],...next.columns.filter(name=>!old.columns.includes(name)).map(name=>['Добавлен',name]),...old.columns.filter(name=>!next.columns.includes(name)).map(name=>['Удалён',name])]}
   ]
  };
+}
+
+export function tableKeys(value){
+ return value.includes(';')?value.split(';').map(key=>key.trim()):value.trim();
 }
