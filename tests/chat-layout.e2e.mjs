@@ -14,8 +14,10 @@ const server=http.createServer(async(req,res)=>{
  const url=new URL(req.url,'http://'+req.headers.host);
  const request=new Request(url,{method:req.method,headers:req.headers,
   ...(['GET','HEAD'].includes(req.method)?{}:{body:Readable.toWeb(req),duplex:'half'})});
- const response=url.pathname==='/api/chat'?await chat(request,{}):
-  await worker.fetch(request,{},url.pathname==='/api/status'?{userId:'browser-fixture'}:{});
+ let response;
+ if(url.pathname==='/api/auth/session')response=Response.json({enabled:false,user:null});
+ else if(url.pathname==='/api/chat')response=await chat(request,{});
+ else response=await worker.fetch(request,{},url.pathname==='/api/status'?{userId:'browser-fixture'}:{});
  res.writeHead(response.status,Object.fromEntries(response.headers));
  if(response.body)Readable.fromWeb(response.body).pipe(res);
  else res.end();
