@@ -41,11 +41,11 @@ jobs:
       - run: node tests/storage.e2e.mjs
       - name: Record install script checksums
         run: sha256sum deploy/install.sh deploy/connect-*.sh > focus-deploy.sha256
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: focus-deploy-checksums
           path: focus-deploy.sha256
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: focus-search-preview
