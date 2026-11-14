@@ -1,3 +1,4 @@
+import {documentTemplates,templatePrompt} from './document-templates.js';
 import {matchingCommands,commandUsed} from './commands.js';
 import {eventStream} from './event-stream.js';
 import {workspaceAPI,snapshotWorkspace,decodeWorkspace} from './workspace-features.js';
@@ -455,6 +456,11 @@ function updateComposerSuggestion(){
  panel.hidden=!label||!!generation;
  panel.textContent=label;
  panel.dataset.id=idea||(numbers?'stats':'');
+}
+function documentTemplateDialog(){
+ modal('Шаблоны документов',`<p>Выберите шаблон, затем добавьте материалы и уточните задачу в сообщении.</p><div class="settings-buttons">
+  ${documentTemplates.map(template=>button('document-template',e(template.title),'ghost',`data-id="${e(template.id)}"`)).join('')}
+ </div>`);
 }
 function composer(){return `<div class="composer-area"><div class="composer-wrap"><form class="composer" id="composer-form"><div id="composer-modes" class="composer-modes" aria-label="Инструменты диалога">${composerModesMarkup()}</div><div id="composer-quote">${ui.quote?quoteMarkup(ui.quote.text,true):''}</div><div class="attachment-list" ${ui.attachments.length?'':'hidden'}>${ui.attachments.map(id=>{const f=state.files.find(x=>x.id===id);return f?`<span class="attachment-chip">${icon(fileIcon(f))}<span class="truncate">${e(f.name)}</span>${ib('remove-attachment','close','Убрать вложение',`data-id="${id}"`)}</span>`:''}).join('')}</div><textarea id="composer-input" rows="2" placeholder="Задача, вопрос или идея…" aria-label="Сообщение" maxlength="100000">${e(ui.draft)}</textarea><div class="command-suggestions" id="command-suggestions" aria-label="Команды диалога" hidden></div><button type="button" class="inline-link composer-idea" id="composer-suggestion" data-action="composer-suggestion" hidden></button><div class="composer-bottom"><div class="composer-left">${ib('attach','attach','Прикрепить файлы')}<button class="web-search-toggle ${state.settings.webSearch?'active':''}" type="button" data-action="toggle-web-search" aria-label="Поиск в интернете" aria-pressed="${!!state.settings.webSearch}" title="${apiStatus.searchConfigured?'Искать источники перед ответом':'Поиск ещё не подключён на сервере'}" ${generation?'disabled':''}>${icon('globe')}<span>Поиск</span></button><button class="composer-select" type="button" data-action="model-menu" aria-label="Выбрать модель">${e(MODEL_LABEL)}${icon('down')}</button><button class="composer-select" type="button" data-action="effort-menu" aria-label="Режим ответа">${apiStatus.provider==='openrouter'?'Настройки провайдера':effortLabel()}${icon('down')}</button><button class="composer-select project-context" type="button" data-action="context-menu" aria-label="Контекст проекта">${icon('folder')}<span class="truncate">Файлы проекта</span>${icon('down')}</button></div><button class="send" id="send-button" type="${generation?'button':'submit'}" ${generation?'data-action="stop-generation"':''} aria-label="${generation?'Остановить ответ':'Отправить сообщение'}" ${generation||ui.draft.trim()||ui.attachments.length?'':'disabled'}>${generation?'<span class="stop-square"></span>':icon('arrow')}</button></div></form><div class="composer-hint"><span>История хранится в браузере</span><button type="button" class="inline-link data-details" data-action="data-details">Куда уходят запросы</button><span class="enter-hint">· ${state.settings.sendOnEnter?'Enter — отправить, Shift + Enter — новая строка':'Ctrl + Enter — отправить'}</span></div></div></div>`}
 function quoteMarkup(text,editable=false){
@@ -958,9 +964,18 @@ case 'composer-suggestion':{
  saveDraft();render();el('composer-input')?.focus();
  break;
 }
+case 'document-template':{
+ const prompt=templatePrompt(id);
+ if(!prompt)break;
+ closeModal();
+ ui.draft=prompt;
+ saveDraft();render();el('composer-input')?.focus();
+ break;
+}
 case 'composer-mode':{
  if(generation)break;
  if(id==='tables'){setView('tables');break;}
+ if(id==='document'&&!ui.draft.trim()){documentTemplateDialog();break;}
  if(id==='search'){
   if(!apiStatus.searchConfigured){toast('Поиск ещё не подключён на сервере');break;}
   state.settings.webSearch=!state.settings.webSearch;
