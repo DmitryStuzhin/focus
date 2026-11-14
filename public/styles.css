@@ -371,36 +371,39 @@
 .product-menu-popup .menu-option > .check { margin-left: auto; color: #e6e6e2; }
 .studio-links { padding-top: 4px; }
 
-/* Light mode keeps the graphite/teal identity without looking washed out. */
+/* Light mode: white canvas with the same restrained moving beige glow. */
 [data-theme=light] .main {
  background:
-  radial-gradient(ellipse 72% 50% at 96% 0%, #82c4c326, transparent 64%),
-  linear-gradient(180deg,#f8fbfb 0%,#f1f6f5 100%);
+  radial-gradient(ellipse 72% 54% at 92% 4%,#d2b18130 0%,transparent 62%),
+  radial-gradient(ellipse 46% 40% at 8% 100%,#ead9c027 0%,transparent 68%),
+  #ffffff;
+ background-size:125% 125%,115% 115%,auto;
+ animation:focus-main-glow 18s var(--ease) infinite alternate;
 }
 [data-theme=light] .topbar {
- border-bottom-color: #c8d9d8;
- background: #f9fcfbd9;
+ border-bottom-color: #e1d9cd;
+ background: #fffefbe6;
  backdrop-filter: blur(18px);
 }
 [data-theme=light] .sidebar {
- border-right-color: #c8d9d8;
- background: linear-gradient(180deg,#edf4f3 0%,#e7f0ef 100%);
+ border-right-color: #e1d9cd;
+ background: linear-gradient(180deg,#fbfaf7 0%,#f4efe8 100%);
 }
 [data-theme=light] .composer {
- border-color: #bcd0cf;
- background: #fbfdfde8;
- box-shadow: 0 16px 42px #355f5b14;
+ border-color: #d9d0c3;
+ background: #fffefce8;
+ box-shadow: 0 16px 42px #765f3e17;
 }
 [data-theme=light] .workspace-card,
 [data-theme=light] .file-row,
 [data-theme=light] .change-item {
- border-color: #c5d7d6;
- background: linear-gradient(145deg,#ffffff 0%,#f1f7f6 100%);
- box-shadow: 0 9px 24px #315c5812;
+ border-color: #ded5c8;
+ background: radial-gradient(ellipse at 100% 0%,#d2b1811a,transparent 48%),linear-gradient(145deg,#ffffff 0%,#faf6f0 100%);
+ box-shadow: 0 9px 24px #765f3e12;
 }
 [data-theme=light] .file-row:hover {
- border-color: #5f999a;
- background: #e3efee;
+ border-color: #c9b79d;
+ background: #f5ede2;
 }
 [data-theme=light] .file-row > .icon,
 [data-theme=light] .workspace-symbol {
@@ -409,15 +412,16 @@
  color: #317b7d;
 }
 [data-theme=light] .files-panel {
- border-left-color: #c8d9d8;
- background: linear-gradient(180deg,#f6faf9,#edf4f3);
+ border-left-color: #e1d9cd;
+ background: radial-gradient(ellipse 90% 32% at 100% 0%,#d2b1811c,transparent 72%),linear-gradient(180deg,#fffefb,#f6f1ea);
 }
-[data-theme=light] .files-header { border-bottom-color: #c8d9d8; background: #f8fbfbd9; }
+[data-theme=light] .files-header { border-bottom-color: #e1d9cd; background: #fffefbe6; }
 [data-theme=light] .files-tabs,
-[data-theme=light] .files-toolbar { border: 1px solid #c5d7d6; background: #edf5f4; }
+[data-theme=light] .files-toolbar { border: 1px solid #ded5c8; background: #f7f2eb; }
 [data-theme=light] .files-tabs .tab.active { color: #fff; background: #317b7d; }
 [data-theme=light] .btn.primary,
 [data-theme=light] .send { border-color: #286466; background: #286466; color: #f5fbfb; }
+@media (prefers-reduced-motion: reduce) { [data-theme=light] .main { animation:none; } }
 
 /* Reference file rail: quiet rows and controls, without stacked floating cards. */
 .files-tabs,
