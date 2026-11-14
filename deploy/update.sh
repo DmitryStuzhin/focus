@@ -93,4 +93,9 @@ install -m 644 "$release/deploy/focus-update.service" /etc/systemd/system/focus-
 install -m 644 "$release/deploy/focus-update.timer" /etc/systemd/system/focus-update.timer
 install -m 755 "$release/deploy/update.sh" /usr/local/sbin/focus-update
 systemctl daemon-reload
+for candidate in /opt/focus/releases/*; do
+    [[ "${candidate##*/}" =~ ^[0-9a-f]{40}$ ]] || continue
+    [[ -d "$candidate" && ! -L "$candidate" && "$candidate" != "$previous" && "$candidate" != "$release" ]] || continue
+    rm -rf -- "$candidate"
+done
 printf 'Deployed %s\n' "$revision"

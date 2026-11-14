@@ -1,0 +1,14 @@
+[Unit]
+Description=Back up Focus accounts to encrypted remote storage
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/focus/backup.env
+ExecStart=/opt/focus/current/deploy/backup.sh
+UMask=0077
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/focus
