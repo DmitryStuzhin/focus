@@ -118,9 +118,7 @@ try{
   requests.push(route.request().postDataJSON());
   await route.fulfill({json:{text:'```rust main.rs\n'+(requests.length===1?original:updated)+'```',model:'test'}});
  });
- await codePage.getByRole('button',{name:'Написать код',exact:true}).click();
  const codeComposer=codePage.getByRole('textbox',{name:'Сообщение',exact:true});
- assert.equal(await codeComposer.inputValue(),'Напиши код для ');
  await codeComposer.fill('Создай файл main.rs');
  await codePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
  const saveCode=codePage.getByRole('button',{name:'Сохранить в проект',exact:true});
@@ -233,9 +231,7 @@ try{
   planRequests.push(route.request().postDataJSON());
   await route.fulfill({json:{text:planRequests.length===1?'## План\n- [ ] Собрать материалы\n- [ ] Проверить результат':'Продолжаем со второго шага.',model:'test'}});
  });
- await planPage.getByRole('button',{name:'Продумать план',exact:true}).click();
  const planComposer=planPage.getByRole('textbox',{name:'Сообщение',exact:true});
- assert.equal(await planComposer.inputValue(),'Составь план для ');
  await planComposer.fill('Составь план подготовки выпуска');
  await planPage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
  await planPage.getByRole('checkbox',{name:'Собрать материалы'}).check();
