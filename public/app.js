@@ -120,7 +120,7 @@ let renderedScrollKey;
 const scrollPositions=new Map();
 function render(){
  const scrollKey=ui.view+':'+(state.activeChat??state.activeProject);
- if(renderedScrollKey&&renderedScrollKey!==scrollKey&&el('main-scroll')){
+ if(renderedScrollKey&&el('main-scroll')){
   scrollPositions.set(renderedScrollKey,el('main-scroll').scrollTop);
  }
  hideSelectionAction();
@@ -135,11 +135,9 @@ function render(){
  ${sidebar()}<button class="sidebar-shade" aria-label="Закрыть навигацию" data-action="close-nav"></button>
  <main class="main" ${ui.mobileNav||ui.mobileFiles?'inert':''}>${header()}<div class="main-scroll" id="main-scroll">${mainView()}</div>${ui.view==='chat'?composer():''}</main>
  ${artifact?'<div class="preview-space" aria-hidden="true"></div>':ui.view==='chat'?filesPanel(showFiles):''}${mobileNavigation()}</div>`;
- if(renderedScrollKey!==scrollKey){
-  const stored=scrollPositions.get(scrollKey);
-  if(stored!=null&&el('main-scroll'))el('main-scroll').scrollTop=stored;
-  renderedScrollKey=scrollKey;
- }
+ const stored=scrollPositions.get(scrollKey);
+ if(stored!=null&&el('main-scroll'))el('main-scroll').scrollTop=stored;
+ renderedScrollKey=scrollKey;
  syncPreviewPanel(artifact);
  if(ui.view==='chat'){
   const answers=activeChat()?.messages.filter(message=>message.role==='assistant')||[];
@@ -414,9 +412,9 @@ function chatView(){const c=activeChat();if(!c||!c.messages.length)return `<sect
  let lastUserContent='';
  return `<section class="messages" aria-label="Сообщения диалога">${c.messages.map(m=>{
   if(m.role==='user')lastUserContent=m.content;
-  return m.role==='assistant'?`<article class="assistant-message"><div class="assistant-label">Focus <span>${e(m.model==='local-calculator'?'Калькулятор':m.model==='local-statistics'?'Статистика':m.model==='local-conversion'?'Конвертер':m.model==='local-csv'?'Анализ CSV':m.model==='local-diff'?'Сравнение файлов':m.model==='local-project-search'?'Поиск по проекту':m.taskMode==='plan'?'План':m.taskMode==='review'?'Ревью кода':MODEL_LABEL)}</span>${modelProvenance(m)}</div>${sourcePills({...m.search,owner:m.id})}${m.search?.failedQueries?.length?`<p class="settings-note">Не удалось выполнить запросов: ${m.search.failedQueries.length}</p>`:''}<div class="markdown">${m.model==='local-project-search'?renderProjectMatches(m):m.model==='local-diff'?'<div class="code-block"><pre><code>'+e(m.content)+'</code></pre></div>':linkCitations(markdown(m.content,m,lastUserContent),m.search)}</div>${citationMarkup(m)}${m.imageFile&&state.files.some(f=>f.id===m.imageFile&&!f.deleted)?'<figure class="generated-image"><img data-generated-file="'+e(m.imageFile)+'" alt="Сгенерированное изображение" /><button class="btn" data-action="download-file" data-id="'+e(m.imageFile)+'">Скачать изображение</button></figure>':''}<div class="assistant-actions">${ib('copy-message','copy','Скопировать ответ',`data-id="${m.id}"`)}${extraAnswerActions(m)}${ib('save-answer','file','Сохранить ответ в файл',`data-id="${m.id}"`)}${ib('download-answer','download','Скачать ответ',`data-id="${m.id}"`)}${ib('office-export','file','Экспорт в Word или PowerPoint',`data-id="${m.id}"`)}${!m.truncated&&/\x60\x60\x60\w+\s+[^\s]+/u.test(m.content)?button('download-project','Скачать файлы ZIP','ghost',`data-id="${m.id}"`):''}${ib('retry-answer','refresh','Повторить ответ')}${m.truncated?'<small>Достигнута максимальная длина ответа</small>':''}</div></article>`:`<article class="message">${m.files?.length?`<div class="message-files">${m.files.map(id=>{const f=state.files.find(x=>x.id===id&&!x.deleted);return f?`<button class="message-file" data-action="preview-file" data-id="${f.id}">${icon(fileIcon(f))}<span class="truncate">${e(f.name)}</span></button>`:''}).join('')}</div>`:''}<div class="message-bubble">${typeof m.quote==='string'&&m.quote?quoteMarkup(m.quote):''}<div>${e(m.content)}</div></div><div class="message-time"><span>${time(m.at)}</span>${ib('copy-message','copy','Скопировать сообщение',`data-id="${m.id}"`)}${ib('edit-message','rename','Изменить сообщение',`data-id="${m.id}"`)}${ib('delete-message','trash','Удалить сообщение',`data-id="${m.id}"`)}</div></article>`;}).join('')}${generation?.chatId===c.id?`<div class="assistant-message" role="status"><div class="assistant-label">Focus</div>${generation.sources?.length?sourcePills({sources:generation.sources,query:generation.query,owner:'pending'}):''}<div class="generating ${generation.phase==='searching'?'web-searching':''}">${generation.phase==='searching'?'Ищу в интернете':generation.phase==='imaging'?'Создаю изображение':generation.forge?'Подготавливаю файлы и предпросмотр':'Готовлю ответ'}<span class="typing-dots"><i></i><i></i><i></i></span></div><div class="stream-text" id="stream-text" aria-live="polite" aria-atomic="false">${e(generation.text)}</div></div>`:c.backgroundJob?`<div class="pending-note">${icon('clock')}<span>Исследование выполняется в фоне</span>
+  return m.role==='assistant'?`<article class="assistant-message"><div class="assistant-label">Focus <span>${e(m.model==='local-calculator'?'Калькулятор':m.model==='local-statistics'?'Статистика':m.model==='local-conversion'?'Конвертер':m.model==='local-csv'?'Анализ CSV':m.model==='local-diff'?'Сравнение файлов':m.model==='local-project-search'?'Поиск по проекту':m.taskMode==='plan'?'План':m.taskMode==='review'?'Ревью кода':MODEL_LABEL)}</span>${modelProvenance(m)}</div>${sourcePills({...m.search,owner:m.id})}${m.search?.failedQueries?.length?`<p class="settings-note">Не удалось выполнить запросов: ${m.search.failedQueries.length}</p>`:''}<div class="markdown">${m.model==='local-project-search'?renderProjectMatches(m):m.model==='local-diff'?'<div class="code-block"><pre><code>'+e(m.content)+'</code></pre></div>':linkCitations(markdown(m.content,m,lastUserContent),m.search)}</div>${citationMarkup(m)}${m.imageFile&&state.files.some(f=>f.id===m.imageFile&&!f.deleted)?'<figure class="generated-image"><img data-generated-file="'+e(m.imageFile)+'" alt="Сгенерированное изображение" /><button class="btn" data-action="download-file" data-id="'+e(m.imageFile)+'">Скачать изображение</button></figure>':''}<div class="assistant-actions">${ib('copy-message','copy','Скопировать ответ',`data-id="${m.id}"`)}${extraAnswerActions(m)}${ib('save-answer','file','Сохранить ответ в файл',`data-id="${m.id}"`)}${ib('download-answer','download','Скачать ответ',`data-id="${m.id}"`)}${ib('office-export','file','Экспорт в Word или PowerPoint',`data-id="${m.id}"`)}${!m.truncated&&/\x60\x60\x60\w+\s+[^\s]+/u.test(m.content)?button('download-project','Скачать файлы ZIP','ghost',`data-id="${m.id}"`):''}${m===c.messages.at(-1)&&!c.error&&!generation?ib('retry-answer','refresh','Получить ещё один ответ'):''}${m.truncated?'<small>Достигнута максимальная длина ответа</small>':''}</div></article>`:`<article class="message">${m.files?.length?`<div class="message-files">${m.files.map(id=>{const f=state.files.find(x=>x.id===id&&!x.deleted);return f?`<button class="message-file" data-action="preview-file" data-id="${f.id}">${icon(fileIcon(f))}<span class="truncate">${e(f.name)}</span></button>`:''}).join('')}</div>`:''}<div class="message-bubble">${typeof m.quote==='string'&&m.quote?quoteMarkup(m.quote):''}<div>${e(m.content)}</div></div><div class="message-time"><span>${time(m.at)}</span>${ib('copy-message','copy','Скопировать сообщение',`data-id="${m.id}"`)}${ib('edit-message','rename','Изменить сообщение',`data-id="${m.id}"`)}${ib('delete-message','trash','Удалить сообщение',`data-id="${m.id}"`)}</div></article>`;}).join('')}${generation?.chatId===c.id?`<div class="assistant-message"><div class="assistant-label">Focus</div>${generation.sources?.length?sourcePills({sources:generation.sources,query:generation.query,owner:'pending'}):''}<div role="status" class="generating ${generation.phase==='searching'?'web-searching':''}">${generation.phase==='searching'?'Ищу в интернете':generation.phase==='imaging'?'Создаю изображение':generation.forge?'Подготавливаю файлы и предпросмотр':'Готовлю ответ'}<span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span></div><div class="stream-text" id="stream-text" aria-live="polite" aria-atomic="false">${e(generation.text)}</div><div class="answer-placeholder" aria-hidden="true"><span></span><span></span><span></span></div></div>`:c.backgroundJob?`<div class="pending-note">${icon('clock')}<span>Исследование выполняется в фоне</span>
  <button class="inline-link" data-action="resume-background">Проверить результат</button>
- <button class="inline-link" data-action="cancel-background">Остановить</button></div>`:c.error?`<div class="request-error" role="alert">${icon('info')}<div>${c.pendingSearch?.sources?.length?sourcePills({...c.pendingSearch,owner:'pending'}):''}<p>${e(c.error)}</p><button class="inline-link" data-action="retry-answer">Повторить запрос</button></div></div>`:c.messages.at(-1)?.role==='user'?`<div class="pending-note">${icon('info')}<span>${apiStatus.configured?'Ответ не получен. Вы можете повторить запрос.':'Запрос сохранён. Модель ещё не подключена.'} <button class="inline-link" data-action="retry-answer">Повторить</button></span></div>`:''}</section>`}
+ <button class="inline-link" data-action="cancel-background">Остановить</button></div>`:c.error?`<div class="request-error" role="alert">${icon('info')}<div>${c.pendingSearch?.sources?.length?sourcePills({...c.pendingSearch,owner:'pending'}):''}<strong>Запрос не завершился</strong><p>${e(c.error)}</p><button class="inline-link" data-action="retry-answer">Повторить запрос</button></div></div>`:c.messages.at(-1)?.role==='user'?`<div class="pending-note">${icon('info')}<span>${apiStatus.configured?'Ответ не получен. Вы можете повторить запрос.':'Запрос сохранён. Модель ещё не подключена.'} <button class="inline-link" data-action="retry-answer">Повторить</button></span></div>`:''}</section>`}
 
 function recentCommands(){
  try{
@@ -1193,7 +1191,7 @@ case 'cancel-background':{
  }
  break;
 }
-case 'retry-answer':{const c=activeChat();if(c&&!generation){const lastUser=c.messages.findLastIndex(m=>m.role==='user');if(lastUser>=0){c.messages=c.messages.slice(0,lastUser+1);persist();requestAnswer(c)}}break;}
+case 'retry-answer':{const c=activeChat();if(c&&!generation&&!c.backgroundJob&&c.messages.some(m=>m.role==='user'))void requestAnswer(c);break;}
 case 'save-answer':{const m=activeChat()?.messages.find(x=>x.id===id);if(m){confirm('Сохранить ответ?','Ответ будет добавлен в текущую папку проекта как файл Markdown.',async()=>{const fId=uid(),blob=new Blob([answerMarkdown(m)],{type:'text/markdown;charset=utf-8'});await putBlob(fId,blob);let name=(activeChat().title.slice(0,40).replace(/[\\/:*?"<>|]/g,'')||'Ответ')+'.md',n=1;while(fileExists(name))name='Ответ ('+(n++)+').md';state.files.push({id:fId,project:state.activeProject,parent:ui.folder,name,kind:'file',type:'text/markdown',size:blob.size,created:Date.now(),updated:Date.now(),deleted:false});log(`Сохранён ответ «${name}»`);persist();render();toast('Ответ сохранён в файлы проекта')},'Сохранить')}break;}
 case 'copy-code':{const block=codeBlockAction(t);if(block)await copy(block.code);break;}
 case 'download-code':{const block=codeBlockAction(t);if(block)download(new Blob([block.code],{type:'text/plain;charset=utf-8'}),block.filename||(/^(?:html|htm)$/i.test(block.language)?'index.html':'code.txt'));break;}
@@ -1616,18 +1614,22 @@ async function attachmentPayload(ids){
 async function requestAnswer(c,approved=false){
  if(generation)return;
  c.error=null;c.pendingSearch=null;
- const controller=new AbortController();const lastUser=c.messages.findLast(m=>m.role==='user');
+ const controller=new AbortController();
+ const lastUserIndex=c.messages.findLastIndex(m=>m.role==='user');
+ if(lastUserIndex<0)return;
+ const requestHistory=c.messages.slice(0,lastUserIndex+1);
+ const lastUser=requestHistory.at(-1);
  const action=resolveAction(lastUser?.content,{local:localIntent,task:taskIntent,site:buildIntent,image:imageIntent,native:nativeBuildIntent,project:projectSearchQuery});
  const projectQuery=action.projectQuery??null;
  const localMode=action.local?.mode;
  const localSkill=!!localMode||!!(action.locals&&!action.task)||projectQuery!==null;
  const fileModes=['csv','diff','json','csvdiff'];
  const fileSkill=fileModes.includes(localMode)||action.locals?.some(skill=>fileModes.includes(skill.mode));
- const recentAnswer=c.messages.slice(0,c.messages.lastIndexOf(lastUser)).findLast(message=>message.role==='assistant');
+ const recentAnswer=requestHistory.slice(0,-1).findLast(message=>message.role==='assistant');
  const codeFollowUp=recentAnswer?.codeMode&&codeFollowUpIntent(lastUser?.content);
  const taskMode=action.task?.mode||(codeFollowUp?'code':null);
  const explicitSearch=action.web;
- const previousImage=latestImage(c.messages);
+ const previousImage=latestImage(requestHistory);
  const preferredVersion=c.messages.find(message=>message.id===c.siteVersion);
  const priorWebsite=previewArtifact(c)||previewArtifact(c,findWebsite(preferredVersion))||previewArtifact(c,findWebsite(recentAnswer));
  const revisionPhrases=action.phrases||[{visible:action.input}];
@@ -1676,7 +1678,7 @@ async function requestAnswer(c,approved=false){
   }
   let searchId;
   if(withSearch&&!background){
-   const query=researchPlan?.question||(explicitSearch?searchQuery([{role:'user',content:action.input}]):searchQuery(c.messages));
+   const query=researchPlan?.question||(explicitSearch?searchQuery([{role:'user',content:action.input}]):searchQuery(requestHistory));
    if(!query)throw new Error('Для поиска добавьте текст вопроса.');
    generation.query=query;
    const response=await fetch('/api/search',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({query,...(researchPlan?{queries:researchPlan.queries}:{})}),signal:controller.signal});
@@ -1697,7 +1699,7 @@ async function requestAnswer(c,approved=false){
   }
   const messages=(localSkill||imageRequest)
    ?[{role:'user',content:lastUser.content,...(lastUser.quote?{quote:lastUser.quote}:{}),...(fileSkill?{attachments:await attachmentPayload(lastUser.files||[])}:{})}]
-   :await buildChatContext(c.messages,projectFiles,attachmentPayload,
+   :await buildChatContext(requestHistory,projectFiles,attachmentPayload,
     updating?{name:'Текущая версия предпросмотра — '+priorWebsite.filename,text:priorWebsite.code}:null);
   const instructions=state.projects.find(item=>item.id===c.project)?.instructions;
   if(instructions&&!localSkill&&!imageRequest&&!lastUser.noProjectInstructions)messages.at(-1).projectInstructions=instructions;
@@ -1755,7 +1757,7 @@ async function requestAnswer(c,approved=false){
   c.messages.push(answer);
   if(nextPreview){c.preview=null;c.siteVersion=nextPreview.messageId;}
   c.pendingSearch=null;c.updated=Date.now();if(data.provider!=='local'&&data.provider!=='image')apiStatus.configured=true;
- }catch(err){c.error=err.name==='AbortError'?'Запрос остановлен. Его можно повторить.':err.message||'Не удалось получить ответ';}
+ }catch(err){c.error=err.name==='AbortError'?'Запрос остановлен. Его можно повторить.':err instanceof TypeError?'Не удалось связаться с сервером. Проверьте подключение и повторите запрос.':err.message||'Не удалось получить ответ';}
  finally{
   generation=null;persist();refresh();
   void refreshQuota();
