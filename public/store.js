@@ -123,7 +123,7 @@ const report=optional(shape({
 }));
 const message=shape({
  id:safeId,content:text(500000),role:optional(value=>['user','assistant'].includes(value)),
- at:date,files:optional(list(safeId,1000)),quote:optional(text(4000)),webSearch:flag,
+ at:date,files:optional(list(safeId,1000)),quote:optional(text(4000)),webSearch:flag,noProjectInstructions:flag,noAutoContext:flag,
  model:short,siteMode:flag,previewKind:short,taskMode:short,codeMode:flag,imageFile:id,
  codeTargets:optional(list(shape({id:safeId,name:text(512),hash:short}),20)),
  usage,truncated:flag,search,forge:report,projectSearch,rating:optional(value=>value==='helpful'),
