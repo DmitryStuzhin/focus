@@ -568,3 +568,4 @@
  .mobile-navigation button[aria-current=page] { color: var(--text); background: var(--hover); }
  .shell .main,.shell .files-panel,.shell .sidebar { padding-bottom: calc(46px + env(safe-area-inset-bottom)); }
 }
+.toast-undo { margin-inline-start: 5px; color: inherit; text-decoration: underline; }
