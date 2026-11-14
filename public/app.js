@@ -15,7 +15,7 @@ import {compareText} from './text-diff.js';
 import {imageIntent,latestImage,imageReference} from './image-intent.js';
 import {buildChatContext,searchQuery,MAX_QUOTE_LENGTH} from './chat-context.js';
 import {bindQuoteSelection} from './quote-selection.js';
-import {sourcePills,sourcesDialog,linkCitations} from './search-ui.js';
+import {sourcePills,sourcesDialog,linkCitations,researchDate,cleanSources} from './search-ui.js';
 import {inlineMarkdown,answerTable,answerChart,prefersJsonCode} from './answer-format.js';
 import {STUDIO_LABELS,SITE_STARTERS,IMAGE_STARTERS,TOOL_STARTERS,CODE_STARTERS,FORGE_STARTERS,renderSites,renderImages,renderSkills,renderFocusCode,renderFocusForge} from './studios.js';
 import {icon,mark} from './icons.js';
@@ -653,7 +653,18 @@ function fileExists(name){return visibleFiles().some(f=>(f.parent||null)===ui.fo
 function createFile(){if(!activeProject()){projectDialog();return}modal('Новый файл',`<form><div class="form-field"><label for="file-name">Название с расширением</label><input id="file-name" name="name" value="Заметка.md" maxlength="100" required autofocus /><small>Текстовый файл: .md, .txt, .csv или .json</small></div><div class="form-field"><label for="file-content">Содержимое</label><textarea id="file-content" name="content" rows="10" placeholder="Текст, заметки или данные" maxlength="1000000"></textarea></div><p class="error-text" id="form-error" hidden></p><div class="dialog-footer">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">Создать файл</button></div></form>`,{onSubmit:async(data,form)=>{const name=data.get('name').trim();if(!name)return;if(!/\.(md|txt|csv|json|html|css|js|py|xml|yaml|yml)$/i.test(name)||/[\\/]/.test(name)||fileExists(name)){el('form-error').textContent=fileExists(name)?'Такое название уже есть в этой папке':'Укажите текстовое расширение, например .md или .txt';el('form-error').hidden=false;return}const b=form.querySelector('[type=submit]');b.disabled=true;try{const blob=new Blob([data.get('content')],{type:'text/plain;charset=utf-8'});const id=uid();await putBlob(id,blob);state.files.push({id,project:activeProject().id,parent:ui.folder,name,kind:'file',type:'text/plain',size:blob.size,created:Date.now(),updated:Date.now(),deleted:false});log(`Создан файл «${name}»`);persist();closeModal();render();toast('Файл создан')}catch{b.disabled=false;el('form-error').textContent='Не удалось сохранить файл в браузере';el('form-error').hidden=false}}})}
 async function uploadFiles(files,attach=false){if(!activeProject()){projectDialog();return}let added=0,failed=0;for(const file of files){if(file.size>25*1048576){toast(`«${file.name}»: максимум 25 МБ на файл`);continue}try{const id=uid();let name=file.name,n=1;const dot=name.lastIndexOf('.'),base=dot>0?name.slice(0,dot):name,ext=dot>0?name.slice(dot):'';while(fileExists(name))name=`${base} (${n++})${ext}`;await putBlob(id,file);state.files.push({id,project:activeProject().id,parent:ui.folder,name,kind:'file',type:file.type||'application/octet-stream',size:file.size,created:Date.now(),updated:Date.now(),deleted:false});if(attach)ui.attachments.push(id);log(`Загружен файл «${name}»`);added++}catch{failed++}}persist();render();if(added)toast(`Загружено файлов: ${added}${failed?`. Не удалось загрузить: ${failed}`:''}`);else if(failed)toast('Не удалось сохранить файлы. Проверьте доступное место в браузере')}
 function pickFiles(attach=false){if(!activeProject()){projectDialog();return}uploadAttach=attach;el('file-input').value='';el('file-input').click()}
-function answerMarkdown(m){return m.content+(m.search?.sources?.length?'\n\nИсточники:\n'+m.search.sources.map(s=>`[${s.id}] ${s.title} — ${s.url}`).join('\n'):'')}
+function answerMarkdown(message){
+ const search=message.search;
+ const sources=cleanSources(search);
+ if(!sources.length)return message.content;
+ const searched=researchDate(search);
+ const details=[searched&&'Время поиска: '+searched,
+  search.query&&'Вопрос исследования: '+search.query,
+  Array.isArray(search.queries)&&search.queries.length?'Запросы: '+search.queries.join(' · '):null,
+  search.failedQueries?.length?'Запросов с ошибкой: '+search.failedQueries.length:null].filter(Boolean);
+ const links=sources.map(source=>'- ['+source.id+'] '+source.title.replace(/\s+/gu,' ')+' — '+source.url);
+ return [message.content,...details,'## Источники\n'+links.join('\n')].join('\n\n');
+}
 function download(blob,name){const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),1000)}
 async function downloadFile(id){const f=state.files.find(x=>x.id===id);const b=await getBlob(id);if(!b){toast('Файл недоступен на этом устройстве');return}download(b,f.name)}
 function isText(f){return f.type?.startsWith('text/')||/\.(md|txt|csv|json|html?|css|js|jsx|tsx?|py|xml|ya?ml|log|svg|c|h|cpp|cc|hpp|cs|java|kt|kts|go|rs|rb|php|swift|sql|sh|bash|ps1|lua|toml|ini|vue|svelte|dart|scala|r|ipynb)$/i.test(f.name)||/^(?:Dockerfile|Makefile|CMakeLists\.txt)$/i.test(f.name)}
