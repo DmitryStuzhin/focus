@@ -34,34 +34,57 @@ export function createWorkbook(sheets){
 
 const descendants=(node,name)=>Array.from(node.getElementsByTagNameNS('*',name));
 const MAX_ENTRY=12*1024*1024;
-async function readZip(file){
- if(file.size>12*1024*1024)throw new Error('Таблица должна занимать до 12 МБ.');
+const MAX_UNPACKED=48*1024*1024;
+
+export async function readZip(file){
+ if(file.size>MAX_ENTRY)throw new Error('Архив Office должен занимать до 12 МБ.');
  const bytes=await file.arrayBuffer(),data=new DataView(bytes);
  const decoder=new TextDecoder('utf-8',{fatal:true});
+ if(data.byteLength<22||data.getUint32(0,true)!==0x04034b50)throw new Error('Файл не является архивом Office.');
+ const minimum=Math.max(0,data.byteLength-65557);
  let end=data.byteLength-22;
- while(end>=Math.max(0,data.byteLength-65557)&&data.getUint32(end,true)!==0x06054b50)end--;
- if(end<0||end<Math.max(0,data.byteLength-65557))throw new Error('Не удалось прочитать архив XLSX.');
- const entries=new Map();
- let position=data.getUint32(end+16,true);
+ while(end>=minimum&&(data.getUint32(end,true)!==0x06054b50||end+22+data.getUint16(end+20,true)!==data.byteLength))end--;
+ if(end<minimum)throw new Error('Не удалось прочитать архив Office.');
+ const entries=new Map(),ranges=[];
+ const central=data.getUint32(end+16,true);
+ let position=central,total=0;
  const count=data.getUint16(end+10,true);
- if(count>1024)throw new Error('Слишком много частей в XLSX.');
+ if(count>1024)throw new Error('Слишком много частей в архиве Office.');
+ if(data.getUint32(end+4,true)!==0||data.getUint16(end+8,true)!==count||
+    central+data.getUint32(end+12,true)!==end)throw new Error('Некорректный каталог Office.');
  for(let i=0;i<count;i++){
-  if(data.getUint32(position,true)!==0x02014b50)throw new Error('Некорректный каталог XLSX.');
+  if(position+46>end||data.getUint32(position,true)!==0x02014b50)throw new Error('Некорректный каталог Office.');
   const nameLength=data.getUint16(position+28,true);
+  const next=position+46+nameLength+data.getUint16(position+30,true)+data.getUint16(position+32,true);
+  if(next>end)throw new Error('Некорректный каталог Office.');
   const name=decoder.decode(bytes.slice(position+46,position+46+nameLength));
-  entries.set(name,{
-   method:data.getUint16(position+10,true),compressed:data.getUint32(position+20,true),
-   size:data.getUint32(position+24,true),offset:data.getUint32(position+42,true)
-  });
-  position+=46+nameLength+data.getUint16(position+30,true)+data.getUint16(position+32,true);
+  const segments=name.replace(/\/$/u,'').split('/');
+  if(segments.length>12||segments.some(segment=>!segment||segment==='.'||segment==='..')||
+     /[\\:\x00-\x1f\x7f]/u.test(name)||entries.has(name))throw new Error('Недопустимый путь в архиве Office.');
+  const method=data.getUint16(position+10,true),compressed=data.getUint32(position+20,true);
+  const size=data.getUint32(position+24,true),offset=data.getUint32(position+42,true);
+  total+=size;
+  if(size>MAX_ENTRY||total>MAX_UNPACKED)throw new Error('Распакованный архив Office слишком большой.');
+  if((data.getUint16(position+8,true)&1)||![0,8].includes(method)||offset+30>central||
+     data.getUint32(offset,true)!==0x04034b50||data.getUint16(offset+8,true)!==method){
+   throw new Error('Недопустимая часть архива Office.');
+  }
+  const nameEnd=offset+30+data.getUint16(offset+26,true);
+  const start=nameEnd+data.getUint16(offset+28,true);
+  if(start+compressed>central||decoder.decode(bytes.slice(offset+30,nameEnd))!==name||
+     (method===0&&compressed!==size))throw new Error('Повреждённый архив Office.');
+  ranges.push([offset,start+compressed]);
+  entries.set(name,{start,size,method,compressed});
+  position=next;
+ }
+ ranges.sort((a,b)=>a[0]-b[0]);
+ if(position!==end||ranges.some(([start],index)=>index>0&&start<ranges[index-1][1])){
+  throw new Error('Некорректные границы частей Office.');
  }
  return async name=>{
   const entry=entries.get(name);
   if(!entry)return null;
-  const {offset,size,method,compressed}=entry;
-  if(size>MAX_ENTRY||data.getUint32(offset,true)!==0x04034b50)throw new Error('Часть XLSX превышает допустимый размер.');
-  const start=offset+30+data.getUint16(offset+26,true)+data.getUint16(offset+28,true);
-  if(start+compressed>data.byteLength)throw new Error('Повреждённый XLSX.');
+  const {start,size,method,compressed}=entry;
   const payload=bytes.slice(start,start+compressed);
   let decoded;
   if(method===0)decoded=decoder.decode(payload);
@@ -74,7 +97,7 @@ async function readZip(file){
      const {done,value}=await reader.read();
      if(done)break;
      length+=value.byteLength;
-     if(length>MAX_ENTRY)throw new Error('Распакованная часть XLSX слишком большая.');
+     if(length>size)throw new Error('Распакованная часть XLSX слишком большая.');
      chunks.push(value);
     }
     if(length!==size)throw new Error('Повреждённый XLSX.');
@@ -88,10 +111,25 @@ async function readZip(file){
  };
 }
 
-export async function openTable(file){
- if(/\.csv$/iu.test(file.name))return csvTable(await file.text(),'',true);
- if(!/\.xlsx$/iu.test(file.name))throw new Error('Выбери файл CSV или XLSX.');
+async function officePartReader(file,root,contentType){
  const part=await readZip(file);
+ const types=await part('[Content_Types].xml');
+ if(!types||!descendants(types,'Override').some(node=>
+  node.getAttribute('PartName')==='/'+root&&
+  node.getAttribute('ContentType')==='application/vnd.openxmlformats-officedocument.'+contentType+'+xml'
+ ))throw new Error('Содержимое Office не соответствует расширению файла.');
+ return part;
+}
+
+export async function openTable(file){
+ if(/\.csv$/iu.test(file.name)){
+  if(file.size>MAX_ENTRY)throw new Error('Таблица должна занимать до 12 МБ.');
+  const text=new TextDecoder('utf-8',{fatal:true}).decode(await file.arrayBuffer());
+  if(/[\x00-\x08\x0b\x0c\x0e-\x1f]/u.test(text))throw new Error('CSV должен быть текстом UTF-8.');
+  return csvTable(text,'',true);
+ }
+ if(!/\.xlsx$/iu.test(file.name))throw new Error('Выбери файл CSV или XLSX.');
+ const part=await officePartReader(file,'xl/workbook.xml','spreadsheetml.sheet.main');
  const [workbook,rels,strings]=await Promise.all([part('xl/workbook.xml'),part('xl/_rels/workbook.xml.rels'),part('xl/sharedStrings.xml')]);
  if(!workbook||!rels)throw new Error('Не удалось открыть книгу XLSX.');
  const sheet=descendants(workbook,'sheet')[0];
@@ -207,7 +245,7 @@ export async function officeText(file){
    if(clipped)break;
   }
  }else if(extension==='docx'){
-  const part=await readZip(file);
+  const part=await officePartReader(file,'word/document.xml','wordprocessingml.document.main');
   const doc=await part('word/document.xml');
   if(!doc)throw new Error('В документе отсутствует основной текст.');
   for(const paragraph of descendants(doc,'p')){
@@ -215,7 +253,7 @@ export async function officeText(file){
    if(clipped)break;
   }
  }else if(extension==='pptx'){
-  const part=await readZip(file);
+  const part=await officePartReader(file,'ppt/presentation.xml','presentationml.presentation.main');
   const [presentation,rels]=await Promise.all([part('ppt/presentation.xml'),part('ppt/_rels/presentation.xml.rels')]);
   if(!presentation||!rels)throw new Error('В презентации отсутствует список слайдов.');
   const targets=new Map(descendants(rels,'Relationship').map(node=>[node.getAttribute('Id'),node.getAttribute('Target')]));

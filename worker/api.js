@@ -654,6 +654,15 @@ function previewHTML(text,kind){
  return null;
 }
 
+function validInlineAttachment(data,mimeType){
+ let prefix;
+ try{prefix=atob(data.slice(0,16));}catch{return false;}
+ if(mimeType==='application/pdf')return /^%PDF-\d\.\d/u.test(prefix);
+ if(mimeType==='image/png')return prefix.startsWith('\x89PNG\r\n\x1a\n');
+ if(mimeType==='image/jpeg')return prefix.startsWith('\xff\xd8\xff');
+ return prefix.startsWith('RIFF')&&prefix.slice(8,12)==='WEBP';
+}
+
 export async function chat(request,env,fetcher=fetch,context={}){
  const origin=request.headers.get('origin');if(origin&&origin!==new URL(request.url).origin)return json({error:'Запрос с другого сайта отклонён'},403);
  if(!/application\/json/i.test(request.headers.get('content-type')||''))return json({error:'Ожидается JSON'},415);
@@ -691,6 +700,9 @@ export async function chat(request,env,fetcher=fetch,context={}){
     total+=f.text.length;
     parts.push(sourcePart(f,taskMode==='evidence'||m===latest&&taskMode==='review'));
    }else if(typeof f.data==='string'&&['image/png','image/jpeg','image/webp','application/pdf'].includes(f.mimeType)&&f.data.length<8000000&&/^[A-Za-z0-9+/=\r\n]+$/.test(f.data)){
+    if(!validInlineAttachment(f.data,f.mimeType))return json({
+     error:'Содержимое вложения не соответствует заявленному формату.',code:'attachment_type_mismatch',
+    },400);
     parts.push({inlineData:{mimeType:f.mimeType,data:f.data}});
    }
   }
