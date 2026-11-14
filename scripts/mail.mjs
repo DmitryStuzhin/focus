@@ -91,20 +91,25 @@ async function runCurl(args,credentials) {
  return {exitCode,connectTime:metrics?Number(metrics[1]):null,uploaded:metrics?Number(metrics[2]):null,reply:metrics?Number(metrics[3]):0};
 }
 
-export async function sendLoginCodeViaPostbox({from,to,code,keyId,keySecret},{transport=executeCurl}={}){
+export async function sendLoginCodeViaPostbox({from,to,code,keyId,keySecret,tunnelPort},{transport=executeCurl}={}){
  if(![keyId,keySecret].every(value=>typeof value==='string'&&value&&!/[\r\n\0]/u.test(value))){
   throw new MailDeliveryError(['Invalid Yandex Cloud Postbox credentials.'],false);
  }
  if(typeof code!=='string'||!/^[0-9]{6}$/u.test(code))throw new Error('Invalid Focus login code.');
+ if(tunnelPort&&(!/^[1-9][0-9]{0,4}$/u.test(tunnelPort)||Number(tunnelPort)>65535)){
+  throw new MailDeliveryError(['Invalid Postbox tunnel port.'],false);
+ }
  const part = Data => ({Data,Charset:'UTF-8'});
  const payload=JSON.stringify({
   FromEmailAddress:'Focus <'+from+'>',
   Destination:{ToAddresses:[to]},
   Content:{Simple:{Subject:part(subject),Body:{Text:part(loginEmailText(code)),Html:part(loginEmailHtml(code))}}},
  });
- const args=['--disable','--config','-','--url','https://postbox.cloud.yandex.net/v2/email/outbound-emails',
+ const host='postbox.cloud.yandex.net';
+ const args=['--disable','--config','-','--url','https://'+host+'/v2/email/outbound-emails',
   '--aws-sigv4','aws:amz:ru-central1:ses','--header','Content-Type: application/json',
   '--silent','--connect-timeout','5','--max-time','12','--write-out','\n%{http_code}'];
+ if(tunnelPort)args.push('--connect-to',host+':443:127.0.0.1:'+tunnelPort);
  const config='user = '+curlConfigValue(keyId+':'+keySecret)+'\ndata-binary = '+curlConfigValue(payload)+'\n';
  const {exitCode,stdout}=await transport(args,config);
  const boundary=stdout.lastIndexOf('\n');
