@@ -26,6 +26,7 @@ jobs:
       - run: node tests/chat-layout.e2e.mjs
 
       - run: node tests/web-search.e2e.mjs
+      - run: node tests/storage.e2e.mjs
       - name: Record install script checksums
         run: sha256sum deploy/install.sh deploy/connect-*.sh > focus-deploy.sha256
       - uses: actions/upload-artifact@v4

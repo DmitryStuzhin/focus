@@ -5,27 +5,84 @@ export const selectStorageScope=id=>{scope=id||'';};
 export const AUTH_EVENT_KEY='focus.auth.changed';
 export const uid=()=>crypto.randomUUID?.()||Array.from(crypto.getRandomValues(new Uint8Array(16)),x=>x.toString(16).padStart(2,'0')).join('');
 export const fresh=()=>({version:1,projects:[{id:'personal',name:'Личное пространство',description:'',created:Date.now(),deleted:false}],chats:[],files:[],changes:[],settings:{name:'Моё пространство',model:'flash',effort:'balanced',theme:'dark',sendOnEnter:true,showFiles:true,webSearch:false},activeProject:'personal',activeChat:null});
-export function readState(){try{const d=JSON.parse(localStorage.getItem(scoped(STORAGE_KEY)));if(d?.version===1&&Array.isArray(d.projects)&&Array.isArray(d.chats)&&Array.isArray(d.files)){return {...fresh(),...d,settings:{...fresh().settings,...d.settings}}}}catch{}return fresh()}
-export function writeState(state){localStorage.setItem(scoped(STORAGE_KEY),JSON.stringify(state))}
+function normalizeState(data){
+ if(data?.version!==1||!['projects','chats','files'].every(key=>Array.isArray(data[key])))return fresh();
+ const defaults=fresh();
+ return {...defaults,...data,settings:{...defaults.settings,...data.settings}};
+}
+export async function readState(){
+ const key=scoped(STORAGE_KEY),db=await fileDB();
+ const saved=await transact('workspace','readonly',store=>store.get('state'),db);
+ if(saved!==undefined)return normalizeState(saved);
+ let legacy;
+ try{legacy=localStorage.getItem(key);}catch{}
+ if(legacy===null||legacy===undefined)return fresh();
+ let data;
+ try{data=normalizeState(JSON.parse(legacy));}catch{return fresh();}
+ try{
+  // add protects data written by another tab during migration.
+  await transact('workspace','readwrite',store=>store.add(data,'state'),db);
+ }catch(error){
+  if(error.name!=='ConstraintError')throw error;
+  return normalizeState(await transact('workspace','readonly',store=>store.get('state'),db));
+ }
+ try{if(localStorage.getItem(key)===legacy)localStorage.removeItem(key);}catch{}
+ return data;
+}
+export function writeState(state){
+ const snapshot=structuredClone(state);
+ return transact('workspace','readwrite',store=>store.put(snapshot,'state'));
+}
 const fileDatabases=new Map();
 export async function fileDB(){
  const key=scoped('focus.files.v1');
  if(!fileDatabases.has(key)){
   const db=new Promise((resolve,reject)=>{
-   const r=indexedDB.open(key,1);
-   r.onupgradeneeded=()=>r.result.createObjectStore('blobs');
-   r.onsuccess=()=>resolve(r.result);
-   r.onerror=()=>reject(r.error);
+   const request=indexedDB.open(key,2);
+   request.onupgradeneeded=()=>{
+    if(!request.result.objectStoreNames.contains('blobs'))request.result.createObjectStore('blobs');
+    if(!request.result.objectStoreNames.contains('workspace'))request.result.createObjectStore('workspace');
+   };
+   request.onsuccess=()=>{
+    request.result.onversionchange=()=>{request.result.close();fileDatabases.delete(key);};
+    resolve(request.result);
+   };
+   request.onerror=()=>reject(request.error);
   });
   fileDatabases.set(key,db);
   db.catch(()=>fileDatabases.delete(key));
  }
  return fileDatabases.get(key);
 }
-async function transact(mode,fn){const d=await fileDB();return new Promise((resolve,reject)=>{const tx=d.transaction('blobs',mode);let result;try{const r=fn(tx.objectStore('blobs'));if(r)r.onsuccess=()=>{result=r.result}}catch(e){reject(e);return}tx.oncomplete=()=>resolve(result);tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||new Error('Не удалось сохранить файл'))})}
-export const putBlob=(id,blob)=>transact('readwrite',s=>s.put(blob,id));
-export const getBlob=id=>transact('readonly',s=>s.get(id));
-export const deleteBlob=id=>transact('readwrite',s=>s.delete(id));
+async function transact(name,mode,operation,database){
+ const db=database??await fileDB();
+ return new Promise((resolve,reject)=>{
+  const tx=db.transaction(name,mode);
+  let request;
+  try{request=operation(tx.objectStore(name));}catch(error){tx.abort();reject(error);return;}
+  tx.oncomplete=()=>resolve(request?.result);
+  tx.onerror=()=>reject(request?.error||tx.error);
+  tx.onabort=()=>reject(request?.error||tx.error||new Error('Не удалось сохранить данные'));
+ });
+}
+export const putBlob=(id,blob)=>transact('blobs','readwrite',store=>store.put(blob,id));
+export const getBlob=id=>transact('blobs','readonly',store=>store.get(id));
+export const deleteBlob=id=>transact('blobs','readwrite',store=>store.delete(id));
+export async function replaceWorkspace(state,blobs){
+ const db=await fileDB();
+ return new Promise((resolve,reject)=>{
+  const tx=db.transaction(['workspace','blobs'],'readwrite');
+  const files=tx.objectStore('blobs');
+  tx.oncomplete=resolve;
+  tx.onerror=()=>reject(tx.error);
+  tx.onabort=()=>reject(tx.error||new Error('Не удалось восстановить данные'));
+  try{
+   files.clear();
+   for(const [id,blob] of blobs)files.put(blob,id);
+   tx.objectStore('workspace').put(state,'state');
+  }catch(error){tx.abort();reject(error);}
+ });
+}
 const safeId=x=>typeof x==='string'&&/^[A-Za-z0-9_-]{1,80}$/.test(x);
 const text=max=>value=>typeof value==='string'&&value.length<=max;
 const number=value=>Number.isSafeInteger(value)&&value>=0;

@@ -1,5 +1,5 @@
 import {eventStream} from './event-stream.js';
-import {workspaceAPI,snapshotWorkspace,restoreWorkspace} from './workspace-features.js';
+import {workspaceAPI,snapshotWorkspace,decodeWorkspace} from './workspace-features.js';
 import {openTable,createWorkbook,createDocument,createSlides,officeFilename,officeText} from './office.js';
 import {compareTables} from './tabular.js';
 import {projectFiles,projectZip} from './project-bundle.js';
@@ -15,7 +15,7 @@ import {sourcePills,sourcesDialog,linkCitations} from './search-ui.js';
 import {inlineMarkdown,answerTable,answerChart,prefersJsonCode} from './answer-format.js';
 import {STUDIO_LABELS,SITE_STARTERS,IMAGE_STARTERS,TOOL_STARTERS,CODE_STARTERS,FORGE_STARTERS,renderSites,renderImages,renderSkills,renderFocusCode,renderFocusForge} from './studios.js';
 import {icon,mark} from './icons.js';
-import {uid,readState,writeState,fresh,putBlob,getBlob,deleteBlob,validBackup,selectStorageScope,AUTH_EVENT_KEY} from './store.js';
+import {uid,readState,writeState,fresh,putBlob,getBlob,deleteBlob,replaceWorkspace,validBackup,selectStorageScope,AUTH_EVENT_KEY} from './store.js';
 import {forgeIntent,forgeReport,namedCodeFiles} from './forge.js';
 const app=document.querySelector('#app');
 const MODEL_LABEL='Guzan 1.1';
@@ -50,7 +50,19 @@ const fileIcon=f=>f.kind==='folder'?'folder':f.type?.startsWith('image/')?'image
 const ib=(action,name,label,extra='')=>{const cls=extra.match(/class="([^"]*)"/)?.[1]||'';extra=extra.replace(/class="[^"]*"/,'');return `<button type="button" class="icon-btn ${cls}" data-action="${action}" title="${e(label)}" aria-label="${e(label)}" ${extra}>${icon(name)}</button>`};
 const button=(action,text,type='',extra='')=>`<button ${extra.includes('type=')?'':'type="button"'} class="btn ${type}" data-action="${action}" ${extra}>${text}</button>`;
 const visibleFiles=()=>state.files.filter(f=>f.project===activeProject()?.id&&!f.deleted);
-function persist(){try{writeState(state);localRevision++;scheduleCloudSave();return true}catch(err){toast('Не удалось сохранить изменения: хранилище браузера заполнено');return false}}
+async function persist(){
+ localRevision++;
+ try{
+  await writeState(state);
+  scheduleCloudSave();
+  return true;
+ }catch(error){
+  toast(error?.name==='QuotaExceededError'
+   ?'Хранилище браузера заполнено. Скачай резервную копию перед выходом.'
+   :'Не удалось сохранить изменения в браузере. Скачай резервную копию перед выходом.');
+  return false;
+ }
+}
 function log(text,project=activeProject()?.id){state.changes.unshift({id:uid(),text,project,at:Date.now()});state.changes=state.changes.slice(0,400)}
 const forgeFileType=name=>/\.html?$/iu.test(name)?'text/html':/\.css$/iu.test(name)?'text/css':/\.(?:js|mjs|cjs)$/iu.test(name)?'text/javascript':/\.json$/iu.test(name)?'application/json':'text/plain';
 async function saveForgeCheckpoint(chat,content){
@@ -412,7 +424,7 @@ async function previewFile(id){const f=state.files.find(x=>x.id===id&&!x.deleted
 async function editFile(id){const f=state.files.find(x=>x.id===id),blob=await getBlob(id);if(!f||!blob)return;const text=await blob.text();modal(f.name,`<form><div class="form-field"><label for="editor-text">Содержимое файла</label><textarea id="editor-text" class="file-editor" name="content" maxlength="2000000" spellcheck="false">${e(text)}</textarea></div><p class="error-text" id="form-error" hidden></p><div class="dialog-footer">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">Сохранить изменения</button></div></form>`,{wide:true,onSubmit:async(data,form)=>{form.querySelector('[type=submit]').disabled=true;try{const b=new Blob([data.get('content')],{type:f.type||'text/plain'});await putBlob(id,b);f.size=b.size;f.updated=Date.now();log(`Изменён файл «${f.name}»`,f.project);persist();closeModal();render();toast('Изменения сохранены')}catch{form.querySelector('[type=submit]').disabled=false;el('form-error').textContent='Не удалось сохранить файл';el('form-error').hidden=false}}})}
 function searchDialog(){modal('Поиск по пространству',`<div class="search-input-wrap">${icon('search')}<input id="search-input" aria-label="Поиск диалогов и проектов" placeholder="Название проекта или текст диалога" autocomplete="off" autofocus /></div><div class="search-results" id="search-results"></div>`);searchResults('');el('search-input').oninput=ev=>searchResults(ev.target.value)}
 function searchResults(q){q=q.toLocaleLowerCase('ru').trim();const projects=liveProjects().filter(p=>!q||p.name.toLocaleLowerCase('ru').includes(q));const chats=state.chats.filter(c=>!c.deleted&&!state.projects.find(p=>p.id===c.project)?.deleted&&(!q||[c.title,...c.messages.map(m=>m.content)].join(' ').toLocaleLowerCase('ru').includes(q)));const rows=[...projects.map(p=>({id:p.id,action:'search-project',title:p.name,sub:'Проект',ico:'folder'})),...chats.map(c=>({id:c.id,action:'search-chat',title:c.title,sub:`${projectName(c.project)}${c.archived?' · Архив':''}`,ico:'chat'}))].slice(0,30);el('search-results').innerHTML=rows.map(r=>`<button class="search-result" data-action="${r.action}" data-id="${r.id}">${icon(r.ico)}<span><strong class="truncate">${e(r.title)}</strong><small class="truncate">${e(r.sub)}</small></span></button>`).join('')||'<div class="search-empty">Ничего не найдено. Попробуйте другое слово.</div>'}
-function settingsDialog(){modal('Настройки',`<form id="settings-form">${account?`<div class="settings-section"><h3>Аккаунт Focus</h3><p class="settings-note">${e(account.email)}</p><div class="form-field"><label for="account-name">Имя в аккаунте</label><input id="account-name" name="accountName" value="${e(account.name||'')}" maxlength="80" autocomplete="name" /></div>${button('cloud-workspace','Синхронизация пространства','','type="button"')} ${button('logout','Выйти из аккаунта','ghost','type="button"')} ${button('delete-account','Удалить аккаунт','danger','type="button"')}</div>`:''}<div class="settings-section"><h3>Ваше пространство</h3><div class="form-field"><label for="settings-name">Название</label><input id="settings-name" name="name" value="${e(state.settings.name)}" maxlength="60" required /></div><div class="form-field" style="margin-bottom:0"><label for="settings-theme">Оформление</label><select name="theme" id="settings-theme">${[['light','Светлое'],['dark','Тёмное'],['system','Как на устройстве']].map(([v,l])=>`<option value="${v}" ${state.settings.theme===v?'selected':''}>${l}</option>`).join('')}</select></div><div class="setting-row"><div>Отправлять по Enter<p>Shift + Enter добавляет новую строку</p></div><button class="switch" type="button" role="switch" aria-label="Отправлять по Enter" aria-checked="${state.settings.sendOnEnter}" data-action="toggle-enter"></button></div></div><div class="settings-section"><h3>Данные</h3><p class="settings-note" style="margin-bottom:16px">История и файлы сохраняются только в этом браузере. Для переноса на другое устройство скачайте резервную копию.</p><div class="settings-buttons">${button('export-backup',`${icon('download')} Скачать копию`,'','type="button"')}${button('import-backup',`${icon('upload')} Восстановить`,'','type="button"')}</div></div><div class="settings-section"><h3>Подключение модели</h3><p class="settings-note">${e(MODEL_LABEL)} · ${apiStatus.configured?'подключена':'не настроена'}. Запросы проходят через сервер приложения. Ключ API не хранится в браузере. Текст диалога и поддерживаемые вложения передаются выбранному провайдеру: Google, OpenRouter, Cloudflare или OpenAI. Поисковые запросы передаются Tavily. <a href="/privacy.html">Политика конфиденциальности</a> · <a href="/terms.html">Условия использования</a>. В бесплатном режиме режимы глубины ответа не применяются.</p></div><p class="settings-note">Focus · первая версия<br>Дизайн по референсам и <a href="https://github.com/heydamir/unslop" target="_blank" rel="noopener noreferrer">Unslop</a> — Damir Sokolovsky, CC BY 4.0</p><div class="dialog-footer" style="margin-top:24px">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">Сохранить</button></div></form>`,{onSubmit:saveSettings})}
+function settingsDialog(){modal('Настройки',`<form id="settings-form">${account?`<div class="settings-section"><h3>Аккаунт Focus</h3><p class="settings-note">${e(account.email)}</p><div class="form-field"><label for="account-name">Имя в аккаунте</label><input id="account-name" name="accountName" value="${e(account.name||'')}" maxlength="80" autocomplete="name" /></div>${button('cloud-workspace','Синхронизация пространства','','type="button"')} ${button('logout','Выйти из аккаунта','ghost','type="button"')} ${button('delete-account','Удалить аккаунт','danger','type="button"')}</div>`:''}<div class="settings-section"><h3>Ваше пространство</h3><div class="form-field"><label for="settings-name">Название</label><input id="settings-name" name="name" value="${e(state.settings.name)}" maxlength="60" required /></div><div class="form-field" style="margin-bottom:0"><label for="settings-theme">Оформление</label><select name="theme" id="settings-theme">${[['light','Светлое'],['dark','Тёмное'],['system','Как на устройстве']].map(([v,l])=>`<option value="${v}" ${state.settings.theme===v?'selected':''}>${l}</option>`).join('')}</select></div><div class="setting-row"><div>Отправлять по Enter<p>Shift + Enter добавляет новую строку</p></div><button class="switch" type="button" role="switch" aria-label="Отправлять по Enter" aria-checked="${state.settings.sendOnEnter}" data-action="toggle-enter"></button></div></div><div class="settings-section"><h3>Данные</h3><p class="settings-note" style="margin-bottom:16px">По умолчанию история и файлы остаются в этом браузере. Между устройствами они передаются после включения синхронизации. Браузер может очистить локальные данные при нехватке места или при очистке сайта. Регулярно скачивай резервную копию.</p><div class="settings-buttons">${button('export-backup',`${icon('download')} Скачать копию`,'','type="button"')}${button('import-backup',`${icon('upload')} Восстановить`,'','type="button"')}</div></div><div class="settings-section"><h3>Подключение модели</h3><p class="settings-note">${e(MODEL_LABEL)} · ${apiStatus.configured?'подключена':'не настроена'}. Запросы проходят через сервер приложения. Ключ API не хранится в браузере. Текст диалога и поддерживаемые вложения передаются выбранному провайдеру: Google, OpenRouter, Cloudflare или OpenAI. Поисковые запросы передаются Tavily. <a href="/privacy.html">Политика конфиденциальности</a> · <a href="/terms.html">Условия использования</a>. В бесплатном режиме режимы глубины ответа не применяются.</p></div><p class="settings-note">Focus · первая версия<br>Дизайн по референсам и <a href="https://github.com/heydamir/unslop" target="_blank" rel="noopener noreferrer">Unslop</a> — Damir Sokolovsky, CC BY 4.0</p><div class="dialog-footer" style="margin-top:24px">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">Сохранить</button></div></form>`,{onSubmit:saveSettings})}
 async function updateAccount(path,body){
  const response=await fetch('/api/auth/'+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
  const result=await response.json();
@@ -463,7 +475,27 @@ function imageSubscriptionDialog(){
  }});
 }
 async function exportBackup(){toast('Подготавливаю резервную копию');try{const blobs={};for(const f of state.files.filter(f=>f.kind!=='folder')){const b=await getBlob(f.id);if(b)blobs[f.id]=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(b)})}download(new Blob([JSON.stringify({...state,blobs},null,2)],{type:'application/json'}),`focus-backup-${new Date().toISOString().slice(0,10)}.json`);toast('Резервная копия скачана')}catch{toast('Не удалось создать копию')}}
-async function importBackup(file){if(!file)return;if(file.size>150*1048576){toast('Резервная копия слишком большая: максимум 150 МБ');return}let d;try{d=JSON.parse(await file.text());if(!validBackup(d))throw new Error();}catch{toast('Это не резервная копия Focus или файл повреждён');return}confirm('Восстановить пространство?','Текущая история будет заменена данными из резервной копии. Сначала можно скачать текущую копию в настройках.',async()=>{for(const [id,value]of Object.entries(d.blobs||{})){const comma=value.indexOf(','),raw=atob(value.slice(comma+1)),bytes=Uint8Array.from(raw,c=>c.charCodeAt(0));await putBlob(id,new Blob([bytes],{type:value.slice(5,value.indexOf(';'))}))}const {blobs,...rest}=d;state={...fresh(),...rest,settings:{...fresh().settings,...rest.settings}};ui.draft='';ui.attachments=[];ui.folder=null;ui.view='chat';toast('Пространство восстановлено')},'Восстановить')}
+async function importBackup(file){
+ if(!file)return;
+ if(file.size>150*1048576){toast('Резервная копия слишком большая: максимум 150 МБ');return;}
+ let data;
+ try{
+  data=JSON.parse(await file.text());
+  if(!validBackup(data))throw new Error();
+ }catch{toast('Это не резервная копия Focus или файл повреждён');return;}
+ confirm('Восстановить пространство?','Текущая история будет заменена данными из резервной копии. Сначала можно скачать текущую копию в настройках.',async()=>{
+  const {state:restored,blobs}=decodeWorkspace(data);
+  const next={...fresh(),...restored,settings:{...fresh().settings,...restored.settings}};
+  try{await replaceWorkspace(next,blobs);}
+  catch(error){
+   if(error?.name==='QuotaExceededError'){toast('Недостаточно места в браузере для восстановления. Текущие данные сохранены.');return;}
+   throw error;
+  }
+  state=next;
+  Object.assign(ui,{draft:'',attachments:[],folder:null,view:'chat'});
+  toast('Пространство восстановлено');
+ },'Восстановить');
+}
 function exportChat(id){const c=state.chats.find(x=>x.id===id);if(!c)return;const text=`# ${c.title}\n\nПроект: ${projectName(c.project)}\n\n`+c.messages.map(m=>`## ${m.role==='assistant'?'Focus':'Вы'} · ${date(m.at)}, ${time(m.at)}\n\n${typeof m.quote==='string'&&m.quote?m.quote.split('\n').map(line=>'> '+line).join('\n')+'\n\n':''}${m.content}${m.search?.sources?.length?'\n\nИсточники:\n'+m.search.sources.map(x=>`[${x.id}] ${x.title} — ${x.url}`).join('\n'):''}${m.files?.length?'\n\nВложения: '+m.files.map(id=>state.files.find(f=>f.id===id)?.name||'Удалённый файл').join(', '):''}`).join('\n\n---\n\n');download(new Blob([text],{type:'text/markdown;charset=utf-8'}),`${c.title.replace(/[\\/:*?"<>|]/g,'').slice(0,60)||'Диалог'}.md`)}
 async function copy(text){try{await navigator.clipboard.writeText(text);toast('Скопировано')}catch{toast('Не удалось скопировать. Выделите текст вручную.')}}
 async function handleAction(a,t){const id=t.dataset.id;switch(a){
@@ -925,7 +957,7 @@ async function reviewCodeFile(block){
  }catch(error){toast(error.message||'Не удалось открыть предпросмотр.')}
 }
 const planStep=/^([ \t]*(?:[-*]|\d+\.) \[)([ xX])(\][ \t]+)(.+)$/u;
-function updatePlanStep(input){
+async function updatePlanStep(input){
  const message=activeChat()?.messages.find(item=>item.id===input.dataset.planId&&item.taskMode==='plan');
  if(!message)return;
  const target=Number(input.dataset.planStep);
@@ -944,7 +976,7 @@ function updatePlanStep(input){
  if(!changed)return;
  const previous=message.content;
  message.content=next;
- if(!persist()){
+ if(!await persist()){
   message.content=previous;
   input.checked=!input.checked;
  }
@@ -1218,7 +1250,7 @@ async function boot(){
    account=session.user;
   }
   selectStorageScope(account?.id);
-  state=readState();
+  state=await readState();
   if(account)try{
    cloudRevision=Number(localStorage.getItem('focus.cloud-revision.'+account.id))||null;
    cloudAuto=localStorage.getItem('focus.cloud-auto.'+account.id)==='1';
@@ -1393,9 +1425,9 @@ async function cloudWorkspace(){
    try{
     const latest=await workspaceAPI('workspace');
     if(!validBackup(latest.snapshot))throw new Error('Копия недоступна.');
-    const restored=await restoreWorkspace(latest.snapshot,putBlob);
+    const {state:restored,blobs}=decodeWorkspace(latest.snapshot);
     const next={...fresh(),...restored,settings:{...fresh().settings,...restored.settings}};
-    writeState(next);
+    await replaceWorkspace(next,blobs);
     state=next;
     setCloudRevision(latest.revision);
     Object.assign(ui,{view:'chat',draft:'',quote:null,attachments:[],folder:null});
