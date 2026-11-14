@@ -19,3 +19,13 @@ test('table profile counts missing values, duplicates and numeric outliers',()=>
  assert.equal(result.columns[1].missing,1);
  assert.equal(result.columns[1].outliers,null);
 });
+
+import {cleanTable} from '../public/table-cleaning.js';
+test('cleaning leaves source rows intact and keeps invalid dates for manual review',()=>{
+ const source=[['date'],['1.2.2026'],['2026-02-01'],['31.02.2026']];
+ const result=cleanTable(source,0,'date',{deduplicate:true});
+ assert.deepEqual(result.rows,[['date'],['2026-02-01'],['31.02.2026']]);
+ assert.equal(result.removed,1);
+ assert.equal(source[1][0],'1.2.2026');
+ assert.equal(cleanTable([['phone'],['8 (900) 123-45-67']],0,'phone').rows[1][0],'+79001234567');
+});
