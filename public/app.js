@@ -470,10 +470,32 @@ function documentChecklistDialog(){
   saveDraft();closeModal();render();el('composer-input')?.focus();
  }});
 }
+function compareDocumentsDialog(){
+ const files=projectTextFiles(activeProject()?.id).filter(file=>file.size<500000)
+  .sort((a,b)=>a.path.localeCompare(b.path,'ru'));
+ if(files.length<2){toast('Добавьте в проект два текстовых или офисных файла.');return;}
+ if(ui.draft.trim()||ui.attachments.length){toast('Для сравнения откройте новый диалог или отправьте текущий черновик.');return;}
+ modal('Сравнить документы',`<form><p>Выберите от двух до восьми файлов проекта.</p>
+  <fieldset><legend>Документы</legend>${files.map(file=>`<label class="document-choice"><input type="checkbox" name="document" value="${e(file.id)}"> ${e(file.path)}</label>`).join('')}</fieldset>
+  <div class="form-field"><label for="document-question">Что проверить</label><textarea id="document-question" name="question" rows="3" maxlength="1800" placeholder="Например, сравни сроки, суммы и ответственность"></textarea></div>
+  <p id="document-error" class="error-text" role="alert" hidden></p>
+  <button class="btn primary" type="submit">Подготовить сравнение</button></form>`,{onSubmit:data=>{
+  const selected=data.getAll('document');
+  const error=el('document-error');
+  if(selected.length<2||selected.length>8){
+   error.hidden=false;error.textContent='Выберите от двух до восьми документов.';return;
+  }
+  ui.attachments=selected;
+  ui.contextAuto=false;
+  ui.draft='/evidence Сопоставьте выбранные документы. Выделите совпадения, противоречия и данные, которых нет. Для каждого вывода укажите файл и место в тексте. Укажите документы, для которых не хватило доступного текста.\n'+String(data.get('question')).trim();
+  saveDraft();closeModal();render();el('composer-input')?.focus();
+ }});
+}
 function documentTemplateDialog(){
  modal('Шаблоны документов',`<p>Выберите шаблон, затем добавьте материалы и уточните задачу в сообщении.</p><div class="settings-buttons">
   ${documentTemplates.map(template=>button('document-template',e(template.title),'ghost',`data-id="${e(template.id)}"`)).join('')}
   ${button('document-checklist','Проверить по критериям','ghost')}
+  ${button('compare-documents','Сравнить документы','ghost')}
  </div>`);
 }
 function composer(){return `<div class="composer-area"><div class="composer-wrap"><form class="composer" id="composer-form"><div id="composer-modes" class="composer-modes" aria-label="Инструменты диалога">${composerModesMarkup()}</div><div id="composer-quote">${ui.quote?quoteMarkup(ui.quote.text,true):''}</div><div class="attachment-list" ${ui.attachments.length?'':'hidden'}>${ui.attachments.map(id=>{const f=state.files.find(x=>x.id===id);return f?`<span class="attachment-chip">${icon(fileIcon(f))}<span class="truncate">${e(f.name)}</span>${ib('remove-attachment','close','Убрать вложение',`data-id="${id}"`)}</span>`:''}).join('')}</div><textarea id="composer-input" rows="2" placeholder="Задача, вопрос или идея…" aria-label="Сообщение" maxlength="100000">${e(ui.draft)}</textarea><div class="command-suggestions" id="command-suggestions" aria-label="Команды диалога" hidden></div><button type="button" class="inline-link composer-idea" id="composer-suggestion" data-action="composer-suggestion" hidden></button><div class="composer-bottom"><div class="composer-left">${ib('attach','attach','Прикрепить файлы')}<button class="web-search-toggle ${state.settings.webSearch?'active':''}" type="button" data-action="toggle-web-search" aria-label="Поиск в интернете" aria-pressed="${!!state.settings.webSearch}" title="${apiStatus.searchConfigured?'Искать источники перед ответом':'Поиск ещё не подключён на сервере'}" ${generation?'disabled':''}>${icon('globe')}<span>Поиск</span></button><button class="composer-select" type="button" data-action="model-menu" aria-label="Выбрать модель">${e(MODEL_LABEL)}${icon('down')}</button><button class="composer-select" type="button" data-action="effort-menu" aria-label="Режим ответа">${apiStatus.provider==='openrouter'?'Настройки провайдера':effortLabel()}${icon('down')}</button><button class="composer-select project-context" type="button" data-action="review-context" aria-label="Что видит ИИ">${icon('folder')}<span class="truncate">Что видит ИИ</span>${icon('down')}</button></div><button class="send" id="send-button" type="${generation?'button':'submit'}" ${generation?'data-action="stop-generation"':''} aria-label="${generation?'Остановить ответ':'Отправить сообщение'}" ${generation||ui.draft.trim()||ui.attachments.length?'':'disabled'}>${generation?'<span class="stop-square"></span>':icon('arrow')}</button></div></form><div class="composer-hint"><span>История хранится в браузере</span><button type="button" class="inline-link data-details" data-action="data-details">Куда уходят запросы</button><span class="enter-hint">· ${state.settings.sendOnEnter?'Enter — отправить, Shift + Enter — новая строка':'Ctrl + Enter — отправить'}</span></div></div></div>`}
@@ -980,6 +1002,7 @@ case 'composer-suggestion':{
  break;
 }
 case 'document-checklist':documentChecklistDialog();break;
+case 'compare-documents':compareDocumentsDialog();break;
 case 'document-template':{
  const prompt=templatePrompt(id);
  if(!prompt)break;
