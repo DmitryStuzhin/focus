@@ -403,10 +403,23 @@ window.addEventListener('hashchange',()=>{
  if(ready&&(studioRoute()||Object.hasOwn(STUDIO_LABELS,ui.view)))setView(studioRoute()||'chat');
  if(ready&&account&&ui.view==='images')void refreshAccount().then(refreshImageStudio);
 });
-function selectProject(id,toggle=false){const p=state.projects.find(p=>p.id===id&&!p.deleted);if(!p)return;const same=id===state.activeProject;if(same&&toggle){ui.collapsed.has(id)?ui.collapsed.delete(id):ui.collapsed.add(id)}else{state.activeProject=id;state.activeChat=null;ui.folder=null;ui.draft='';ui.quote=null;ui.attachments=[];ui.collapsed.delete(id)}ui.view='chat';ui.mobileNav=false;persist();render()}
-function newChat(){if(!activeProject()){projectDialog();return}state.activeChat=null;ui.draft='';ui.quote=null;ui.attachments=[];ui.archive=false;ui.view='chat';ui.mobileNav=false;persist();render();el('composer-input')?.focus()}
-function selectChat(id){const c=state.chats.find(c=>c.id===id&&!c.deleted);if(!c)return;state.activeChat=id;state.activeProject=c.project;ui.archive=!!c.archived;ui.folder=null;ui.draft='';ui.quote=null;ui.attachments=[];ui.view='chat';ui.mobileNav=false;persist();render();el('main-scroll').scrollTop=el('main-scroll').scrollHeight}
-function send(){if(activeChat()?.backgroundJob){toast('В этом диалоге уже выполняется исследование');return;}if(generation){toast('Дождитесь ответа или остановите запрос');return}const content=ui.draft.trim();if(!content&&!ui.attachments.length)return;if(!activeProject()){projectDialog();return}let c=activeChat();if(!c){c={id:uid(),title:(content.replace(/^\/site\s+/iu,'')||'Диалог с файлами').replace(/\s+/g,' ').slice(0,48),project:activeProject().id,created:Date.now(),updated:Date.now(),messages:[],archived:false,deleted:false};state.chats.unshift(c);state.activeChat=c.id;log(`Создан диалог «${c.title}»`)}c.messages.push({id:uid(),content,files:[...ui.attachments],at:Date.now(),role:'user',...(ui.quote?{quote:ui.quote.text}:{}),webSearch:!!state.settings.webSearch,...(pendingResearch?{researchPlan:pendingResearch}:{})});pendingResearch=null;c.updated=Date.now();try{localStorage.setItem('focus.commands.'+(account?.id??'guest'),JSON.stringify(commandUsed(content,recentCommands())));}catch{}ui.draft='';ui.quote=null;ui.attachments=[];persist();render();el('main-scroll').scrollTop=el('main-scroll').scrollHeight;el('composer-input')?.focus();requestAnswer(c)}
+function draftKey(){
+ return 'focus.draft.'+(account?.id??'guest')+'.'+(state.activeChat??'new-'+state.activeProject);
+}
+function saveDraft(){
+ try{
+  if(ui.draft)sessionStorage.setItem(draftKey(),ui.draft);
+  else sessionStorage.removeItem(draftKey());
+ }catch{}
+}
+function restoreDraft(){
+ try{ui.draft=sessionStorage.getItem(draftKey())??'';}
+ catch{ui.draft='';}
+}
+function selectProject(id,toggle=false){const p=state.projects.find(p=>p.id===id&&!p.deleted);if(!p)return;saveDraft();const same=id===state.activeProject;if(same&&toggle){ui.collapsed.has(id)?ui.collapsed.delete(id):ui.collapsed.add(id)}else{state.activeProject=id;state.activeChat=null;ui.folder=null;restoreDraft();ui.quote=null;ui.attachments=[];ui.collapsed.delete(id)}ui.view='chat';ui.mobileNav=false;persist();render()}
+function newChat(){if(!activeProject()){projectDialog();return}saveDraft();state.activeChat=null;restoreDraft();ui.quote=null;ui.attachments=[];ui.archive=false;ui.view='chat';ui.mobileNav=false;persist();render();el('composer-input')?.focus()}
+function selectChat(id){const c=state.chats.find(c=>c.id===id&&!c.deleted);if(!c)return;saveDraft();state.activeChat=id;state.activeProject=c.project;ui.archive=!!c.archived;ui.folder=null;restoreDraft();ui.quote=null;ui.attachments=[];ui.view='chat';ui.mobileNav=false;persist();render();el('main-scroll').scrollTop=el('main-scroll').scrollHeight}
+function send(){if(activeChat()?.backgroundJob){toast('В этом диалоге уже выполняется исследование');return;}if(generation){toast('Дождитесь ответа или остановите запрос');return}const content=ui.draft.trim();if(!content&&!ui.attachments.length)return;if(!activeProject()){projectDialog();return}const previousDraftKey=draftKey();let c=activeChat();if(!c){c={id:uid(),title:(content.replace(/^\/site\s+/iu,'')||'Диалог с файлами').replace(/\s+/g,' ').slice(0,48),project:activeProject().id,created:Date.now(),updated:Date.now(),messages:[],archived:false,deleted:false};state.chats.unshift(c);state.activeChat=c.id;log(`Создан диалог «${c.title}»`)}c.messages.push({id:uid(),content,files:[...ui.attachments],at:Date.now(),role:'user',...(ui.quote?{quote:ui.quote.text}:{}),webSearch:!!state.settings.webSearch,...(pendingResearch?{researchPlan:pendingResearch}:{})});pendingResearch=null;c.updated=Date.now();try{localStorage.setItem('focus.commands.'+(account?.id??'guest'),JSON.stringify(commandUsed(content,recentCommands())));}catch{}ui.draft='';try{sessionStorage.removeItem(previousDraftKey);}catch{}ui.quote=null;ui.attachments=[];persist();render();el('main-scroll').scrollTop=el('main-scroll').scrollHeight;el('composer-input')?.focus();requestAnswer(c)}
 function closeMenu(){document.querySelector('.menu-popup')?.remove();ui.menu=null}
 function menu(anchor,options){closeMenu();const div=document.createElement('div');div.className='menu-popup';div.role='menu';div.innerHTML=options.map(o=>o.separator?'<div class="menu-separator"></div>':o.label?`<div class="menu-label">${e(o.label)}</div>`:`<button class="menu-option ${o.danger?'danger':''}" role="menuitem" data-action="${o.action}" ${o.id?`data-id="${e(o.id)}"`:''} ${o.type?`data-type="${e(o.type)}"`:''} ${o.value?`data-value="${e(o.value)}"`:''}>${o.icon?icon(o.icon):''}<span class="menu-option-copy"><span>${e(o.text)}</span>${o.description?`<small>${e(o.description)}</small>`:''}</span>${o.checked?icon('check','check'):''}</button>`).join('');document.body.append(div);const r=anchor.getBoundingClientRect(),d=div.getBoundingClientRect();div.style.left=Math.max(8,Math.min(r.left,innerWidth-d.width-8))+'px';div.style.top=(r.bottom+d.height+8>innerHeight?Math.max(8,r.top-d.height-8):r.bottom+8)+'px';ui.menu=div;div.querySelector('button')?.focus()}
 function closeModal(){const d=document.querySelector('dialog');if(d){d.close();d.remove();const opener=modalOpener;modalOpener=null;if(opener?.isConnected)opener.focus();}for(const u of objectURLs)URL.revokeObjectURL(u);objectURLs=[]}
@@ -741,6 +754,7 @@ case 'permanent-delete':confirm('Удалить навсегда?','Элемен
 case 'empty-trash':confirm('Очистить корзину?','Все элементы корзины будут удалены навсегда.',async()=>{for(const p of state.projects.filter(p=>p.deleted))await permanentDelete('project',p.id);for(const c of state.chats.filter(c=>c.deleted))await permanentDelete('chat',c.id);for(const f of state.files.filter(f=>f.deleted))await permanentDelete('file',f.id)},'Очистить',true);break;
 case 'command-fill':{
  ui.draft='/'+id+' ';
+ saveDraft();
  const composer=el('composer-input');
  composer.value=ui.draft;
  el('send-button').disabled=false;
@@ -749,7 +763,7 @@ case 'command-fill':{
  composer.focus();
  break;
 }
-case 'prompt':ui.draft=t.dataset.prompt;render();el('composer-input').focus();el('composer-input').setSelectionRange(ui.draft.length,ui.draft.length);break;
+case 'prompt':ui.draft=t.dataset.prompt;saveDraft();render();el('composer-input').focus();el('composer-input').setSelectionRange(ui.draft.length,ui.draft.length);break;
 case 'product-menu':menu(t,[
  {text:'Focus',description:'Общение, поиск и работа с проектами',action:'select-product',value:'workspace',icon:'grid',checked:!['code','forge'].includes(ui.view)},
  {text:'Focus Code',description:'Создание и изменение кода',action:'select-product',value:'code',icon:'code',checked:ui.view==='code'},
@@ -832,6 +846,7 @@ case 'logout':{
   const response=await fetch('/api/auth/logout',{method:'POST'});
   if(!response.ok)throw new Error();
   try{localStorage.setItem(AUTH_EVENT_KEY,uid());}catch{}
+  ready=false;
   location.replace('/login');
  }catch{t.disabled=false;toast('Не удалось выйти. Попробуй ещё раз.');}
  break;
@@ -904,7 +919,7 @@ document.addEventListener('submit',event=>{
 });
 document.addEventListener('input',event=>{
  const input=event.target;
- if(input.id==='composer-input'){ui.draft=input.value;updateCommands();el('send-button').disabled=!generation&&!ui.draft.trim()&&!ui.attachments.length;resizeComposer();}
+ if(input.id==='composer-input'){ui.draft=input.value;saveDraft();updateCommands();el('send-button').disabled=!generation&&!ui.draft.trim()&&!ui.attachments.length;resizeComposer();}
  if(input.id==='code-brief')studio.codeBrief=input.value;
  if(input.id==='forge-brief')studio.forgeBrief=input.value;
  if(input.id==='site-brief')studio.siteBrief=input.value;
@@ -1395,6 +1410,7 @@ async function boot(){
   }
   selectStorageScope(account?.id);
   state=await readState();
+  restoreDraft();
   if(account)try{
    cloudRevision=Number(localStorage.getItem('focus.cloud-revision.'+account.id))||null;
    cloudAuto=localStorage.getItem('focus.cloud-auto.'+account.id)==='1';
@@ -1413,6 +1429,7 @@ async function boot(){
   app.innerHTML='<section class="welcome"><div class="welcome-inner"><h1>Не удалось открыть Focus</h1><p class="welcome-sub">Проверь подключение и обнови страницу.</p></div></section>';
  }
 }
+window.addEventListener('pagehide',()=>{if(ready)saveDraft();});
 window.addEventListener('storage',event=>{if(event.key===AUTH_EVENT_KEY)location.reload();});
 window.addEventListener('pageshow',event=>{if(event.persisted&&account)location.reload();});
 
