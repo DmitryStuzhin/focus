@@ -1,16 +1,29 @@
 // Browser regression check, run by CI after building the app.
 import assert from 'node:assert/strict';
 import {chromium} from 'playwright';
-import {createServer} from '../scripts/server.mjs';
+import http from 'node:http';
+import {Readable} from 'node:stream';
+import worker from '../dist/server/index.js';
+import {chat} from '../worker/api.js';
 import {fresh,STORAGE_KEY} from '../public/store.js';
 const state=fresh();
 state.activeChat='long-chat';
 state.chats=[{id:'long-chat',project:'personal',title:'Длинный диалог',created:Date.now(),updated:Date.now(),archived:false,deleted:false,messages:Array.from({length:40},(_,index)=>({id:`message-${index}`,role:index%2?'assistant':'user',content:index%2?Array.from({length:12},(_,n)=>`Абзац ${n+1}. Развёрнутый ответ с пояснениями и примером.`).join('\n\n'):`Вопрос ${index+1}`,at:Date.now()}))}];
-const server=createServer({});
+// Exercise local skills in this browser fixture without creating accounts in every viewport.
+const server=http.createServer(async(req,res)=>{
+ const url=new URL(req.url,'http://'+req.headers.host);
+ const request=new Request(url,{method:req.method,headers:req.headers,
+  ...(['GET','HEAD'].includes(req.method)?{}:{body:Readable.toWeb(req),duplex:'half'})});
+ const response=url.pathname==='/api/chat'?await chat(request,{}):
+  await worker.fetch(request,{},url.pathname==='/api/status'?{userId:'browser-fixture'}:{});
+ res.writeHead(response.status,Object.fromEntries(response.headers));
+ if(response.body)Readable.fromWeb(response.body).pipe(res);
+ else res.end();
+});
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 let browser;
 try{
- browser=await chromium.launch({headless:true});
+ browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH});
  for(const viewport of [{width:1440,height:900},{width:1024,height:400},{width:390,height:844}]){
   const context=await browser.newContext({viewport});
   await context.addInitScript(({key,state})=>localStorage.setItem(key,JSON.stringify(state)),{key:STORAGE_KEY,state});
@@ -252,6 +265,7 @@ try{
  assert.equal(await siteComposer.inputValue(),'Сделай сайт');
  await siteComposer.fill('У меня есть идея для демо. Сделай сайт со счётчиком');
  await sitePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ await sitePage.getByRole('button',{name:'Предпросмотр',exact:true}).last().click();
  const frame=sitePage.frameLocator('#preview-root iframe');
  const heading=frame.getByRole('heading',{name:'Первый сайт'});
  await heading.waitFor();
@@ -277,6 +291,7 @@ try{
  await siteComposer.fill('Первая версия подходит. Теперь добавь на сайт новый заголовок');
  await frame.getByRole('button',{name:'1'}).waitFor();
  await sitePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ await sitePage.getByRole('button',{name:'Предпросмотр',exact:true}).last().click();
  await frame.getByRole('heading',{name:'Вторая версия'}).waitFor();
  assert.equal(siteRequests[2].sitePreview,true);
  assert.match(siteRequests[2].messages.at(-1).attachments[0].text,/<h1>Первый сайт<\/h1>/);
@@ -299,6 +314,7 @@ try{
  await draftPage.getByText(/Какой сайт сделать/).waitFor();
  await draftComposer.fill('Для стоматологической клиники');
  await draftPage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ await draftPage.getByRole('button',{name:'Предпросмотр',exact:true}).last().click();
  const draftFrame=draftPage.frameLocator('#preview-root iframe');
  await draftFrame.getByRole('heading',{name:'Забота о вашей улыбке'}).waitFor();
  await draftPage.getByText(/Открыл стартовую страницу/).waitFor();
@@ -316,6 +332,7 @@ try{
  const gameComposer=gamePage.getByRole('textbox',{name:'Сообщение',exact:true});
  await gameComposer.fill('Сделай мне залипательную игру на мобилку');
  await gamePage.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
+ await gamePage.getByRole('button',{name:'Предпросмотр',exact:true}).last().click();
  const gameFrame=gamePage.frameLocator('#preview-root iframe');
  await gameFrame.getByRole('heading',{name:'Поймай импульс'}).waitFor();
  const gameBox=await gamePage.locator('#preview-root').boundingBox();

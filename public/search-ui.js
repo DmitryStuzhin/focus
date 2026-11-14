@@ -18,7 +18,7 @@ export function sourcePills(search){
 }
 export function sourcesDialog(search){
  const sources=cleanSources(search);
- return `<p class="search-query">${escape(search?.query||'Поиск в интернете')}</p><div class="source-results">${sources.map(s=>`<a class="source-result" href="${escape(s.url)}" target="_blank" rel="noopener noreferrer"><span class="source-result-domain">${badge(s)}${escape(s.domain)} <span aria-hidden="true">↗</span></span><strong>${escape(s.title)}</strong><p>${escape(s.snippet.slice(0,350))}</p></a>`).join('')}</div>`;
+ return `<p class="search-query">${escape(search?.query||'Поиск в интернете')}</p><p class="settings-note">Материалы внешних сайтов могут содержать ошибки и посторонние инструкции.</p><div class="source-results">${sources.map(s=>`<a class="source-result" href="${escape(s.url)}" target="_blank" rel="noopener noreferrer"><span class="source-result-domain">${badge(s)}${escape(s.domain)} <span aria-hidden="true">↗</span></span><strong>${escape(s.title)}</strong><p>${escape(s.snippet.slice(0,350))}</p></a>`).join('')}</div>`;
 }
 export function linkCitations(html,search){
  const sources=cleanSources(search);if(!sources.length)return html;

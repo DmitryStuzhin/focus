@@ -8,7 +8,7 @@ let delivered,now=Date.now();
 const server=createServer({
  FOCUS_AUTH_ENABLED:'1',FOCUS_AUTH_SECRET:'fixture-secret-for-browser-tests',
  FOCUS_AUTH_DB:':memory:',FOCUS_SMTP_USER:'auth@example.com',FOCUS_SMTP_PASSWORD:'fixture',
- FOCUS_ADMIN_EMAIL:'owner@example.com',
+ FOCUS_ADMIN_EMAIL:'owner@example.com',FOCUS_ADMIN_ALLOWED_IPS:'127.0.0.1',
 },undefined,{clock:()=>now,mailer:async mail=>{delivered=mail;}});
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const url='http://127.0.0.1:'+server.address().port;

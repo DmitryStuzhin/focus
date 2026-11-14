@@ -76,7 +76,7 @@ async function saveForgeCheckpoint(chat,content){
  log(`Focus Forge сохранил контрольную точку «${checkpointName}» (${files.length} ${plural(files.length,'файл','файла','файлов')})`,chat.project);
  return {id:checkpoint.id,count:files.length,name:checkpointName};
 }
-function forgeCard(report){if(!report)return '';const ready=report.status==='ready';return `<section class="forge-report ${ready?'ready':'needs-work'}" aria-label="Проверка Focus Forge"><div class="forge-report-head"><div><strong>Focus Forge</strong><span>${ready?'Результат подготовлен':'Нужна доработка'}</span></div><span class="forge-status">${ready?'Проверено':'Есть замечания'}</span></div><div class="forge-checks">${report.checks.map(item=>`<div class="forge-check ${item.status}"><span aria-hidden="true">${item.status==='pass'?'✓':item.status==='warn'?'!':'×'}</span><div><strong>${e(item.label)}</strong><small>${e(item.detail)}</small></div></div>`).join('')}</div>${report.checkpoint?`<button class="btn ghost forge-open" data-action="open-forge-checkpoint" data-id="${e(report.checkpoint.id)}">Открыть контрольную точку</button>`:''}<small class="forge-limitation">${e(report.limitation)}</small></section>`}
+function forgeCard(report,message){if(!report)return '';const ready=report.status==='ready';return `<section class="forge-report ${ready?'ready':'needs-work'}" aria-label="Проверка Focus Forge"><div class="forge-report-head"><div><strong>Focus Forge</strong><span>${ready?'Результат подготовлен':'Нужна доработка'}</span></div><span class="forge-status">${ready?'Проверено':'Есть замечания'}</span></div><div class="forge-checks">${report.checks.map(item=>`<div class="forge-check ${item.status}"><span aria-hidden="true">${item.status==='pass'?'✓':item.status==='warn'?'!':'×'}</span><div><strong>${e(item.label)}</strong><small>${e(item.detail)}</small></div></div>`).join('')}</div>${report.checkpoint?`<button class="btn ghost forge-open" data-action="open-forge-checkpoint" data-id="${e(report.checkpoint.id)}">Открыть контрольную точку</button>`:report.files.length&&!message.truncated?`<button class="btn ghost" data-action="save-forge-checkpoint" data-id="${e(message.id)}">Сохранить в проект</button>`:''}<small class="forge-limitation">${e(report.limitation)}</small></section>`}
 function toast(text){clearTimeout(toastTimer);const t=el('toast');t.textContent=text;t.classList.add('show');toastTimer=setTimeout(()=>t.classList.remove('show'),4200)}
 let generatedURLs=[];
 function render(){
@@ -352,7 +352,7 @@ function closeModal(){const d=document.querySelector('dialog');if(d){d.close();d
 function modal(title,body,{wide=false,onSubmit=null}={}){closeModal();closeMenu();const d=document.createElement('dialog');d.className=`dialog ${wide?'wide':''}`;d.setAttribute('aria-label',title);d.innerHTML=`<div class="dialog-header"><h2>${e(title)}</h2>${ib('close-modal','close','Закрыть')}</div><div class="dialog-body">${body}</div>`;el('overlay-root').append(d);d.showModal();d.addEventListener('click',ev=>{if(ev.target===d)closeModal()});d.addEventListener('cancel',()=>{setTimeout(closeModal,0)});if(onSubmit)d.querySelector('form')?.addEventListener('submit',ev=>{ev.preventDefault();onSubmit(new FormData(ev.target),ev.target)});return d}
 function projectDialog(id){const p=state.projects.find(p=>p.id===id);modal(p?'Настройки проекта':'Новый проект',`<form><p class="dialog-description">Объедините диалоги и файлы по одной задаче</p><div class="form-field"><label for="project-name">Название</label><input id="project-name" name="name" placeholder="Например, запуск продукта" value="${e(p?.name||'')}" maxlength="70" required autofocus /></div><div class="form-field"><label for="project-description">Описание <span style="color:var(--muted);font-weight:400">· необязательно</span></label><textarea id="project-description" name="description" rows="3" placeholder="Для чего этот проект" maxlength="300">${e(p?.description||'')}</textarea></div><div class="form-field"><label for="project-instructions">Инструкции для всех диалогов</label><textarea id="project-instructions" name="instructions" rows="3" maxlength="4000" placeholder="Например, отвечай кратко и используй данные проекта">${e(p?.instructions||'')}</textarea></div><p class="error-text" id="form-error" hidden></p><div class="dialog-footer">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">${p?'Сохранить':'Создать проект'}</button></div></form>`,{onSubmit:(data)=>{const name=data.get('name').trim();if(!name)return;if(liveProjects().some(x=>x.name.toLowerCase()===name.toLowerCase()&&x.id!==id)){el('form-error').textContent='Проект с таким названием уже существует';el('form-error').hidden=false;return}if(p){p.name=name;p.description=data.get('description').trim();p.instructions=String(data.get('instructions')||'').trim();log(`Обновлён проект «${name}»`,p.id)}else{const np={id:uid(),name,description:data.get('description').trim(),instructions:String(data.get('instructions')||'').trim(),created:Date.now(),deleted:false};state.projects.push(np);state.activeProject=np.id;state.activeChat=null;ui.folder=null;ui.draft='';ui.attachments=[];ui.view='chat';ui.archive=false;ui.mobileNav=false;log(`Создан проект «${name}»`,np.id)}persist();closeModal();render();toast(p?'Проект обновлён':'Проект создан')}})}
 function renameDialog(type,id){const item=type==='chat'?state.chats.find(x=>x.id===id):state.files.find(x=>x.id===id);if(!item)return;const old=type==='chat'?item.title:item.name;modal('Переименовать',`<form><div class="form-field"><label for="rename-name">Название</label><input id="rename-name" name="name" value="${e(old)}" maxlength="120" required autofocus /></div><p class="error-text" id="form-error" hidden></p><div class="dialog-footer">${button('close-modal','Отмена','ghost','type="button"')}<button class="btn primary" type="submit">Сохранить</button></div></form>`,{onSubmit:data=>{const name=data.get('name').trim();if(!name)return;if(type==='file'&&state.files.some(f=>f.id!==id&&f.project===item.project&&(f.parent||null)===(item.parent||null)&&!f.deleted&&f.name===name)){el('form-error').textContent='В этой папке уже есть элемент с таким названием';el('form-error').hidden=false;return}item[type==='chat'?'title':'name']=name;item.updated=Date.now();log(`Переименован ${type==='chat'?'диалог':'файл'} «${old}»`,item.project);persist();closeModal();render()}})}
-function confirm(title,text,action,label='Подтвердить',danger=false){modal(title,`<p class="dialog-description">${e(text)}</p><div class="dialog-footer">${button('close-modal','Отмена','ghost')}<button id="confirm-button" class="btn ${danger?'danger':'primary'}">${e(label)}</button></div>`);el('confirm-button').onclick=async()=>{try{await action();closeModal();persist();render()}catch(err){toast('Не удалось выполнить действие. Попробуйте ещё раз.')}}}
+function confirm(title,text,action,label='Подтвердить',danger=false){modal(title,`<p class="dialog-description">${e(text)}</p><div class="dialog-footer">${button('close-modal','Отмена','ghost')}<button id="confirm-button" class="btn ${danger?'danger':'primary'}">${e(label)}</button></div>`);el('confirm-button').onclick=async event=>{const submit=event.currentTarget;submit.disabled=true;try{await action();closeModal();persist();render()}catch{submit.disabled=false;toast('Не удалось выполнить действие. Попробуйте ещё раз.')}}}
 function descendants(id){const ids=new Set([id]);let n=-1;while(n!==ids.size){n=ids.size;state.files.forEach(f=>{if(ids.has(f.parent))ids.add(f.id)})}return ids}
 function trashProject(id){const p=state.projects.find(x=>x.id===id);if(!p)return;confirm('Переместить проект в корзину?',`«${p.name}», его диалоги и файлы можно будет восстановить.`,()=>{p.deleted=true;p.deletedAt=Date.now();if(state.activeProject===id){state.activeProject=liveProjects()[0]?.id;state.activeChat=null;ui.view=state.activeProject?'chat':'workspace';ui.draft='';ui.attachments=[];ui.folder=null}log(`Проект «${p.name}» перемещён в корзину`,id)},'В корзину')}
 function trashChat(id){const c=state.chats.find(x=>x.id===id);if(!c)return;c.deleted=true;c.deletedAt=Date.now();if(state.activeChat===id){state.activeChat=null;ui.draft=''}log(`Диалог «${c.title}» перемещён в корзину`,c.project);persist();render();toast('Диалог перемещён в корзину')}
@@ -627,6 +627,18 @@ case 'rename-file':renameDialog('file',id);break;
 case 'trash-file':trashFile(id);break;
 case 'attach-existing':if(!ui.attachments.includes(id))ui.attachments.push(id);render();el('composer-input')?.focus();break;
 case 'preview-file':await previewFile(id);break;
+case 'save-forge-checkpoint':{
+ const chat=activeChat();
+ const message=chat?.messages.find(item=>item.id===id);
+ if(!message?.forge||message.truncated||message.forge.checkpoint)break;
+ confirm('Сохранить результат Forge?','Именованные файлы из ответа будут добавлены в новую папку проекта.',async()=>{
+  if(message.forge.checkpoint)return;
+  const checkpoint=await saveForgeCheckpoint(chat,message.content);
+  if(!checkpoint)throw new Error('Нет файлов для сохранения.');
+  message.forge=forgeReport(message.content,{kind:message.forge.kind,previewReady:!!findWebsite(message),checkpoint});
+ },'Сохранить');
+ break;
+}
 case 'open-forge-checkpoint':if(state.files.some(file=>file.id===id&&!file.deleted&&file.kind==='folder')){ui.folder=id;ui.filesTab='files';ui.view='chat';state.settings.showFiles=true;const chat=activeChat();if(chat)chat.preview=null;if(studioRoute())history.replaceState(null,'',location.pathname+location.search);if(innerWidth<960)ui.mobileFiles=true;persist();render()}break;
 case 'download-file':await downloadFile(id);break;
 case 'edit-file':await editFile(id);break;
@@ -665,7 +677,7 @@ case 'cancel-background':{
  break;
 }
 case 'retry-answer':{const c=activeChat();if(c&&!generation){const lastUser=c.messages.findLastIndex(m=>m.role==='user');if(lastUser>=0){c.messages=c.messages.slice(0,lastUser+1);persist();requestAnswer(c)}}break;}
-case 'save-answer':{const m=activeChat()?.messages.find(x=>x.id===id);if(m){const fId=uid(),blob=new Blob([answerMarkdown(m)],{type:'text/markdown;charset=utf-8'});await putBlob(fId,blob);let name=(activeChat().title.slice(0,40).replace(/[\\/:*?"<>|]/g,'')||'Ответ')+'.md',n=1;while(fileExists(name))name='Ответ ('+(n++)+').md';state.files.push({id:fId,project:state.activeProject,parent:ui.folder,name,kind:'file',type:'text/markdown',size:blob.size,created:Date.now(),updated:Date.now(),deleted:false});log(`Сохранён ответ «${name}»`);persist();render();toast('Ответ сохранён в файлы проекта')}break;}
+case 'save-answer':{const m=activeChat()?.messages.find(x=>x.id===id);if(m){confirm('Сохранить ответ?','Ответ будет добавлен в текущую папку проекта как файл Markdown.',async()=>{const fId=uid(),blob=new Blob([answerMarkdown(m)],{type:'text/markdown;charset=utf-8'});await putBlob(fId,blob);let name=(activeChat().title.slice(0,40).replace(/[\\/:*?"<>|]/g,'')||'Ответ')+'.md',n=1;while(fileExists(name))name='Ответ ('+(n++)+').md';state.files.push({id:fId,project:state.activeProject,parent:ui.folder,name,kind:'file',type:'text/markdown',size:blob.size,created:Date.now(),updated:Date.now(),deleted:false});log(`Сохранён ответ «${name}»`);persist();render();toast('Ответ сохранён в файлы проекта')},'Сохранить')}break;}
 case 'copy-code':{const block=codeBlockAction(t);if(block)await copy(block.code);break;}
 case 'download-code':{const block=codeBlockAction(t);if(block)download(new Blob([block.code],{type:'text/plain;charset=utf-8'}),block.filename||(/^(?:html|htm)$/i.test(block.language)?'index.html':'code.txt'));break;}
 case 'review-code':await reviewCodeFile(codeBlockAction(t));break;
@@ -999,7 +1011,7 @@ function markdown(text,message,request=''){
    out+=`<section class="answer-artifact"><div class="artifact-summary"><div><strong>${label}</strong><small>${e(info.filename||'index.html')}</small></div><div class="artifact-actions">${button('open-preview','Открыть','primary',attrs+' aria-label="Предпросмотр"')}${button('download-code','Скачать HTML','ghost',attrs)}</div></div><details><summary>Посмотреть код</summary>${codeBlock}</details></section>`;
   }else out+=codeBlock;
  }
- if(message?.forge)out+=forgeCard(message.forge);
+ if(message?.forge)out+=forgeCard(message.forge,message);
  return out;
 }
 async function attachmentPayload(ids){
@@ -1166,12 +1178,10 @@ async function requestAnswer(c){
   const answer={id:uid(),role:'assistant',...(website?{siteMode:true,previewKind}:{}),...(taskMode?{taskMode}:{}),...(codeMode?{codeMode,codeTargets}:{}),...(imageFile?{imageFile}:{}),content:data.text,at:Date.now(),model:data.model||apiStatus.model||'Модель',usage:data.usage,truncated:!!data.truncated,...(data.search?{search:data.search}:{})};
   const nextPreview=findWebsite(answer);
   if(forge){
-   let checkpoint=null;
-   try{checkpoint=await saveForgeCheckpoint(c,data.text)}catch{log('Focus Forge не смог сохранить контрольную точку',c.project)}
-   answer.forge=forgeReport(data.text,{kind:forge.kind,truncated:!!data.truncated,previewReady:!!nextPreview,checkpoint});
+   answer.forge=forgeReport(data.text,{kind:forge.kind,truncated:!!data.truncated,previewReady:!!nextPreview});
   }
   c.messages.push(answer);
-  if(nextPreview){c.preview=nextPreview;c.siteVersion=nextPreview.messageId;}
+  if(nextPreview){c.preview=null;c.siteVersion=nextPreview.messageId;}
   c.pendingSearch=null;c.updated=Date.now();if(data.provider!=='local'&&data.provider!=='image')apiStatus.configured=true;
  }catch(err){c.error=err.name==='AbortError'?'Запрос остановлен. Его можно повторить.':err.message||'Не удалось получить ответ';}
  finally{
