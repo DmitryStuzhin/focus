@@ -305,14 +305,16 @@
 [data-theme="dark"] .studio-hero,
 [data-theme="dark"] .workspace-heading {
  border-color: #293032;
- background: linear-gradient(135deg,#141a1c,#0f1416 76%);
+ background:
+  radial-gradient(ellipse at 100% 0%,#36c9b916,transparent 45%),
+  linear-gradient(135deg,#141a1c,#0f1416 76%);
  box-shadow: 0 18px 48px #0005;
 }
 [data-theme="dark"] .studio-panel,
 [data-theme="dark"] .studio-card,
 [data-theme="dark"] .workspace-tool {
  border-color: #252d2f;
- background: #111719;
+ background: radial-gradient(ellipse at 100% 0%,#36c9b910,transparent 48%),#111719;
  box-shadow: 0 12px 34px #0003;
 }
 [data-theme="dark"] .studio-tag {
