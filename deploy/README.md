@@ -209,6 +209,29 @@ sudo bash /opt/focus/current/deploy/connect-auth.sh
 восстановите её из аккаунта. Для резервного копирования базы используйте SQLite backup,
 поскольку сервис работает в режиме WAL.
 
+### Отправка кодов через Yandex Cloud Postbox
+
+В [консоли Yandex Cloud](https://console.yandex.cloud/) откройте Cloud Postbox и
+создайте адрес для `tokenapp.ru` с простой настройкой DKIM. Добавьте записи,
+которые покажет Postbox, в текущую DNS-зону. Для SPF добавьте
+`include:spf.postbox.yandexcloud.net` в существующую SPF-запись до завершающего
+`~all` или `-all`. Сохраните записи Timeweb, в том числе MX и существующий DMARC.
+
+Создайте сервисный аккаунт с ролью `postbox.sender` в том же каталоге и выпустите
+для него статический ключ доступа. На VPS с Focus добавьте в `/etc/focus/auth.env`:
+
+```dotenv
+FOCUS_MAIL_FROM=auth@tokenapp.ru
+FOCUS_POSTBOX_KEY_ID=идентификатор_статического_ключа
+FOCUS_POSTBOX_KEY_SECRET=секрет_статического_ключа
+```
+
+Для этого режима нужен `/usr/bin/curl` с поддержкой `--aws-sigv4`.
+Выполните `sudo systemctl restart focus`, проверьте `/healthz` и запросите код
+на странице `/login`. Подтвердите получение письма и вход с кодом. При ошибке
+проверьте `sudo journalctl -u focus -n 30 --no-pager`.
+Чтобы вернуть SMTP, удалите обе переменные ключа и перезапустите Focus.
+
 ## Панель администратора
 
 Чтобы показать ссылку «Админ-панель» в боковом меню нужного аккаунта, откройте

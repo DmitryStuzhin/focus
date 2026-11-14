@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
 import {createServer} from '../scripts/server.mjs';
+import {SmtpDeliveryError} from '../scripts/mail.mjs';
 
 const loginEnv={
  FOCUS_AUTH_ENABLED:'1',
@@ -112,6 +113,25 @@ test('OTP requests show the remaining wait for the longest active limit',async()
   assert.equal(limited.headers.get('retry-after'),'3360');
   now=started+3_600_000;
   assert.equal((await s.post('/api/auth/request',{email})).status,200);
+ }finally{await s.close();}
+});
+
+test('failed SMTP connections preserve throttling without using the address delivery quota',async()=>{
+ let now=Date.now(),attempts=0;
+ const email='mail-failure@example.com';
+ const s=await start(loginEnv,{clock:()=>now,mailer:async()=>{
+  if(++attempts<=5)throw new SmtpDeliveryError(['SMTP connection failed before upload.'],false);
+ }});
+ try{
+  for(let i=0;i<5;i++){
+   const failed=await s.post('/api/auth/request',{email});
+   assert.equal(failed.status,503);
+   assert.equal((await failed.json()).code,'mail_delivery_failed');
+   assert.equal((await s.post('/api/auth/request',{email})).status,429);
+   now+=60_000;
+  }
+  assert.equal((await s.post('/api/auth/request',{email})).status,200);
+  assert.equal(attempts,6);
  }finally{await s.close();}
 });
 

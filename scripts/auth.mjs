@@ -1,6 +1,6 @@
 import {createHmac, randomInt, timingSafeEqual} from 'node:crypto';
 import {DatabaseSync} from 'node:sqlite';
-import {sendLoginCode} from './mail.mjs';
+import {sendLoginCode,sendLoginCodeViaPostbox,MailDeliveryError} from './mail.mjs';
 import {createAccountStore,digest,nonce,transaction,sessionDevice,DAY} from './accounts.mjs';
 import {createAdmin} from './admin.mjs';
 import {createWorkspace} from './workspace.mjs';
@@ -37,7 +37,7 @@ function registrationProfile(body){
 }
 
 
-export function createAuth(env,{mailer=sendLoginCode,clock=Date.now}={}) {
+export function createAuth(env,{mailer,clock=Date.now}={}) {
  const enabled = env.FOCUS_AUTH_ENABLED==='1';
  if(!enabled)return {
   handle(request){
@@ -49,10 +49,14 @@ export function createAuth(env,{mailer=sendLoginCode,clock=Date.now}={}) {
   close(){},
  };
  const secret = env.FOCUS_AUTH_SECRET;
- const from = normalizeEmail(env.FOCUS_SMTP_USER);
+ const {FOCUS_POSTBOX_KEY_ID:keyId,FOCUS_POSTBOX_KEY_SECRET:keySecret}=env;
+ const usePostbox=!!(keyId||keySecret);
+ const from=normalizeEmail(usePostbox?env.FOCUS_MAIL_FROM:env.FOCUS_SMTP_USER);
+ const deliver=mailer??(usePostbox?sendLoginCodeViaPostbox:sendLoginCode);
+ const credentials=usePostbox?{keyId,keySecret}:{password:env.FOCUS_SMTP_PASSWORD,port:env.FOCUS_SMTP_PORT};
  const adminEmail = normalizeEmail(env.FOCUS_ADMIN_EMAIL);
- if(!secret||Buffer.byteLength(secret)<32||!from||!env.FOCUS_SMTP_PASSWORD||!env.FOCUS_AUTH_DB){
-  throw new Error('Focus auth requires a secret, database path and SMTP credentials.');
+ if(!secret||Buffer.byteLength(secret)<32||!from||!(usePostbox?keyId&&keySecret:env.FOCUS_SMTP_PASSWORD)||!env.FOCUS_AUTH_DB){
+  throw new Error('Focus auth requires a secret, database path and configured mail transport.');
  }
  const db = new DatabaseSync(env.FOCUS_AUTH_DB);
  db.exec(`
@@ -85,6 +89,7 @@ export function createAuth(env,{mailer=sendLoginCode,clock=Date.now}={}) {
  const limitEvent = sql(`SELECT created FROM auth_events
   WHERE kind=? AND identity=? AND created>? ORDER BY created DESC LIMIT 1 OFFSET ?`);
  const record = sql('INSERT INTO auth_events VALUES(?,?,?)');
+ const releaseEmailSend = sql("DELETE FROM auth_events WHERE rowid=? AND kind='email-hour' AND identity=? AND created=?");
  const cleanupEvents = sql('DELETE FROM auth_events WHERE created<=?');
  const cleanupChallenges = sql('DELETE FROM challenges WHERE expires<=?');
  const cleanupRegistrations = sql('DELETE FROM registration_tokens WHERE expires<=?');
@@ -144,7 +149,6 @@ export function createAuth(env,{mailer=sendLoginCode,clock=Date.now}={}) {
    const seconds=Math.ceil((retryAt-now)/1000);
    return error('Слишком много попыток. Попробуй позже.',429,{'retry-after':String(seconds)});
   }
-  for(const [kind,identity] of limits)record.run(kind,identity,now);
   return null;
  }
 
@@ -157,24 +161,35 @@ export function createAuth(env,{mailer=sendLoginCode,clock=Date.now}={}) {
   const id = nonce();
   const code = String(randomInt(0,1_000_000)).padStart(6,'0');
   const blocked = !!userByEmail.get(email)?.blocked;
-  const limited = transaction(db,()=>{
-   const limit = checkLimits([
+  const {limited,emailSend} = transaction(db,()=>{
+   const limits = [
     ['email-cooldown',emailKey,MINUTE,1],
     ['email-hour',emailKey,60*MINUTE,5],
     ['send-ip',ip,60*MINUTE,12],
     ['send-global','*',24*60*MINUTE,500],
-   ],now);
-   if(!limit&&!blocked)insertChallenge.run(id,email,codeHash(id,code).toString('hex'),now+CODE_TTL,intent);
-   return limit;
+   ];
+   const limited=checkLimits(limits,now);
+   if(limited)return {limited};
+   let emailSend;
+   for(const [kind,identity] of limits){
+    const event=record.run(kind,identity,now);
+    if(kind==='email-hour')emailSend=event.lastInsertRowid;
+   }
+   if(!blocked)insertChallenge.run(id,email,codeHash(id,code).toString('hex'),now+CODE_TTL,intent);
+   return {emailSend};
   });
   if(limited)return limited;
   if(blocked)return json({challenge:id,resendAfter:60});
   try{
-   await mailer({from,to:email,code,password:env.FOCUS_SMTP_PASSWORD,port:env.FOCUS_SMTP_PORT});
-  }catch{
-   deleteChallenge.run(id);
-   console.error('Focus auth: SMTP delivery request failed.');
-   return error('Не удалось отправить письмо. Попробуй через минуту.',503);
+   await deliver({from,to:email,code,...credentials});
+  }catch(failure){
+   transaction(db,()=>{
+    deleteChallenge.run(id);
+    if(failure instanceof MailDeliveryError&&!failure.deliveryUncertain)releaseEmailSend.run(emailSend,emailKey,now);
+   });
+   const diagnostic=failure instanceof MailDeliveryError?failure.message:'Unknown mailer error.';
+   console.error('Focus auth: mail delivery request failed. '+diagnostic.replaceAll('\n',' '));
+   return json({error:'Не удалось отправить письмо. Попробуй через минуту.',code:'mail_delivery_failed'},503);
   }
   transaction(db,()=>{markSent.run(id);supersedeCodes.run(email,id);});
   return json({challenge:id,resendAfter:60});
@@ -188,6 +203,7 @@ export function createAuth(env,{mailer=sendLoginCode,clock=Date.now}={}) {
   return transaction(db,()=>{
    const limit = checkLimits([['verify-ip',ip,15*MINUTE,50]],now);
    if(limit)return limit;
+   record.run('verify-ip',ip,now);
    const entry = challengeById.get(id);
    if(!entry||entry.expires<=now||entry.attempts>=5)return error('Этот код больше не действует. Запроси новый.',400);
    if(!timingSafeEqual(Buffer.from(entry.hash,'hex'),codeHash(id,code))){
