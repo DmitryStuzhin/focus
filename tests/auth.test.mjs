@@ -51,7 +51,7 @@ test('a verified email opens a protected workspace and logout revokes the sessio
   const {registrationToken}=await verify.json();
   assert.equal((await s.get('/')).headers.get('location'),'/login');
   assert.equal((await s.post('/api/auth/register',{...profile,ageGroup:'invalid',registrationToken})).status,400);
-  assert.equal((await s.post('/api/auth/register',{...profile,goals:[],registrationToken})).status,400);
+  assert.equal((await s.post('/api/auth/register',{...profile,goals:['invalid'],registrationToken})).status,400);
   const created=await s.post('/api/auth/register',{...profile,registrationToken,email:'other@example.com',isAdmin:true});
   assert.equal(created.status,200);
   const {user}=await created.json();
@@ -243,5 +243,23 @@ test('account deletion revokes sessions and removes cloud content',async()=>{
   assert.match(deleted.headers.get('set-cookie'),/Max-Age=0/);
   assert.equal((await s.get('/api/chat',cookie)).status,401);
   assert.equal((await s.get(path)).status,404);
+ }finally{await s.close();}
+});
+
+
+test('registration accepts no profile fields and recommends a template when goals are supplied',async()=>{
+ const sent=[];
+ const s=await start(loginEnv,{mailer:async message=>sent.push(message)});
+ try{
+  for(const [email,fields,template] of [['optional@example.com',{},undefined],['work@example.com',{role:'business',goals:['work']},'tables']]){
+   const {challenge}=await (await s.post('/api/auth/request',{email,intent:'register'})).json();
+   const {registrationToken}=await (await s.post('/api/auth/verify',{challenge,code:sent.at(-1).code})).json();
+   const created=await s.post('/api/auth/register',{registrationToken,...fields});
+   assert.equal(created.status,200);
+   const result=await created.json();
+   assert.equal(result.user.email,email);
+   assert.equal(result.user.name,'');
+   assert.equal(result.starterTemplate,template);
+  }
  }finally{await s.close();}
 });

@@ -39,9 +39,6 @@ try{
   await submit.click();
   if(register){
    await page.getByRole('heading',{name:'Расскажите о себе'}).waitFor();
-   await page.getByLabel('Имя',{exact:true}).fill('Анна');
-   await page.getByLabel('Фамилия').fill('Иванова');
-   await page.getByLabel('Возраст').selectOption('18-24');
    await page.getByLabel('Чем вы занимаетесь?').selectOption('student');
    await page.getByRole('checkbox',{name:'Учёба'}).check();
    await page.getByRole('checkbox',{name:'Программирование'}).check();
@@ -55,7 +52,7 @@ try{
  assert.equal(await page.getByRole('link',{name:'Админ-панель'}).count(),0);
  await page.getByRole('button',{name:/Моё пространство/}).click();
  await page.getByText('first@example.com',{exact:true}).waitFor();
- assert.equal(await page.getByLabel('Имя в аккаунте').inputValue(),'Анна Иванова');
+ assert.equal(await page.getByLabel('Имя в аккаунте').inputValue(),'');
  await page.getByLabel('Название',{exact:true}).fill('Аккаунт номер один');
  await page.getByRole('button',{name:'Сохранить',exact:true}).click();
  await page.getByRole('button',{name:/Аккаунт номер один/}).click();

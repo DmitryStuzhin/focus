@@ -25,3 +25,10 @@ export const goals = {
  personal: 'Личные задачи',
  other: 'Другое',
 };
+
+export function starterTemplate(role,selected=[]){
+ if(selected.includes('code'))return 'code';
+ if(selected.includes('work')||['employee','business','freelance'].includes(role))return 'tables';
+ if(selected.includes('study')||['student','educator'].includes(role))return 'document';
+ return null;
+}

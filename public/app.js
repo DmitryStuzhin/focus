@@ -336,6 +336,18 @@ window.addEventListener('focus',refreshQuota);
 setInterval(()=>{if(document.visibilityState==='visible')void refreshQuota();},60_000);
 
 function header(){let title=STUDIO_LABELS[ui.view]||(ui.view==='workspace'?'Рабочее пространство':ui.view==='trash'?'Корзина':ui.view==='archive'?'Архив':activeProject()?.name||'Новый диалог');return `<header class="topbar"><div class="topbar-title">${ib('toggle-sidebar','menu','Открыть навигацию',ui.sidebarClosed?'':`class="mobile-only"`)}<span class="truncate">${e(title)}</span>${ui.view==='chat'&&activeChat()?`<span class="top-divider desktop-only"></span><span class="truncate desktop-only" style="color:var(--muted);font-size:12px;font-weight:400">${e(activeChat().title)}</span>`:''}</div><div class="topbar-actions"><span id="quota-slot">${quotaMarkup()}</span>${themeButton()}${ui.view==='chat'?`<button class="status" data-action="model-info" title="Статус подключения"><span class="status-dot"></span>${apiStatus.configured?e(MODEL_LABEL):'Не подключено'}</button><span class="top-divider"></span>${activeChat()?ib('current-chat-menu','more','Действия с диалогом'):''}${ib('toggle-files','panel','Показать или скрыть файлы',`aria-pressed="${state.settings.showFiles}"`)}`:button('new-chat',`${icon('plus')} <span>Новый диалог</span>`,'ghost topbar-new-chat','aria-label="Новый диалог"')}</div></header>`}
+function starterSuggestion(){
+ let template;
+ try{template=sessionStorage.getItem('focus.starter.'+account?.id);}catch{}
+ const suggestion={
+  tables:['composer-mode','tables','Сверить две выгрузки'],
+  document:['composer-mode','document','Найти ответ в документе'],
+  code:['composer-mode','code','Подготовить код'],
+ }[template];
+ if(!suggestion)return '';
+ const [action,id,label]=suggestion;
+ return button(action,label,'ghost',`data-id="${id}"`);
+}
 function chatView(){const c=activeChat();if(!c||!c.messages.length)return `<section class="welcome"><div class="welcome-inner">${mark}
  <h1>Над чем поработаем?</h1><p class="welcome-sub">Например, прикрепите две выгрузки и проверьте, какие записи изменились.</p><div class="suggestions focus-start" aria-label="Быстрые задачи">
   <button class="suggestion" aria-label="Создать сайт" data-action="prompt" data-prompt="Сделай сайт">${icon('globe')}<span>Создать сайт<small>Предпросмотр и исходники</small></span></button>
@@ -343,6 +355,7 @@ function chatView(){const c=activeChat();if(!c||!c.messages.length)return `<sect
   <button class="suggestion" data-action="research-plan">${icon('search')}<span>Исследовать тему<small>Поиск с источниками</small></span></button>
   <button class="suggestion" data-action="studio-view" data-id="images">${icon('image')}<span>Создать изображение<small>Генерация и правки</small></span></button>
  </div><div class="version-actions focus-code-shortcut">
+  ${starterSuggestion()}
   <button class="inline-link" aria-label="Написать код" data-action="prompt" data-prompt="Напиши код для ">Написать код</button>
   <button class="inline-link" aria-label="Продумать план" data-action="prompt" data-prompt="Составь план для ">Продумать план</button>
  </div></div></section>`;

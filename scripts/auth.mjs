@@ -8,7 +8,7 @@ import {createAdmin} from './admin.mjs';
 import {createWorkspace} from './workspace.mjs';
 import {createJobs} from './jobs.mjs';
 import {json,error,readJson} from './auth-http.mjs';
-import {ages,goals,roles} from '../public/onboarding.js';
+import {ages,goals,roles,starterTemplate} from '../public/onboarding.js';
 
 const MINUTE = 60_000;
 const CODE_TTL = 10 * MINUTE;
@@ -29,11 +29,11 @@ function registrationProfile(body){
  const name = value => typeof value==='string' ? value.trim().normalize('NFC') : '';
  const firstName=name(body.firstName),lastName=name(body.lastName);
  const validName = value => value.length<=39&&/\p{L}/u.test(value)&&!/[\p{Cc}\p{Cf}]/u.test(value);
- if(!validName(firstName)||!validName(lastName))return 'Укажите имя и фамилию (до 39 символов в каждом поле).';
- const {ageGroup,role,goals:selected}=body;
- if(typeof ageGroup!=='string'||!Object.hasOwn(ages,ageGroup))return 'Выберите свою возрастную группу.';
- if(typeof role!=='string'||!Object.hasOwn(roles,role))return 'Выберите, чем ты занимаешься.';
- if(!Array.isArray(selected)||!selected.length||selected.length>Object.keys(goals).length||
+ if((body.firstName!=null&&!validName(firstName))||(body.lastName!=null&&!validName(lastName)))return 'Укажите имя и фамилию (до 39 символов в каждом поле).';
+ const {ageGroup='',role='',goals:selected=[]}=body;
+ if(ageGroup!==''&&(typeof ageGroup!=='string'||!Object.hasOwn(ages,ageGroup)))return 'Выберите свою возрастную группу.';
+ if(role!==''&&(typeof role!=='string'||!Object.hasOwn(roles,role)))return 'Выберите, чем ты занимаешься.';
+ if(!Array.isArray(selected)||selected.length>Object.keys(goals).length||
   selected.some(value=>typeof value!=='string'||!Object.hasOwn(goals,value)))return 'Выберите, для чего вам нужен Focus.';
  return {firstName,lastName,ageGroup,role,goals:[...new Set(selected)]};
 }
@@ -141,10 +141,10 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
  function cookie(token,secure,seconds=SESSION_TTL/1000){
   return cookieName(secure)+'='+token+'; Path=/; Max-Age='+seconds+'; HttpOnly; SameSite=Lax'+(secure?'; Secure':'');
  }
- function openSession(user,secure,now,agent){
+ function openSession(user,secure,now,agent,template){
   const token = nonce();
   insertSession.run(digest(token),user.id,now+SESSION_TTL,nonce(),now,now,sessionDevice(agent));
-  return json({user:sessionProfile(user,now)},200,{'set-cookie':cookie(token,secure)});
+  return json({user:sessionProfile(user,now),...(template?{starterTemplate:template}:{})},200,{'set-cookie':cookie(token,secure)});
  }
  function checkLimits(limits,now){
   let retryAt = now;
@@ -281,9 +281,9 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
    deleteRegistration.run(hash);
    if(userByEmail.get(entry.email))return json({error:'У этой почты уже есть аккаунт. Выберите вход.',code:'account_exists'},409);
    const id=nonce();
-   insertUser.run(id,entry.email,profile.firstName+' '+profile.lastName,now);
+   insertUser.run(id,entry.email,[profile.firstName,profile.lastName].filter(Boolean).join(' '),now);
    accounts.saveOnboarding(id,profile,now);
-   return openSession(userByEmail.get(entry.email),secure,now,agent);
+   return openSession(userByEmail.get(entry.email),secure,now,agent,starterTemplate(profile.role,profile.goals));
   });
  }
 

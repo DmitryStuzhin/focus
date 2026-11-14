@@ -1,5 +1,5 @@
 import {AUTH_EVENT_KEY,uid} from './store.js';
-import {ages,goals,roles} from './onboarding.js';
+import {goals,roles} from './onboarding.js';
 
 const emailForm = document.querySelector('#email-form');
 const codeForm = document.querySelector('#code-form');
@@ -18,9 +18,7 @@ const verifyLabel = document.querySelector('#verify-label');
 const forms = [emailForm,codeForm,profileForm];
 let mode='login', email='', challenge='', registrationToken='', resendAt=0, timer, pending=false;
 
-for(const [select,options] of [[profileForm.elements.ageGroup,ages],[profileForm.elements.role,roles]]){
- for(const [value,label] of Object.entries(options))select.add(new Option(label,value));
-}
+for(const [value,label] of Object.entries(roles))profileForm.elements.role.add(new Option(label,value));
 for(const [value,label] of Object.entries(goals)){
  const option=document.createElement('label');
  const checkbox=document.createElement('input');
@@ -154,7 +152,7 @@ codeForm.addEventListener('submit',async event=>{
   showRequestError(err,'Не удалось проверить код.');
  }finally{
   busy(false);
-  if(!profileForm.hidden)profileForm.elements.firstName.focus();
+  if(!profileForm.hidden)profileForm.elements.role.focus();
   else if(!codeForm.hidden)codeInput.focus();
   else emailInput.focus();
  }
@@ -164,18 +162,11 @@ profileForm.addEventListener('submit',async event=>{
  if(pending||!registrationToken)return;
  const fields=new FormData(profileForm);
  const selected=fields.getAll('goals');
- if(!selected.length){
-  notice('Выберите, для чего вам нужен Focus.');
-  profileForm.querySelector('[name="goals"]').focus();
-  return;
- }
  notice();
  busy(true);
  try{
-  await request('register',{
-   registrationToken,firstName:fields.get('firstName'),lastName:fields.get('lastName'),
-   ageGroup:fields.get('ageGroup'),role:fields.get('role'),goals:selected,
-  });
+  const {user,starterTemplate}=await request('register',{registrationToken,role:fields.get('role'),goals:selected});
+  if(starterTemplate)try{sessionStorage.setItem('focus.starter.'+user.id,starterTemplate);}catch{}
   enterWorkspace();
  }catch(err){
   if(err.code==='registration_expired')startEmail(mode,false);
