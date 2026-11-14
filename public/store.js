@@ -4,7 +4,7 @@ const scoped=key=>scope?key+'.'+scope:key;
 export const selectStorageScope=id=>{scope=id||'';};
 export const AUTH_EVENT_KEY='focus.auth.changed';
 export const uid=()=>crypto.randomUUID?.()||Array.from(crypto.getRandomValues(new Uint8Array(16)),x=>x.toString(16).padStart(2,'0')).join('');
-export const fresh=()=>({version:1,projects:[{id:'personal',name:'Личное пространство',description:'',created:Date.now(),deleted:false}],chats:[],files:[],changes:[],settings:{name:'Моё пространство',model:'flash',effort:'balanced',theme:'dark',sendOnEnter:true,showFiles:true,webSearch:false},activeProject:'personal',activeChat:null});
+export const fresh=()=>({version:1,projects:[{id:'personal',name:'Личное пространство',description:'',created:Date.now(),deleted:false}],chats:[],files:[],changes:[],settings:{name:'Моё пространство',model:'flash',effort:'balanced',theme:'system',sendOnEnter:true,showFiles:true,webSearch:false},activeProject:'personal',activeChat:null});
 function normalizeState(data){
  if(data?.version!==1||!['projects','chats','files'].every(key=>Array.isArray(data[key])))return fresh();
  const defaults=fresh();
