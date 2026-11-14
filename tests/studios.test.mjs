@@ -26,4 +26,5 @@ test('Code and Forge live only in the top product switcher',()=>{
  assert.match(source,/text:'Focus Code'/);
  assert.match(source,/text:'Focus Forge'/);
  assert.match(source,/product-menu-popup/);
+ assert.doesNotMatch(source,/focus-code-shortcut|>Написать код<|>Продумать план</);
 });
