@@ -53,7 +53,9 @@ export function createAuth(env,{mailer,clock=Date.now}={}) {
  const usePostbox=!!(keyId||keySecret);
  const from=normalizeEmail(usePostbox?env.FOCUS_MAIL_FROM:env.FOCUS_SMTP_USER);
  const deliver=mailer??(usePostbox?sendLoginCodeViaPostbox:sendLoginCode);
- const credentials=usePostbox?{keyId,keySecret}:{password:env.FOCUS_SMTP_PASSWORD,port:env.FOCUS_SMTP_PORT};
+ const credentials=usePostbox
+  ?{keyId,keySecret,tunnelPort:env.FOCUS_POSTBOX_TUNNEL_PORT}
+  :{password:env.FOCUS_SMTP_PASSWORD,port:env.FOCUS_SMTP_PORT};
  const adminEmail = normalizeEmail(env.FOCUS_ADMIN_EMAIL);
  if(!secret||Buffer.byteLength(secret)<32||!from||!(usePostbox?keyId&&keySecret:env.FOCUS_SMTP_PASSWORD)||!env.FOCUS_AUTH_DB){
   throw new Error('Focus auth requires a secret, database path and configured mail transport.');

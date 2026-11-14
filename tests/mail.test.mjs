@@ -10,6 +10,7 @@ test('Postbox signs the HTTPS request without putting credentials or the code in
  await sendLoginCodeViaPostbox(postboxMail,{transport:async(args,config)=>{
   assert.equal(args[args.indexOf('--url')+1],'https://postbox.cloud.yandex.net/v2/email/outbound-emails');
   assert.equal(args[args.indexOf('--aws-sigv4')+1],'aws:amz:ru-central1:ses');
+  assert.ok(!args.includes('--connect-to'));
   assert.ok(args.every(arg=>!arg.includes(postboxMail.keySecret)&&!arg.includes(mail.code)));
   const [user,body]=config.trimEnd().split('\n');
   assert.equal(user,'user = "fixture-id:fixture-secret"');
@@ -20,6 +21,17 @@ test('Postbox signs the HTTPS request without putting credentials or the code in
   assert.match(payload.Content.Simple.Body.Html.Data,/>000001<\/div>/u);
   return {exitCode:0,stdout:'{"MessageId":"accepted-id"}\n200'};
  }});
+});
+
+test('Postbox can route through a local tunnel while retaining the HTTPS endpoint',async()=>{
+ await sendLoginCodeViaPostbox({...postboxMail,tunnelPort:'18443'},{transport:async args=>{
+  assert.equal(args[args.indexOf('--url')+1],'https://postbox.cloud.yandex.net/v2/email/outbound-emails');
+  assert.equal(args[args.indexOf('--connect-to')+1],'postbox.cloud.yandex.net:443:127.0.0.1:18443');
+  assert.ok(!args.includes('--insecure'));
+  return {exitCode:0,stdout:'{"MessageId":"accepted-id"}\n200'};
+ }});
+ await assert.rejects(sendLoginCodeViaPostbox({...postboxMail,tunnelPort:'65536'},
+  {transport:()=>assert.fail('must not connect')}),/Invalid Postbox tunnel port/u);
 });
 
 test('Postbox errors report only safe diagnostics and preserve ambiguous delivery state',async()=>{
