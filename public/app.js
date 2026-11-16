@@ -436,7 +436,7 @@ function updateCommands(){
  panel.innerHTML=commands.map(([id,label,example])=>`<button type="button" data-action="command-fill" data-id="${id}"><code>/${id}</code><span>${e(label)}<small>${e('/'+id+(example?' '+example:''))}</small></span></button>`).join('');
 }
 const composerModes=[
- ['tables','Таблицы'],['document','Документ'],['code','Код'],['sites','Сайт'],['images','Изображение'],['search','Поиск'],
+ ['tables','Таблица','table'],['document','Документ','file'],['code','Код','code'],['sites','Сайт','globe'],['images','Изображение','image'],['search','Поиск','search'],
 ];
 function composerMode(){
  if(state.settings.webSearch)return 'search';
@@ -444,7 +444,7 @@ function composerMode(){
 }
 function composerModesMarkup(){
  const active=composerMode();
- return composerModes.map(([id,label])=>`<button type="button" data-action="composer-mode" data-id="${id}" aria-pressed="${id===active}" ${generation?'disabled':''}>${label}</button>`).join('');
+ return composerModes.map(([id,label,symbol])=>`<button type="button" data-action="composer-mode" data-id="${id}" aria-pressed="${id===active}" aria-label="Режим: ${label}" title="${label}" ${generation?'disabled':''}>${icon(symbol)}<span>${label}</span></button>`).join('');
 }
 function composerSuggestion(){
  const files=ui.attachments.map(id=>state.files.find(file=>file.id===id&&!file.deleted)).filter(Boolean);

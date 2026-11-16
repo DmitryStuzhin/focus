@@ -574,9 +574,35 @@
 .command-suggestions button { display: grid; grid-template-columns: 8ch 1fr; text-align: left; gap: 12px; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--text); }
 .command-suggestions button:hover,.command-suggestions button:focus-visible { background: var(--hover); }
 .command-suggestions small { display: block; color: var(--muted); }
-.composer-modes { display: flex; gap: 4px; overflow-x: auto; padding: 7px 8px 2px; }
-.composer-modes button { flex: 0 0 auto; padding: 5px 8px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font-size: 12px; }
-.composer-modes button[aria-pressed=true] { background: var(--hover); color: var(--text); font-weight: 600; }
+.composer-modes {
+ display: flex;
+ gap: 3px;
+ overflow-x: auto;
+ scrollbar-width: none;
+ margin: 0 2px 2px;
+ padding: 0 0 8px;
+ border-bottom: 1px solid color-mix(in srgb,var(--line),transparent 24%);
+}
+.composer-modes::-webkit-scrollbar { display: none; }
+.composer-modes button {
+ flex: 0 0 auto;
+ display: inline-flex;
+ align-items: center;
+ gap: 6px;
+ min-height: 30px;
+ padding: 0 9px;
+ border: 0;
+ border-radius: 7px;
+ background: transparent;
+ color: var(--muted);
+ font-size: 11px;
+ letter-spacing: .01em;
+ transition: color 140ms var(--ease), background 140ms var(--ease);
+}
+.composer-modes button .icon { width: 14px; height: 14px; opacity: .74; }
+.composer-modes button:hover { background: var(--raised); color: var(--secondary); }
+.composer-modes button[aria-pressed=true] { background: var(--raised); color: var(--text); font-weight: 500; }
+.composer-modes button[aria-pressed=true] .icon { color: var(--focus-accent); opacity: 1; }
 .model-provenance { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
 .composer-hint .data-details { color: var(--muted); font-size: inherit; }
 .quota-chip.quota-low { border-color: var(--focus-danger); }
@@ -651,4 +677,6 @@
 @media(max-width:639px){
  .composer { padding: 9px 10px 8px; }
  #composer-input { min-height: 58px; padding: 10px 6px 8px; }
+ .composer-modes { margin-inline: 0; padding-bottom: 7px; }
+ .composer-modes button { min-height: 28px; padding-inline: 8px; }
 }
