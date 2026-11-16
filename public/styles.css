@@ -727,3 +727,56 @@
 }
 .files-empty .files-empty-action:hover { border-color: var(--focus-accent); background: var(--raised); color: var(--text); }
 .files-empty .files-empty-action .icon { width: 14px; height: 14px; }
+
+/* File rail has one frame only: the panel itself. Theme surfaces must stay flat. */
+[data-theme=light] .files-tabs,
+[data-theme=dark] .files-tabs {
+ margin: 0;
+ padding: 0;
+ border: 0;
+ border-radius: 0;
+ background: transparent;
+ box-shadow: none;
+}
+.files-header { height: 58px; min-height: 58px; padding-inline: 14px; }
+.files-tabs .tab { height: 58px; padding-inline: 9px; }
+[data-theme=light] .files-toolbar,
+[data-theme=dark] .files-toolbar,
+.files-toolbar {
+ margin: 0;
+ min-height: 48px;
+ padding: 8px 14px;
+ border: 0;
+ border-bottom: 1px solid var(--line);
+ border-radius: 0;
+ background: transparent;
+ box-shadow: none;
+}
+[data-theme=light] .files-empty,
+[data-theme=dark] .files-empty,
+.files-empty {
+ margin: 0;
+ min-height: 200px;
+ padding: 36px 16px;
+ border: 0;
+ border-radius: 0;
+ background: transparent;
+ box-shadow: none;
+}
+.files-empty .files-empty-action,
+[data-theme=light] .files-empty .files-empty-action,
+[data-theme=dark] .files-empty .files-empty-action {
+ min-height: 30px;
+ margin-top: 1px;
+ padding: 0 4px;
+ border: 0;
+ border-radius: 5px;
+ background: transparent;
+ color: var(--focus-accent);
+ box-shadow: none;
+}
+.files-empty .files-empty-action:hover {
+ border: 0;
+ background: transparent;
+ color: var(--text);
+}
