@@ -680,3 +680,50 @@
  .composer-modes { margin-inline: 0; padding-bottom: 7px; }
  .composer-modes button { min-height: 28px; padding-inline: 8px; }
 }
+
+/* Quiet file rail: one context line and one action are enough in an empty project. */
+.files-tabs .tab {
+ height: 64px;
+ padding: 0 8px;
+ border: 0;
+ border-bottom: 2px solid transparent;
+ border-radius: 0;
+ background: transparent;
+ color: var(--muted);
+}
+.files-tabs .tab:hover { color: var(--secondary); background: transparent; }
+.files-tabs .tab.active,
+[data-theme=light] .files-tabs .tab.active,
+[data-theme=dark] .files-tabs .tab.active {
+ border-bottom-color: var(--focus-accent);
+ border-radius: 0;
+ background: transparent;
+ color: var(--text);
+ box-shadow: none;
+}
+.files-toolbar { min-height: 48px; padding: 8px 12px; }
+.file-root-label { display: inline-flex; align-items: center; gap: 7px; color: var(--secondary); }
+.file-root-label .icon { width: 15px; height: 15px; color: var(--muted); }
+.files-empty {
+ justify-content: center;
+ min-height: 220px;
+ padding: 28px 16px;
+ gap: 10px;
+}
+.files-empty .empty-file-icon { width: 24px; height: 24px; margin: 0 0 2px; color: var(--muted); }
+.files-empty strong { color: var(--secondary); font-size: 12px; font-weight: 500; }
+.files-empty .files-empty-action {
+ display: inline-flex;
+ align-items: center;
+ gap: 7px;
+ min-height: 32px;
+ margin-top: 4px;
+ padding: 0 11px;
+ border: 1px solid var(--line);
+ border-radius: 7px;
+ background: var(--surface);
+ color: var(--secondary);
+ font-size: 11px;
+}
+.files-empty .files-empty-action:hover { border-color: var(--focus-accent); background: var(--raised); color: var(--text); }
+.files-empty .files-empty-action .icon { width: 14px; height: 14px; }
